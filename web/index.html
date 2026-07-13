@@ -1,0 +1,119 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <!--
+    If you are serving your web app in a path other than the root, change the
+    href value below to reflect the base path you are serving from.
+
+    The path provided below has to start and end with a slash "/" in order for
+    it to work correctly.
+
+    For more details:
+    * https://developer.mozilla.org/en-US/docs/Web/HTML/Element/base
+
+    This is a placeholder for base href that will be replaced by the value of
+    the `--base-href` argument provided to `flutter build`.
+  -->
+  <base href="$FLUTTER_BASE_HREF">
+
+  <meta charset="UTF-8">
+  <meta content="IE=Edge" http-equiv="X-UA-Compatible">
+  <meta name="description" content="Skylink Messenger">
+
+  <!-- iOS meta tags & icons -->
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black">
+  <meta name="apple-mobile-web-app-title" content="skylink_chat">
+  <link rel="apple-touch-icon" href="icons/Icon-192.png">
+
+  <!-- Favicon -->
+  <link rel="icon" type="image/png" href="favicon.png"/>
+
+  <title>Skylink Messenger</title>
+  <link rel="manifest" href="manifest.json">
+</head>
+<body>
+  <!--
+    You can customize the "flutter_bootstrap.js" script.
+    This is useful to provide a custom configuration to the Flutter loader
+    or to give the user feedback during the initialization process.
+
+    For more details:
+    * https://docs.flutter.dev/platform-integration/web/initialization
+  -->
+  <script>
+    // Skylink web shell guards: keep desktop-style interactions inside Flutter.
+    (function () {
+      const block = function (event) {
+        event.preventDefault();
+      };
+      window.addEventListener('contextmenu', block, { capture: true });
+      window.addEventListener('dragover', function (event) {
+        event.preventDefault();
+        if (event.dataTransfer) event.dataTransfer.dropEffect = 'copy';
+      }, { capture: false });
+      window.addEventListener('drop', function (event) {
+        event.preventDefault();
+      }, { capture: false });
+      window.addEventListener('keydown', function (event) {
+        const key = (event.key || '').toLowerCase();
+        if ((event.ctrlKey || event.metaKey) && ['k', 'n', 'g', 'b', 's'].includes(key)) {
+          event.preventDefault();
+        }
+        if (key === 'escape') {
+          event.stopPropagation();
+        }
+      }, { capture: true });
+    })();
+  </script>
+  <script src="https://cdn.jsdelivr.net/npm/strophe.js@1.6.2/dist/strophe.umd.min.js"></script>
+  <script src="skylink_xmpp.js?v=20260623-1"></script>
+  <script>
+    window.skylinkDownloadFile = async function (url, fileName) {
+      try {
+        let handle = null;
+        if (window.showSaveFilePicker) {
+          handle = await window.showSaveFilePicker({
+            suggestedName: fileName || 'attachment',
+          });
+        }
+        const response = await fetch(url, { credentials: 'omit' });
+        if (!response.ok) throw new Error('Download failed: ' + response.status);
+        const blob = await response.blob();
+        if (handle) {
+          const writable = await handle.createWritable();
+          await writable.write(blob);
+          await writable.close();
+          return true;
+        }
+        const objectUrl = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = objectUrl;
+        a.download = fileName || 'attachment';
+        a.style.display = 'none';
+        document.body.appendChild(a);
+        a.click();
+        setTimeout(function () {
+          a.remove();
+          URL.revokeObjectURL(objectUrl);
+        }, 1000);
+        return true;
+      } catch (e) {
+        if (e && e.name === 'AbortError') return false;
+        console.error('skylinkDownloadFile failed', e);
+        return false;
+      }
+    };
+    window.skylinkOpenFileInApp = function (url, fileName, mimeType) {
+      try {
+        const opened = window.open(url, '_blank', 'noopener,noreferrer');
+        return opened !== null;
+      } catch (e) {
+        console.error('skylinkOpenFileInApp failed', e);
+        return false;
+      }
+    };
+  </script>
+  <script src="flutter_bootstrap.js" async></script>
+</body>
+</html>

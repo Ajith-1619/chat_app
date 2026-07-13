@@ -1,0 +1,21 @@
+<IfModule mod_headers.c>
+  Header always set Access-Control-Allow-Origin "*"
+  Header always set Cross-Origin-Resource-Policy "cross-origin"
+  Header always set Access-Control-Allow-Methods "GET, HEAD, OPTIONS"
+  Header always set Access-Control-Allow-Headers "Accept, Origin, Range"
+</IfModule>
+
+<IfModule mod_rewrite.c>
+  RewriteEngine On
+  RewriteCond %{REQUEST_METHOD} OPTIONS
+  RewriteRule ^ - [R=204,L]
+</IfModule>
+
+<IfModule mod_mime.c>
+  AddType image/jpeg .jpg .jpeg
+  AddType image/png .png
+  AddType image/webp .webp
+  AddType image/gif .gif
+  AddType application/pdf .pdf
+  AddType application/zip .zip
+</IfModule>

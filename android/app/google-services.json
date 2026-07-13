@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "595901703432",
+    "project_id": "slync-chat",
+    "storage_bucket": "slync-chat.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:595901703432:android:1c0d1b979780c965ac38bd",
+        "android_client_info": {
+          "package_name": "com.skylink.slync"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyCOs3LZE5VdSI-x6-XqXT0UjJx752FuXNM"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

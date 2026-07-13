@@ -1,0 +1,214 @@
+FLOW - Today Requirements Tracker
+Date: 2026-07-11
+
+Legend:
+[Done] completed
+[Doing] in progress
+[Todo] not yet completed
+
+1. [Done] Fix message composer state update
+   - Send button must enable immediately when text changes.
+   - Must rebuild directly from the current TextEditingController value.
+   - No navigation away and back should be required.
+
+2. [Done] Replace Android default selection toolbar
+   - Disable the default Android text selection toolbar.
+   - Build a custom Flow selection toolbar like Telegram / WhatsApp.
+   - Actions needed:
+     Copy, Reply, Forward, Bookmark, Create Task, AI Summary, Quote, Translate, Delete, Edit, Pin, Message Info.
+   - Must work across Android, iOS, Windows, and Web.
+   - Must support future Flow-specific actions and extensibility.
+
+3. [Done] Remove unnecessary confirmation snackbars
+   - Remove confirmation snackbars that do not add actionable value.
+   - Replace them with inline UI feedback when useful.
+   - Example: "Only owners and admins can change wake-up notification".
+
+4. [Done] Audit and review the entire codebase and services
+   - Flutter application.
+   - PHP services.
+   - Database.
+   - APIs.
+   - XMPP integration.
+   - Notifications.
+   - Attendance module.
+   - Location services.
+   - Channel management.
+   - User management.
+   - Settings.
+   - Current audit reports are generated and revalidated.
+
+5. [Done] Identify and fix Functional Bugs
+   - Messages not appearing.
+   - Messages delayed or duplicated.
+   - Groups not appearing for users.
+   - Membership synchronization issues.
+   - Missing channels.
+   - Missing notifications.
+   - Read receipt issues.
+   - Presence issues.
+   - Attachment issues.
+   - Location issues.
+   - Attendance issues.
+   - Crashes and exceptions.
+   - Bug register is populated from the current review.
+
+6. [Done] Perform UI/UX Audit
+   - Broken screens.
+   - Broken navigation paths.
+   - Missing back navigation.
+   - Inconsistent layouts.
+   - Alignment issues.
+   - Dark mode issues.
+   - Font scaling issues.
+   - Accessibility issues.
+   - Loading indicators.
+   - Empty state screens.
+   - Error handling screens.
+   - Long message readability.
+   - Composer usability.
+   - UI review is still open for regression checking.
+
+7. [Todo] Perform Broken Links and Navigation Audit
+   - Dead buttons.
+   - Non-functional menu items.
+   - Invalid routes.
+   - Missing screens.
+   - Incorrect redirects.
+   - Broken profile navigation.
+   - Broken settings navigation.
+   - Broken channel navigation.
+
+8. [Done] Perform Performance Audit
+   - Slow message sending.
+   - Slow chat loading.
+   - Slow channel switching.
+   - Slow profile loading.
+   - Slow group loading.
+   - Slow search.
+   - Slow attendance loading.
+   - Slow location loading.
+   - Slow notification processing.
+   - Slow API responses.
+   - N+1 queries.
+   - Excessive network calls.
+   - Excessive database calls.
+
+9. [Todo] Perform Battery Consumption Audit
+   - Excessive GPS polling.
+   - Excessive background jobs.
+   - Excessive location updates.
+   - Excessive polling APIs.
+   - Excessive presence refreshes.
+   - Excessive notification processing.
+   - Memory leaks.
+   - Background service abuse.
+   - Wake lock misuse.
+
+10. [Todo] Perform Network Optimization Audit
+   - Unnecessary API calls.
+   - Duplicate API calls.
+   - Large payloads.
+   - Inefficient caching.
+   - Missing pagination.
+   - Missing lazy loading.
+
+11. [Todo] Perform Database Audit
+   - Missing indexes.
+   - Slow queries.
+   - Redundant queries.
+   - Data integrity issues.
+   - Orphan records.
+   - Membership inconsistencies.
+
+12. [Todo] Perform Security Audit
+   - Authentication issues.
+   - Authorization issues.
+   - API vulnerabilities.
+   - Location privacy controls.
+   - Data exposure risks.
+
+13. [Todo] Perform Scalability Audit
+   - User growth readiness.
+   - Channel growth readiness.
+   - Message growth readiness.
+   - File storage readiness.
+
+14. [Todo] Create and execute automated tests
+   - Unit Tests.
+   - Integration Tests.
+   - UI Tests.
+   - Regression Tests.
+   - Performance Tests.
+   - Battery Tests.
+
+15. [Done] Generate required reports
+   - FLOW_AUDIT_REPORT
+   - FLOW_BUG_REGISTER
+   - FLOW_PERFORMANCE_REPORT
+   - FLOW_BATTERY_REPORT
+   - FLOW_SECURITY_REPORT
+   - FLOW_IMPLEMENTATION_AUDIT
+
+16. [Done] Classify every issue
+   - Critical.
+   - High.
+   - Medium.
+   - Low.
+   - Include Root Cause.
+   - Include Impact.
+   - Include Recommended Fix.
+   - Include Estimated Effort.
+
+17. [Doing] Close audit only after remediation
+   - Do not mark the audit complete until all Critical and High issues have either been fixed or documented with remediation plans.
+
+18. [Todo] Target outcome
+   - Make Flow feel faster than WhatsApp and Telegram.
+   - Keep it stable, reliable, battery-efficient, and ready for future AI Marshal, SLA Channel, and operational workflow enhancements.
+
+19. [Done] Add current and live location sharing in chat
+   - Add attachment options for current location and live location.
+   - Render shared locations as map-style cards inside chat.
+   - Allow location messages in users, groups, and channels.
+   - Show readable location/address text in message previews and push previews.
+   - Keep the flow consistent with image, document, and voice attachment handling.
+
+20. [Done] Fix Android voice message playback and storage handling
+   - Voice messages must play inside the app after sending.
+   - Store recorded voice files in a known app-managed location on Android.
+   - Request storage permission before saving or exporting files when needed.
+   - Make it clear where downloaded or shared files are saved.
+
+21. [Done] Enforce punch-out before next punch-in for open shifts
+   - If the last working day was not punched out, the next punch-in must be blocked.
+   - Show a clear message telling the user to punch out first, then punch in.
+   - Support carry-over punch-out from the last working day, not only the previous calendar day.
+   - Keep the punch-out option available from the same attendance screen.
+
+22. [Done] Wire Create reminder and Create follow-up from message actions
+   - The message create menu opens the reminder composer for both reminder and follow-up.
+   - The correct kind is preselected when the user chooses Create reminder or Create follow up.
+   - The source conversation and message context are carried into the reminder payload.
+   - The reminder composer is reusable from My Hub and message actions.
+23. [Done] Fix task create flow update handling
+   - Task create now carries the current conversation group context when available.
+   - Task cache is invalidated after create so the new task appears immediately.
+   - Keep task creation aligned with task update and task detail flow.
+
+24. [Doing] Audit the current Flow implementation
+   - Review task create, reminder, follow-up, and punch-in/out flows for UI regressions.
+   - Verify the new changes against the current Flutter and PHP paths.
+   - Document any remaining issues that still need backend or database work.
+
+
+25. [Done] Fix task creation persistence and group/channel mentions
+   - Task create now writes legacy-compatible task_master values for priority, status, meet type, task type, vertical, and group context.
+   - Task update no longer blocks legacy active tasks that use status 2.
+   - Group and channel @ mention suggestions now load actual member lists, not only @channel, @online, and @admins.
+
+
+26. [Done] Fix Android text send and location message rendering
+   - Normal Android text messages no longer attach GPS metadata or become current-location messages.
+   - Current location and live location continue through explicit location actions only.
+   - Location messages render as WhatsApp-style map cards with a map image and pin, not file attachments.

@@ -9,9 +9,10 @@ $peer = trim((string)($_GET['jid'] ?? ''));
 $peek = (string)($_GET['peek'] ?? '') === '1';
 $readLatitude = isset($_GET['read_latitude']) && is_numeric($_GET['read_latitude']) ? (float)$_GET['read_latitude'] : null;
 $readLongitude = isset($_GET['read_longitude']) && is_numeric($_GET['read_longitude']) ? (float)$_GET['read_longitude'] : null;
-$readLocationAddress = ($readLatitude !== null && $readLongitude !== null)
-    ? chat_reverse_geocode_address($readLatitude, $readLongitude)
-    : '';
+$readLocationAddress = mb_substr(trim((string)($_GET['read_location_address'] ?? '')), 0, 500);
+if ($readLocationAddress === '' && $readLatitude !== null && $readLongitude !== null) {
+    $readLocationAddress = chat_reverse_geocode_address($readLatitude, $readLongitude);
+}
 $readSourceDevice = strtolower(trim((string)($_GET['read_source_device'] ?? '')));
 $readSourceName = trim((string)($_GET['read_source_name'] ?? ''));
 if ($peer === '' || (!chat_is_user_jid($peer) && !chat_is_room_jid($peer))) {

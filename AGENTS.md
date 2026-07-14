@@ -6,11 +6,11 @@ Before performing ANY analysis, planning, coding, refactoring, debugging, testin
 
 1. ENGINEERING_BIBLE.md
 2. PROJECT_STATE.md
-3. ARCHITECTURE.md
-4. UI_GUIDELINES.md
-5. FEATURE_LEDGER_SPEC.md
+3. environment.md
+4. ui.md
+5. FEATURES_BRIEF.md
 6. CHANGE_LEDGER_SPEC.md
-7. BUILD_LEDGER_SPEC.md
+7. build.md
 
 These documents are mandatory governing documents for the Flow project.
 

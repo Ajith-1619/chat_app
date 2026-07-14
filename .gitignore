@@ -1,4 +1,4 @@
-# Miscellaneous
+﻿# Miscellaneous
 *.class
 *.log
 *.pyc
@@ -65,7 +65,7 @@ recovery/
 *.pre_mojibake_fix.*
 recovery/
 
-# Deployment scripts � may contain credentials
+# Deployment scripts — may contain credentials
 tool/*.psftp
 
 # Local authentication / deployment helpers

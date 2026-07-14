@@ -212,3 +212,14 @@ Legend:
    - Normal Android text messages no longer attach GPS metadata or become current-location messages.
    - Current location and live location continue through explicit location actions only.
    - Location messages render as WhatsApp-style map cards with a map image and pin, not file attachments.
+
+[UPDATED 2026-07-13 17:30] Location intelligence follow-up
+STATUS: PARTIAL
+- DONE: Normal send/read latitude-longitude remains metadata only for Message Info.
+- DONE: Current/live location remains explicit map-card message only.
+- DONE: Map cards should open inside the app, not external maps/browser.
+- DONE: Live location has expiry and a stop-sharing control; update frequency is shown as every 1 minute.
+- PENDING: Viewer list for live location.
+- PENDING: Full location visibility policy by user/group/channel/admin role with schema/API/UI.
+- CHECKED: chat.skylinkonline.net HTTP works, HTTPS 443 refuses; SSL/server config must be enabled for https access.
+- CHECKED: Windows installer script now verifies skylink_chat.exe extraction before creating shortcuts.

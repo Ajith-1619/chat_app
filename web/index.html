@@ -55,8 +55,18 @@
       window.addEventListener('drop', function (event) {
         event.preventDefault();
       }, { capture: false });
+      window.addEventListener('copy', function (event) {
+        const selection = window.getSelection && window.getSelection().toString();
+        if (selection && event.clipboardData) {
+          event.clipboardData.setData('text/plain', selection);
+          event.preventDefault();
+        }
+      }, { capture: true });
       window.addEventListener('keydown', function (event) {
         const key = (event.key || '').toLowerCase();
+        if ((event.ctrlKey || event.metaKey) && key === 'c') {
+          return;
+        }
         if ((event.ctrlKey || event.metaKey) && ['k', 'n', 'g', 'b', 's'].includes(key)) {
           event.preventDefault();
         }

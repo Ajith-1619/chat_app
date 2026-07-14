@@ -361,6 +361,122 @@ function chat_send_push_notifications(
     }
 }
 
+function chat_ensure_push_queue(PDO $pdo): void
+{
+    $pdo->exec(
+        'CREATE TABLE IF NOT EXISTS xmpp_push_queue (
+            id BIGINT AUTO_INCREMENT PRIMARY KEY,
+            sender_emp_id INT NOT NULL,
+            sender_name VARCHAR(255) NOT NULL,
+            to_jid VARCHAR(255) NOT NULL,
+            body TEXT NULL,
+            file_name VARCHAR(255) NULL,
+            group_name VARCHAR(255) NULL,
+            mentioned_emp_ids TEXT NULL,
+            status VARCHAR(24) NOT NULL DEFAULT \'pending\',
+            attempts INT NOT NULL DEFAULT 0,
+            error TEXT NULL,
+            created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+            INDEX idx_push_queue_status (status, id),
+            INDEX idx_push_queue_created (created_at)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci'
+    );
+}
+
+function chat_enqueue_push_notification(
+    PDO $pdo,
+    int $senderEmpId,
+    string $senderName,
+    string $toJid,
+    string $body,
+    string $fileName = '',
+    string $groupName = '',
+    array $mentionedEmpIds = []
+): int {
+    chat_ensure_push_queue($pdo);
+    $stmt = $pdo->prepare(
+        'INSERT INTO xmpp_push_queue
+         (sender_emp_id, sender_name, to_jid, body, file_name, group_name, mentioned_emp_ids)
+         VALUES (:sender_emp_id, :sender_name, :to_jid, :body, :file_name, :group_name, :mentioned_emp_ids)'
+    );
+    $stmt->execute([
+        ':sender_emp_id' => $senderEmpId,
+        ':sender_name' => mb_substr($senderName, 0, 255),
+        ':to_jid' => strtolower($toJid),
+        ':body' => $body,
+        ':file_name' => $fileName !== '' ? mb_substr($fileName, 0, 255) : null,
+        ':group_name' => $groupName !== '' ? mb_substr($groupName, 0, 255) : null,
+        ':mentioned_emp_ids' => $mentionedEmpIds ? json_encode(array_values(array_map('intval', $mentionedEmpIds))) : null,
+    ]);
+    return (int)($pdo->lastInsertId() ?: 0);
+}
+
+function chat_spawn_push_worker(): void
+{
+    if (PHP_SAPI === 'cli') return;
+    $php = PHP_BINARY ?: 'php';
+    $script = __DIR__ . '/push_worker.php';
+    if (!is_file($script)) return;
+    $cmd = escapeshellarg($php) . ' ' . escapeshellarg($script) . ' > /dev/null 2>&1 &';
+    @exec($cmd);
+}
+
+function chat_process_push_queue(int $limit = 25): int
+{
+    $pdo = chat_db();
+    chat_ensure_push_queue($pdo);
+    $stmt = $pdo->prepare(
+        'SELECT * FROM xmpp_push_queue
+         WHERE status IN (\'pending\', \'retry\') AND attempts < 5
+         ORDER BY id ASC
+         LIMIT :limit'
+    );
+    $stmt->bindValue(':limit', max(1, min(100, $limit)), PDO::PARAM_INT);
+    $stmt->execute();
+    $jobs = $stmt->fetchAll(PDO::FETCH_ASSOC) ?: [];
+    $processed = 0;
+    foreach ($jobs as $job) {
+        $jobId = (int)$job['id'];
+        $lock = $pdo->prepare(
+            'UPDATE xmpp_push_queue
+             SET status = \'processing\', attempts = attempts + 1, updated_at = NOW()
+             WHERE id = :id AND status IN (\'pending\', \'retry\')'
+        );
+        $lock->execute([':id' => $jobId]);
+        if ($lock->rowCount() < 1) continue;
+        $started = microtime(true);
+        try {
+            $mentioned = json_decode((string)($job['mentioned_emp_ids'] ?? '[]'), true);
+            if (!is_array($mentioned)) $mentioned = [];
+            chat_send_push_notifications(
+                $pdo,
+                (int)$job['sender_emp_id'],
+                (string)$job['sender_name'],
+                (string)$job['to_jid'],
+                (string)($job['body'] ?? ''),
+                (string)($job['file_name'] ?? ''),
+                (string)($job['group_name'] ?? ''),
+                array_values(array_map('intval', $mentioned))
+            );
+            $done = $pdo->prepare('UPDATE xmpp_push_queue SET status = \'sent\', error = NULL, updated_at = NOW() WHERE id = :id');
+            $done->execute([':id' => $jobId]);
+            chat_diagnostic_trace((int)$job['sender_emp_id'], 'pushq-' . $jobId, 'notification', 'dispatch_push_async', (microtime(true) - $started) * 1000, 'success');
+            $processed++;
+        } catch (Throwable $e) {
+            $fail = $pdo->prepare(
+                'UPDATE xmpp_push_queue
+                 SET status = CASE WHEN attempts >= 5 THEN \'failed\' ELSE \'retry\' END,
+                     error = :error,
+                     updated_at = NOW()
+                 WHERE id = :id'
+            );
+            $fail->execute([':id' => $jobId, ':error' => mb_substr($e->getMessage(), 0, 1000)]);
+            chat_diagnostic_trace((int)$job['sender_emp_id'], 'pushq-' . $jobId, 'notification', 'dispatch_push_async', (microtime(true) - $started) * 1000, 'error');
+        }
+    }
+    return $processed;
+}
 function chat_db(): PDO
 {
     return getDB();

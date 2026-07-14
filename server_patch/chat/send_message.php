@@ -227,7 +227,7 @@ try {
                 $group = chat_group_for_member($pdo, $to, (int)$session['emp_id']);
                 $groupName = (string)($group['room_name'] ?? '');
             }
-            chat_send_push_notifications(
+            $pushJobId = chat_enqueue_push_notification(
                 $pdo,
                 (int)$session['emp_id'],
                 (string)$sender['name'],
@@ -237,11 +237,12 @@ try {
                 $groupName,
                 array_values(array_filter($mentions, 'is_int'))
             );
+            chat_spawn_push_worker();
         }
-        chat_diagnostic_trace((int)$session['emp_id'], $traceId, 'notification', $silent ? 'dispatch_push_silent_skip' : 'dispatch_push', (microtime(true) - $pushStarted) * 1000, 'success');
+        chat_diagnostic_trace((int)$session['emp_id'], $traceId, 'notification', $silent ? 'dispatch_push_silent_skip' : 'dispatch_push_queued', (microtime(true) - $pushStarted) * 1000, 'success', ['job_id' => $pushJobId ?? 0]);
     } catch (Throwable $pushError) {
-        chat_diagnostic_trace((int)$session['emp_id'], $traceId, 'notification', 'dispatch_push', (microtime(true) - $pushStarted) * 1000, 'error');
-        error_log('chat/send_message push skipped: ' . $pushError->getMessage());
+        chat_diagnostic_trace((int)$session['emp_id'], $traceId, 'notification', 'dispatch_push_queued', (microtime(true) - $pushStarted) * 1000, 'error');
+        error_log('chat/send_message push queue skipped: ' . $pushError->getMessage());
     }
     if ($responseFinished) exit;
 } catch (Throwable $e) {

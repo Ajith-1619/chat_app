@@ -211,8 +211,10 @@ function myhub_tasks(int $empId): never
          FROM task_master
          WHERE {$where}
          ORDER BY
+           " . ($hasCreatedBy ? "CASE WHEN created_by = :emp_id THEN 0 ELSE 1 END," : "") . "
            CASE WHEN NOT ({$closedStatusSql}) AND {$deadlineCol} IS NOT NULL AND {$deadlineCol} < NOW() THEN 0 ELSE 1 END,
            CASE WHEN {$statusExpr} = 1 THEN 0 ELSE 1 END,
+           CASE WHEN {$deadlineCol} IS NULL THEN 1 ELSE 0 END,
            COALESCE({$deadlineCol}, '2999-12-31') ASC,
            id DESC
          LIMIT {$limit} OFFSET {$offset}"
@@ -365,15 +367,43 @@ function myhub_task_detail(int $empId): never
     $followers = myhub_people($employeePdo, $followerIds);
     $creator = myhub_people($employeePdo, [(int)($task['created_by'] ?? 0)]);
 
-    $updatesStmt = $taskPdo->prepare(
-        'SELECT te.id, te.task_id, te.comments, te.updated_by, te.file_path, te.created_at, te.updated_at, te.next_followup_date, te.comment_type
-         FROM task_explained te
-         WHERE te.task_id = :task_id
-         ORDER BY te.created_at DESC, te.id DESC
-         LIMIT 200'
-    );
-    $updatesStmt->execute([':task_id' => $taskId]);
-    $updates = $updatesStmt->fetchAll(PDO::FETCH_ASSOC) ?: [];
+    $updates = [];
+    $updatesTable = myhub_first_table($taskPdo, ['task_explained', 'task_updates', 'task_comments']);
+    if ($updatesTable !== '') {
+        $updateColumns = myhub_columns($taskPdo, $updatesTable, defined('TASK_DB_NAME') ? TASK_DB_NAME : null);
+        $updateIdCol = isset($updateColumns['id']) ? 'id' : '';
+        $updateTaskCol = myhub_first_column($updateColumns, ['task_id', 'task_master_id']);
+        $commentCol = myhub_first_column($updateColumns, ['comments', 'comment', 'description', 'remarks', 'update_text']);
+        $updatedByCol = myhub_first_column($updateColumns, ['updated_by', 'created_by', 'emp_id']);
+        $filePathCol = myhub_first_column($updateColumns, ['file_path', 'attachment', 'file_url']);
+        $createdCol = myhub_first_column($updateColumns, ['created_at', 'updated_at', 'date', 'created_on']);
+        $updatedCol = myhub_first_column($updateColumns, ['updated_at', 'created_at', 'date', 'updated_on']);
+        $followupCol = myhub_first_column($updateColumns, ['next_followup_date', 'followup_date', 'next_action_date']);
+        $typeCol = myhub_first_column($updateColumns, ['comment_type', 'type', 'update_type']);
+        if ($updateTaskCol !== '' && $commentCol !== '') {
+            $selectParts = [
+                $updateIdCol !== '' ? "`{$updateIdCol}` AS id" : '0 AS id',
+                "`{$updateTaskCol}` AS task_id",
+                "`{$commentCol}` AS comments",
+                $updatedByCol !== '' ? "`{$updatedByCol}` AS updated_by" : '0 AS updated_by',
+                $filePathCol !== '' ? "`{$filePathCol}` AS file_path" : "'' AS file_path",
+                $createdCol !== '' ? "`{$createdCol}` AS created_at" : "'' AS created_at",
+                $updatedCol !== '' ? "`{$updatedCol}` AS updated_at" : "'' AS updated_at",
+                $followupCol !== '' ? "`{$followupCol}` AS next_followup_date" : "'' AS next_followup_date",
+                $typeCol !== '' ? "`{$typeCol}` AS comment_type" : "'' AS comment_type",
+            ];
+            $orderCol = $createdCol !== '' ? $createdCol : ($updateIdCol !== '' ? $updateIdCol : $updateTaskCol);
+            $updatesStmt = $taskPdo->prepare(
+                'SELECT ' . implode(', ', $selectParts) . "
+                 FROM `{$updatesTable}`
+                 WHERE `{$updateTaskCol}` = :task_id
+                 ORDER BY `{$orderCol}` DESC" . ($updateIdCol !== '' ? ", `{$updateIdCol}` DESC" : '') . '
+                 LIMIT 200'
+            );
+            $updatesStmt->execute([':task_id' => $taskId]);
+            $updates = $updatesStmt->fetchAll(PDO::FETCH_ASSOC) ?: [];
+        }
+    }
     $updaterIds = [];
     foreach ($updates as $update) {
         $id = (int)($update['updated_by'] ?? 0);

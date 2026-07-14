@@ -66,7 +66,7 @@ class _MyHubTasksScreenState extends State<MyHubTasksScreen> {
       final data = await _myHubTaskApi.getMyHubTasks(forceRefresh: true);
       final tasks = _extractTasks(data);
       final alerts = _buildAlertSummaries(tasks);
-      await _handleTaskNotifications(tasks);
+      await _handleTaskNotifications(tasks, notify: false);
       if (!mounted) return;
       setState(() {
         _tasksData = data;
@@ -209,8 +209,9 @@ class _MyHubTasksScreenState extends State<MyHubTasksScreen> {
   }
 
   Future<void> _handleTaskNotifications(
-    List<Map<String, dynamic>> tasks,
-  ) async {
+    List<Map<String, dynamic>> tasks, {
+    bool notify = false,
+  }) async {
     final cached = await AppCache.instance.readJson(_taskSnapshotCacheKey);
     final previous = <String, Map<String, dynamic>>{};
     if (cached is Map) {
@@ -240,7 +241,7 @@ class _MyHubTasksScreenState extends State<MyHubTasksScreen> {
       };
 
       final before = previous[id];
-      if (before == null) continue;
+      if (!notify || before == null) continue;
       final title = '${task['title'] ?? 'Task'}';
       if ((before['status'] ?? -1) != status) {
         await NotificationService.instance.showMessage(
@@ -458,8 +459,12 @@ class _TaskListPane extends StatelessWidget {
                           _TaskFilter.open => _isOpenTask(task),
                           _TaskFilter.requestClose => _taskStatus(task) == 1,
                           _TaskFilter.closed => _isClosedTask(task),
-                          _TaskFilter.createdByMe => _isCreatedByCurrentUser(task),
-                          _TaskFilter.following => _isFollowedByCurrentUser(task),
+                          _TaskFilter.createdByMe => _isCreatedByCurrentUser(
+                            task,
+                          ),
+                          _TaskFilter.following => _isFollowedByCurrentUser(
+                            task,
+                          ),
                           _TaskFilter.dueToday => _isDueToday(task),
                           _TaskFilter.overdue => _isOverdue(task),
                           _TaskFilter.stale => _isStale(task),
@@ -1351,7 +1356,9 @@ bool _isCreatedByCurrentUser(Map<String, dynamic> task) {
 bool _isFollowedByCurrentUser(Map<String, dynamic> task) {
   final empId = _currentTaskEmpId();
   if (empId <= 0) return false;
-  return _taskCsvIds(task['follower_ids'] ?? task['task_followers']).contains(empId);
+  return _taskCsvIds(
+    task['follower_ids'] ?? task['task_followers'],
+  ).contains(empId);
 }
 
 String _statusLabel(int status) {

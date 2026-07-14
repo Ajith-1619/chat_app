@@ -462,14 +462,7 @@ class ChatAttachment {
 
   String encode() {
     if (isLocation) {
-      return '$_locationPrefix${jsonEncode({
-        'latitude': latitude,
-        'longitude': longitude,
-        'location_address': locationAddress,
-        'is_live': isLiveLocation,
-        if (liveMinutes > 0) 'live_minutes': liveMinutes,
-        if (shareId.isNotEmpty) 'share_id': shareId,
-      })}';
+      return '$_locationPrefix${jsonEncode({'latitude': latitude, 'longitude': longitude, 'location_address': locationAddress, 'is_live': isLiveLocation, if (liveMinutes > 0) 'live_minutes': liveMinutes, if (shareId.isNotEmpty) 'share_id': shareId})}';
     }
     return '$_filePrefix${jsonEncode({'name': name, 'url': url, 'type': mimeType, 'size': size, if (caption.isNotEmpty) 'caption': caption, if (transcription.isNotEmpty) 'transcription': transcription, if (waveform.isNotEmpty) 'waveform': waveform, if (durationMs > 0) 'duration_ms': durationMs})}';
   }
@@ -1473,18 +1466,26 @@ class ChatApi {
     final body = await _getJson('chat/channel_definitions.php');
     final values = body['definitions'];
     return values is List
-        ? values.whereType<Map>().map((item) => Map<String, dynamic>.from(item)).toList()
+        ? values
+              .whereType<Map>()
+              .map((item) => Map<String, dynamic>.from(item))
+              .toList()
         : const <Map<String, dynamic>>[];
   }
 
-  Future<List<Map<String, dynamic>>> getChannelRelationships(int groupId) async {
+  Future<List<Map<String, dynamic>>> getChannelRelationships(
+    int groupId,
+  ) async {
     final body = await _getJson(
       'chat/channel_relationship.php',
       query: {'group_id': '$groupId'},
     );
     final values = body['relationships'];
     return values is List
-        ? values.whereType<Map>().map((item) => Map<String, dynamic>.from(item)).toList()
+        ? values
+              .whereType<Map>()
+              .map((item) => Map<String, dynamic>.from(item))
+              .toList()
         : const <Map<String, dynamic>>[];
   }
 
@@ -1501,6 +1502,7 @@ class ChatApi {
       'metadata': metadata,
     });
   }
+
   Future<ChannelProfile> getChannelProfile({
     int groupId = 0,
     String jid = '',
@@ -1573,6 +1575,7 @@ class ChatApi {
     bool markRead = true,
     double? readLatitude,
     double? readLongitude,
+    String readLocationAddress = '',
   }) async {
     _validateJid(jid);
     if (jid.toLowerCase() == systemNotificationJid &&
@@ -1613,6 +1616,8 @@ class ChatApi {
         if (markRead && readLatitude != null) 'read_latitude': '$readLatitude',
         if (markRead && readLongitude != null)
           'read_longitude': '$readLongitude',
+        if (markRead && readLocationAddress.trim().isNotEmpty)
+          'read_location_address': readLocationAddress.trim(),
         if (markRead && readLatitude != null && readLongitude != null)
           'read_source_device': (await DeviceService.instance.info).source,
         if (markRead && readLatitude != null && readLongitude != null)
@@ -2052,21 +2057,25 @@ class ChatApi {
     if (uploadsIndex >= 0) {
       final relative = path.substring(uploadsIndex + '/uploads/'.length);
       final mediaPath = relative;
-      final mediaUri = _baseUri.resolve('chat/media.php').replace(
-        queryParameters: {
-          'path': mediaPath,
-          'name': attachment.name,
-          if (download) 'download': '1',
-        },
-      );
+      final mediaUri = _baseUri
+          .resolve('chat/media.php')
+          .replace(
+            queryParameters: {
+              'path': mediaPath,
+              'name': attachment.name,
+              if (download) 'download': '1',
+            },
+          );
       return mediaUri;
     }
     return download
-        ? raw.replace(queryParameters: {
-            ...raw.queryParameters,
-            'download': '1',
-            if (attachment.name.isNotEmpty) 'name': attachment.name,
-          })
+        ? raw.replace(
+            queryParameters: {
+              ...raw.queryParameters,
+              'download': '1',
+              if (attachment.name.isNotEmpty) 'name': attachment.name,
+            },
+          )
         : raw;
   }
 
@@ -2075,7 +2084,9 @@ class ChatApi {
         .get(_attachmentFetchUri(attachment))
         .timeout(const Duration(minutes: 3));
     if (response.statusCode < 200 || response.statusCode >= 300) {
-      throw ApiException('Download failed (' + response.statusCode.toString() + ').');
+      throw ApiException(
+        'Download failed (' + response.statusCode.toString() + ').',
+      );
     }
     return response.bodyBytes;
   }
@@ -2257,7 +2268,7 @@ class ChatApi {
     }
     final data = await _getJson(
       'chat/myhub.php',
-      query: {'section': 'tasks', 'limit': '30'},
+      query: {'section': 'tasks', 'limit': '100'},
     );
     _myHubTasksCache = (at: DateTime.now(), data: data);
     await AppCache.instance.writeJson('myhub_tasks', data);

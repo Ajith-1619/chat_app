@@ -49,7 +49,9 @@ Future<void> _requestAttachmentStoragePermission(BuildContext context) async {
   if (!result.isGranted && context.mounted) {
     ScaffoldMessenger.of(context).showSnackBar(
       const SnackBar(
-        content: Text('Storage permission denied. Files will be saved in app storage.'),
+        content: Text(
+          'Storage permission denied. Files will be saved in app storage.',
+        ),
       ),
     );
   }
@@ -57,15 +59,19 @@ Future<void> _requestAttachmentStoragePermission(BuildContext context) async {
 
 Future<String> _voiceRecordingFilePath() async {
   final baseDir = await getApplicationDocumentsDirectory();
-  final dir = Directory('${baseDir.path}${Platform.pathSeparator}voice_recordings');
+  final dir = Directory(
+    '${baseDir.path}${Platform.pathSeparator}voice_recordings',
+  );
   if (!await dir.exists()) {
     await dir.create(recursive: true);
   }
   return '${dir.path}${Platform.pathSeparator}voice_${DateTime.now().millisecondsSinceEpoch}.m4a';
 }
+
 final appShowAvatars = ValueNotifier<bool>(true);
 final appCollapseLongMessages = ValueNotifier<bool>(true);
 final appWorkspaceMode = ValueNotifier<String>('three_pane');
+const _androidPlatform = MethodChannel('skylink/android_settings');
 
 Future<void> _logout(BuildContext context) async {
   chatApi.logout();
@@ -1086,8 +1092,7 @@ String _formatFileBytes(int bytes) {
 const chats = [
   ChatPreview(
     name: 'Priya Sharma',
-    message:
-        'Perfect! See you tomorrow!',
+    message: 'Perfect! See you tomorrow!',
     time: '10:42 AM',
     unread: 2,
     isOnline: true,
@@ -1111,8 +1116,7 @@ const chats = [
   ),
   ChatPreview(
     name: 'Family',
-    message:
-        'Mom: Dinner at 8 tonight <3',
+    message: 'Mom: Dinner at 8 tonight <3',
     time: 'Yesterday',
     isGroup: true,
     isMuted: true,
@@ -1135,8 +1139,7 @@ const chats = [
   ),
   ChatPreview(
     name: 'Ananya',
-    message:
-        'Thank you so much!',
+    message: 'Thank you so much!',
     time: 'Sat',
     sentByMe: true,
     avatarColor: Color(0xFF18A2AE),
@@ -1497,7 +1500,9 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
-  Widget _buildFilterStrip({EdgeInsets padding = const EdgeInsets.fromLTRB(10, 0, 10, 8)}) {
+  Widget _buildFilterStrip({
+    EdgeInsets padding = const EdgeInsets.fromLTRB(10, 0, 10, 8),
+  }) {
     final chips = _filterOrder.map(_buildChatFilter).toList();
     return ScrollConfiguration(
       behavior: ScrollConfiguration.of(context).copyWith(
@@ -1533,6 +1538,7 @@ class _HomeScreenState extends State<HomeScreen> {
       ),
     );
   }
+
   Future<void> _reorderFilters() async {
     var order = List<int>.from(_filterOrder);
     final updated = await showDialog<List<int>>(
@@ -1874,7 +1880,8 @@ class _HomeScreenState extends State<HomeScreen> {
               } else if (value == 'Settings') {
                 Navigator.of(context).push(
                   MaterialPageRoute<void>(
-                    builder: (_) => SettingsScreen(currentUser: widget.currentUser),
+                    builder: (_) =>
+                        SettingsScreen(currentUser: widget.currentUser),
                   ),
                 );
               } else {
@@ -2084,10 +2091,7 @@ class _HomeScreenState extends State<HomeScreen> {
                       ],
                     ),
                   ),
-                  SizedBox(
-                    height: 54,
-                    child: _buildFilterStrip(),
-                  ),
+                  SizedBox(height: 54, child: _buildFilterStrip()),
                   const Divider(height: 1),
                   Expanded(
                     child: _isLoading
@@ -2325,9 +2329,7 @@ class _DesktopConversationProfileState
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text(
-            chat.isChannel ? 'Channel renamed.' : 'Group renamed.',
-          ),
+          content: Text(chat.isChannel ? 'Channel renamed.' : 'Group renamed.'),
         ),
       );
       _reloadPanel();
@@ -2420,14 +2422,19 @@ class _DesktopConversationProfileState
       return;
     }
     try {
-      final config = await chatApi.getWakeupConfig(groupId: groupId, jid: chat.jid);
+      final config = await chatApi.getWakeupConfig(
+        groupId: groupId,
+        jid: chat.jid,
+      );
       if (!mounted) return;
       var enabled =
           config['enabled'] == true ||
           "${config['enabled']}".toLowerCase() == '1' ||
           "${config['enabled']}".toLowerCase() == 'true';
       var interval =
-          int.tryParse('${config['interval_minutes'] ?? config['minutes'] ?? 1440}') ??
+          int.tryParse(
+            '${config['interval_minutes'] ?? config['minutes'] ?? 1440}',
+          ) ??
           1440;
       const choices = <int, String>{
         1440: '1 day',
@@ -2457,8 +2464,7 @@ class _DesktopConversationProfileState
                       'Weekends are skipped. Only owner/admin can edit.',
                     ),
                     value: enabled,
-                    onChanged: (value) =>
-                        setDialogState(() => enabled = value),
+                    onChanged: (value) => setDialogState(() => enabled = value),
                   ),
                   const SizedBox(height: 8),
                   Wrap(
@@ -2616,14 +2622,15 @@ class _DesktopConversationProfileState
           final canManageGroup = const {'owner', 'admin'}.contains(groupRole);
           final channelKind = (profile['channel_kind'] ?? '').toString();
           final channelStatus = (profile['channel_status'] ?? '').toString();
-          final channelPriority = (profile['channel_priority'] ?? '').toString();
+          final channelPriority = (profile['channel_priority'] ?? '')
+              .toString();
           final designation =
               (profile['designation'] ??
                       (chat.isChannel
                           ? 'Channel'
                           : chat.isGroup
-                              ? 'Group'
-                              : 'Employee'))
+                          ? 'Group'
+                          : 'Employee'))
                   .toString();
           final onlineValue = profile['messenger_connected'];
           final online =
@@ -2702,7 +2709,9 @@ class _DesktopConversationProfileState
                     OutlinedButton.icon(
                       onPressed: canManageGroup ? _renameConversation : null,
                       icon: const Icon(Icons.edit_outlined),
-                      label: Text(chat.isChannel ? 'Rename channel' : 'Rename group'),
+                      label: Text(
+                        chat.isChannel ? 'Rename channel' : 'Rename group',
+                      ),
                     ),
                     OutlinedButton.icon(
                       onPressed: canManageGroup ? _changeGroupPhoto : null,
@@ -2716,7 +2725,9 @@ class _DesktopConversationProfileState
                         label: const Text('Archive'),
                       ),
                     OutlinedButton.icon(
-                      onPressed: groupRole == 'owner' ? null : _leaveConversation,
+                      onPressed: groupRole == 'owner'
+                          ? null
+                          : _leaveConversation,
                       icon: const Icon(Icons.logout_rounded),
                       label: const Text('Leave'),
                     ),
@@ -2783,10 +2794,10 @@ class _DesktopConversationProfileState
                   final subtitle = member.role == 'owner'
                       ? 'Owner'
                       : member.role == 'admin'
-                          ? 'Admin'
-                          : member.isOnline
-                              ? 'online'
-                              : member.designation;
+                      ? 'Admin'
+                      : member.isOnline
+                      ? 'online'
+                      : member.designation;
                   final canRemove =
                       canManageGroup &&
                       member.role != 'owner' &&
@@ -2805,14 +2816,14 @@ class _DesktopConversationProfileState
                             icon: const Icon(Icons.person_remove_outlined),
                           )
                         : member.role == 'owner'
-                            ? const Chip(label: Text('Owner'))
-                            : member.isOnline
-                                ? const Icon(
-                                    Icons.circle,
-                                    color: Colors.green,
-                                    size: 12,
-                                  )
-                                : null,
+                        ? const Chip(label: Text('Owner'))
+                        : member.isOnline
+                        ? const Icon(
+                            Icons.circle,
+                            color: Colors.green,
+                            size: 12,
+                          )
+                        : null,
                   );
                 }),
               ],
@@ -3734,9 +3745,11 @@ class _AppDrawer extends StatelessWidget {
         MaterialPageRoute<void>(builder: (_) => const SavedMessagesScreen()),
       );
     } else if (action == 'Settings') {
-      Navigator.of(
-        context,
-      ).push(MaterialPageRoute<void>(builder: (_) => SettingsScreen(currentUser: currentUser))); 
+      Navigator.of(context).push(
+        MaterialPageRoute<void>(
+          builder: (_) => SettingsScreen(currentUser: currentUser),
+        ),
+      );
     } else {
       _showComingSoon(context, action);
     }
@@ -3935,12 +3948,8 @@ class _DiagnosticsScreenState extends State<DiagnosticsScreen> {
                         (trace) => ListTile(
                           dense: true,
                           leading: const Icon(Icons.timeline_rounded),
-                          title: Text(
-                            ' - ',
-                          ),
-                          subtitle: Text(
-                            ' - Trace ',
-                          ),
+                          title: Text(' - '),
+                          subtitle: Text(' - Trace '),
                           trailing: Text(
                             '${(trace['duration_ms'] as num? ?? 0).toStringAsFixed(0)} ms',
                           ),
@@ -3973,12 +3982,8 @@ class _DiagnosticTile extends StatelessWidget {
           foregroundColor: color,
           child: const Icon(Icons.speed_rounded),
         ),
-        title: Text(
-          ' - ',
-        ),
-        subtitle: Text(
-          ' samples - max  ms -  errors',
-        ),
+        title: Text(' - '),
+        subtitle: Text(' samples - max  ms -  errors'),
         trailing: Text(
           '${item['avg_ms']} ms',
           style: TextStyle(color: color, fontWeight: FontWeight.w800),
@@ -4116,7 +4121,8 @@ class _GlobalSearchScreenState extends State<GlobalSearchScreen> {
               autofocus: true,
               onChanged: _search,
               decoration: const InputDecoration(
-                hintText: 'Messages, users, channels, groups, tasks, tickets, files',
+                hintText:
+                    'Messages, users, channels, groups, tasks, tickets, files',
               ),
             ),
           ),
@@ -4889,7 +4895,11 @@ class _ReminderCreateScreenState extends State<ReminderCreateScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: Text(_kind == 'followup' ? 'Create follow up' : 'Create reminder')),
+      appBar: AppBar(
+        title: Text(
+          _kind == 'followup' ? 'Create follow up' : 'Create reminder',
+        ),
+      ),
       body: Form(
         key: _formKey,
         child: ListView(
@@ -4989,6 +4999,7 @@ class _ReminderCreateScreenState extends State<ReminderCreateScreen> {
     );
   }
 }
+
 String _recurrenceLabel(String value) {
   return switch (value) {
     'daily' => 'Every day',
@@ -5135,7 +5146,6 @@ class ArchivedChannelsScreen extends StatelessWidget {
                 subtitle: const Text('Closed - Read-only archive'),
                 trailing: const Icon(Icons.lock_outline_rounded),
               );
-
             },
           );
         },
@@ -5577,7 +5587,9 @@ class SettingsScreen extends StatelessWidget {
             ListTile(
               leading: const Icon(Icons.admin_panel_settings_outlined),
               title: const Text('Development'),
-              subtitle: const Text('Feature registry, release register and audits'),
+              subtitle: const Text(
+                'Feature registry, release register and audits',
+              ),
               trailing: const Icon(Icons.chevron_right_rounded),
               onTap: () => Navigator.of(context).push(
                 MaterialPageRoute<void>(
@@ -6829,8 +6841,11 @@ class _ProfileScreenState extends State<ProfileScreen> {
                                 padding: const EdgeInsets.only(bottom: 12),
                                 child: Text(
                                   'Previous working day punch-out is pending. Please punch out first, then punch in for today.',
-                                  style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                                        color: Theme.of(context).colorScheme.error,
+                                  style: Theme.of(context).textTheme.bodySmall
+                                      ?.copyWith(
+                                        color: Theme.of(
+                                          context,
+                                        ).colorScheme.error,
                                         fontWeight: FontWeight.w600,
                                       ),
                                 ),
@@ -6847,7 +6862,11 @@ class _ProfileScreenState extends State<ProfileScreen> {
                                       final hasCarryOverPunch =
                                           _hasCarryOverPunch(attendance);
                                       return FilledButton.icon(
-                                        onPressed: _punching || hasActivePunch || hasCarryOverPunch || hasClosedPunch
+                                        onPressed:
+                                            _punching ||
+                                                hasActivePunch ||
+                                                hasCarryOverPunch ||
+                                                hasClosedPunch
                                             ? null
                                             : () => _punch('in'),
                                         icon: const Icon(Icons.login_rounded),
@@ -6860,14 +6879,8 @@ class _ProfileScreenState extends State<ProfileScreen> {
                                 Expanded(
                                   child: Builder(
                                     builder: (_) {
-                                      final hasActivePunch =
-                                          attendance?.hasPunchedIn ?? false;
-                                      final hasClosedPunch =
-                                          attendance?.hasPunchedOut ?? false;
-                                      final hasCarryOverPunch =
-                                          _hasCarryOverPunch(attendance);
                                       return OutlinedButton.icon(
-                                        onPressed: _punching || hasClosedPunch || (!hasActivePunch && !hasCarryOverPunch)
+                                        onPressed: _punching
                                             ? null
                                             : () => _punch('out'),
                                         icon: const Icon(Icons.logout_rounded),
@@ -7508,6 +7521,36 @@ class _NewGroupSheetState extends State<_NewGroupSheet> {
     }
   }
 
+  Future<void> _pickChannelDate(TextEditingController controller) async {
+    final now = DateTime.now();
+    final initial = DateTime.tryParse(controller.text.trim()) ?? now;
+    final date = await showDatePicker(
+      context: context,
+      initialDate: initial.isBefore(DateTime(now.year - 1)) ? now : initial,
+      firstDate: DateTime(now.year - 1),
+      lastDate: DateTime(now.year + 5),
+    );
+    if (date == null || !mounted) return;
+    final time = await showTimePicker(
+      context: context,
+      initialTime: TimeOfDay.fromDateTime(initial),
+    );
+    if (time == null || !mounted) return;
+    final selected = DateTime(
+      date.year,
+      date.month,
+      date.day,
+      time.hour,
+      time.minute,
+    );
+    controller.text = _formatChannelDateTime(selected);
+  }
+
+  String _formatChannelDateTime(DateTime value) {
+    String two(int number) => number.toString().padLeft(2, '0');
+    return '${value.year}-${two(value.month)}-${two(value.day)} ${two(value.hour)}:${two(value.minute)}';
+  }
+
   Future<void> _create() async {
     final name = _nameController.text.trim();
     if (name.isEmpty || _selectedIds.isEmpty || _creating) {
@@ -7625,10 +7668,7 @@ class _NewGroupSheetState extends State<_NewGroupSheet> {
                         value: 'incident',
                         child: Text('Incident'),
                       ),
-                      DropdownMenuItem(
-                        value: 'action',
-                        child: Text('Action'),
-                      ),
+                      DropdownMenuItem(value: 'action', child: Text('Action')),
                       DropdownMenuItem(
                         value: 'operational',
                         child: Text('Operational'),
@@ -7710,9 +7750,13 @@ class _NewGroupSheetState extends State<_NewGroupSheet> {
                         Expanded(
                           child: TextField(
                             controller: _targetDateController,
+                            readOnly: true,
+                            onTap: () =>
+                                _pickChannelDate(_targetDateController),
                             decoration: const InputDecoration(
                               labelText: 'Target date',
-                              hintText: 'YYYY-MM-DD HH:mm',
+                              hintText: 'Select date',
+                              suffixIcon: Icon(Icons.calendar_month_outlined),
                             ),
                           ),
                         ),
@@ -7720,9 +7764,13 @@ class _NewGroupSheetState extends State<_NewGroupSheet> {
                         Expanded(
                           child: TextField(
                             controller: _nextActionController,
+                            readOnly: true,
+                            onTap: () =>
+                                _pickChannelDate(_nextActionController),
                             decoration: const InputDecoration(
-                              labelText: 'Next action',
-                              hintText: 'YYYY-MM-DD HH:mm',
+                              labelText: 'Next action date',
+                              hintText: 'Select date',
+                              suffixIcon: Icon(Icons.event_available_outlined),
                             ),
                           ),
                         ),
@@ -7822,12 +7870,11 @@ class _NewGroupSheetState extends State<_NewGroupSheet> {
                             : Icons.group_add_rounded,
                       ),
                 label: Text(
-                  _creating ? 'Creating...' : 'Create ' + (widget.isChannel ? 'channel' : 'group'),
+                  _creating
+                      ? 'Creating...'
+                      : 'Create ' + (widget.isChannel ? 'channel' : 'group'),
                 ),
               ),
-
-
-
             ),
           ),
         ],
@@ -8074,7 +8121,14 @@ class ChatMessage {
 
   String get previewText {
     final item = attachment;
-    if (item == null) return text.replaceAll('\n', ' ').trim();
+    if (item == null) {
+      final contact = _decodeContactCard(text);
+      if (contact != null) {
+        final name = '${contact['name'] ?? ''}'.trim();
+        return name.isEmpty ? 'Contact' : 'Contact: $name';
+      }
+      return text.replaceAll('\n', ' ').trim();
+    }
     if (item.isLocation) {
       if (item.locationAddress.isNotEmpty) return item.locationAddress;
       return item.isLiveLocation ? 'Live location' : 'Current location';
@@ -8088,6 +8142,20 @@ class _AttachmentDraft {
 
   final List<PlatformFile> files;
   final String caption;
+}
+
+class _MessageLocationMetadata {
+  const _MessageLocationMetadata({
+    this.latitude,
+    this.longitude,
+    this.address = '',
+  });
+
+  final double? latitude;
+  final double? longitude;
+  final String address;
+
+  bool get hasLocation => latitude != null && longitude != null;
 }
 
 class _PendingChatMessage {
@@ -8155,7 +8223,13 @@ class _ChatScreenState extends State<ChatScreen> {
   Timer? _liveLocationTimer;
   bool _liveLocationSharing = false;
   DateTime? _liveLocationEndsAt;
-
+  Position? _lastMessagePosition;
+  DateTime? _lastMessagePositionAt;
+  Future<Position?>? _messagePositionFuture;
+  String _lastMessageAddress = '';
+  double? _lastMessageAddressLatitude;
+  double? _lastMessageAddressLongitude;
+  DateTime? _lastMessageAddressAt;
   bool get _isSystemNotification =>
       widget.chat.jid.toLowerCase() == systemNotificationJid;
 
@@ -8168,6 +8242,7 @@ class _ChatScreenState extends State<ChatScreen> {
     _loadPresence();
     if (widget.chat.isGroup) _loadGroupMembers();
     _loadMessageLocationVisibility();
+    _warmMessageLocationMetadata();
     registerClipboardMediaHandler(_handleClipboardMediaPaste);
     _pollTimer = Timer.periodic(const Duration(seconds: 12), (timer) {
       _loadHistory(silent: true);
@@ -8312,11 +8387,15 @@ class _ChatScreenState extends State<ChatScreen> {
     if (_historyRequestActive) return;
     _historyRequestActive = true;
     try {
-      final readPosition = await _currentMessagePosition();
+      final readLocation = await _messageLocationMetadata(
+        positionTimeout: const Duration(milliseconds: 450),
+        addressTimeout: const Duration(milliseconds: 250),
+      );
       final history = await chatApi.getHistory(
         widget.chat.jid,
-        readLatitude: readPosition?.latitude,
-        readLongitude: readPosition?.longitude,
+        readLatitude: readLocation.latitude,
+        readLongitude: readLocation.longitude,
+        readLocationAddress: readLocation.address,
       );
       if (!mounted) return;
       _applyHistory(history);
@@ -8572,7 +8651,7 @@ class _ChatScreenState extends State<ChatScreen> {
     try {
       final batchId =
           '${DateTime.now().microsecondsSinceEpoch}-${Random.secure().nextInt(0x7fffffff)}';
-      final sendPosition = await _currentMessagePosition();
+      final sendLocation = await _messageLocationMetadata();
       for (var index = 0; index < chunks.length; index++) {
         final messageId = await chatApi.sendMessage(
           to: widget.chat.jid,
@@ -8582,8 +8661,9 @@ class _ChatScreenState extends State<ChatScreen> {
           threadRootId: temporary[index].threadRootId > 0
               ? '${temporary[index].threadRootId}'
               : '',
-          latitude: sendPosition?.latitude,
-          longitude: sendPosition?.longitude,
+          latitude: sendLocation.latitude,
+          longitude: sendLocation.longitude,
+          locationAddress: sendLocation.address,
           clientMessageId: '$batchId-$index',
         );
         if (!mounted) return;
@@ -8640,6 +8720,34 @@ class _ChatScreenState extends State<ChatScreen> {
     }
   }
 
+  String _coordinateAddress(Position position) {
+    return '${position.latitude.toStringAsFixed(5)}, ${position.longitude.toStringAsFixed(5)}';
+  }
+
+  bool _isFreshMessagePosition(Position? position) {
+    final capturedAt = _lastMessagePositionAt;
+    return position != null &&
+        capturedAt != null &&
+        DateTime.now().difference(capturedAt) < const Duration(minutes: 5);
+  }
+
+  bool _isFreshMessageAddress(Position position) {
+    final capturedAt = _lastMessageAddressAt;
+    final addressLat = _lastMessageAddressLatitude;
+    final addressLng = _lastMessageAddressLongitude;
+    if (_lastMessageAddress.isEmpty ||
+        capturedAt == null ||
+        addressLat == null ||
+        addressLng == null) {
+      return false;
+    }
+    if (DateTime.now().difference(capturedAt) > const Duration(minutes: 15)) {
+      return false;
+    }
+    return (addressLat - position.latitude).abs() < 0.0005 &&
+        (addressLng - position.longitude).abs() < 0.0005;
+  }
+
   Future<Position?> _currentMessagePosition() async {
     if (kIsWeb || !Platform.isAndroid) return null;
     try {
@@ -8649,14 +8757,42 @@ class _ChatScreenState extends State<ChatScreen> {
           permission == LocationPermission.deniedForever) {
         return null;
       }
-      return Geolocator.getCurrentPosition(
+      final position = await Geolocator.getCurrentPosition(
         locationSettings: const LocationSettings(
           accuracy: LocationAccuracy.medium,
-          timeLimit: Duration(seconds: 6),
+          timeLimit: Duration(seconds: 3),
         ),
       );
+      _lastMessagePosition = position;
+      _lastMessagePositionAt = DateTime.now();
+      return position;
     } catch (error) {
-      return null;
+      return _isFreshMessagePosition(_lastMessagePosition)
+          ? _lastMessagePosition
+          : null;
+    }
+  }
+
+  Future<Position?> _fastMessagePosition({
+    Duration timeout = const Duration(milliseconds: 1800),
+  }) async {
+    if (_isFreshMessagePosition(_lastMessagePosition)) {
+      return _lastMessagePosition;
+    }
+    _messagePositionFuture ??= _currentMessagePosition().whenComplete(() {
+      _messagePositionFuture = null;
+    });
+    try {
+      return await _messagePositionFuture!.timeout(
+        timeout,
+        onTimeout: () => _isFreshMessagePosition(_lastMessagePosition)
+            ? _lastMessagePosition
+            : null,
+      );
+    } catch (_) {
+      return _isFreshMessagePosition(_lastMessagePosition)
+          ? _lastMessagePosition
+          : null;
     }
   }
 
@@ -8668,10 +8804,57 @@ class _ChatScreenState extends State<ChatScreen> {
       );
       return address.trim().isNotEmpty
           ? address.trim()
-          : '${position.latitude.toStringAsFixed(5)}, ${position.longitude.toStringAsFixed(5)}';
+          : _coordinateAddress(position);
     } catch (_) {
-      return '${position.latitude.toStringAsFixed(5)}, ${position.longitude.toStringAsFixed(5)}';
+      return _coordinateAddress(position);
     }
+  }
+
+  Future<String> _fastLocationAddress(
+    Position? position, {
+    Duration timeout = const Duration(milliseconds: 900),
+  }) async {
+    if (position == null) return '';
+    if (_isFreshMessageAddress(position)) return _lastMessageAddress;
+    final fallback = _coordinateAddress(position);
+    try {
+      final address = await _resolveLocationAddress(
+        position,
+      ).timeout(timeout, onTimeout: () => fallback);
+      final normalized = address.trim().isNotEmpty ? address.trim() : fallback;
+      _lastMessageAddress = normalized;
+      _lastMessageAddressLatitude = position.latitude;
+      _lastMessageAddressLongitude = position.longitude;
+      _lastMessageAddressAt = DateTime.now();
+      return normalized;
+    } catch (_) {
+      return fallback;
+    }
+  }
+
+  Future<_MessageLocationMetadata> _messageLocationMetadata({
+    Duration positionTimeout = const Duration(milliseconds: 1800),
+    Duration addressTimeout = const Duration(milliseconds: 900),
+  }) async {
+    final position = await _fastMessagePosition(timeout: positionTimeout);
+    final address = await _fastLocationAddress(
+      position,
+      timeout: addressTimeout,
+    );
+    return _MessageLocationMetadata(
+      latitude: position?.latitude,
+      longitude: position?.longitude,
+      address: address,
+    );
+  }
+
+  Future<void> _warmMessageLocationMetadata() async {
+    unawaited(
+      _messageLocationMetadata(
+        positionTimeout: const Duration(seconds: 3),
+        addressTimeout: const Duration(seconds: 1),
+      ),
+    );
   }
 
   Future<void> _sendLocationAttachment({
@@ -8696,7 +8879,8 @@ class _ChatScreenState extends State<ChatScreen> {
       replyToId: reply?.id == 0 ? '' : '${reply?.id ?? ''}',
       mentions: mentions,
       threadRootId: threadRootId > 0 ? '$threadRootId' : '',
-      clientMessageId: '${isLive ? 'live' : 'loc'}-$shareId-${DateTime.now().microsecondsSinceEpoch}',
+      clientMessageId:
+          '${isLive ? 'live' : 'loc'}-$shareId-${DateTime.now().microsecondsSinceEpoch}',
     );
     if (!mounted) return;
     final attachment = ChatAttachment.location(
@@ -8729,7 +8913,9 @@ class _ChatScreenState extends State<ChatScreen> {
     _scrollToBottom();
     if (showSuccess && mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(isLive ? 'Live location shared.' : 'Location shared.')),
+        SnackBar(
+          content: Text(isLive ? 'Live location shared.' : 'Location shared.'),
+        ),
       );
     }
   }
@@ -8740,7 +8926,9 @@ class _ChatScreenState extends State<ChatScreen> {
     if (position == null) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Enable location to send your position.')),
+          const SnackBar(
+            content: Text('Enable location to send your position.'),
+          ),
         );
       }
       return;
@@ -8759,7 +8947,9 @@ class _ChatScreenState extends State<ChatScreen> {
           children: [
             ListTile(
               title: const Text('Live location duration'),
-              subtitle: const Text('Choose how long to share your location.'),
+              subtitle: const Text(
+                'Choose how long to share your location. Updates every 1 minute.',
+              ),
             ),
             for (final entry in const [
               (15, '15 minutes'),
@@ -8787,7 +8977,9 @@ class _ChatScreenState extends State<ChatScreen> {
     if (position == null) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Enable location to share live updates.')),
+          const SnackBar(
+            content: Text('Enable location to share live updates.'),
+          ),
         );
       }
       return;
@@ -8805,7 +8997,9 @@ class _ChatScreenState extends State<ChatScreen> {
       shareId: shareId,
     );
     _liveLocationTimer?.cancel();
-    _liveLocationTimer = Timer.periodic(const Duration(minutes: 1), (timer) async {
+    _liveLocationTimer = Timer.periodic(const Duration(minutes: 1), (
+      timer,
+    ) async {
       if (!mounted || !_liveLocationSharing || _liveLocationEndsAt == null) {
         timer.cancel();
         return;
@@ -8829,6 +9023,17 @@ class _ChatScreenState extends State<ChatScreen> {
         showSuccess: false,
       );
     });
+  }
+
+  void _stopLiveLocationSharing() {
+    _liveLocationTimer?.cancel();
+    setState(() {
+      _liveLocationSharing = false;
+      _liveLocationEndsAt = null;
+    });
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('Live location sharing stopped.')),
+    );
   }
 
   List<String> _splitMessage(String text) {
@@ -8926,6 +9131,7 @@ class _ChatScreenState extends State<ChatScreen> {
         _uploadProgress = 0;
       });
       final name = 'voice_${DateTime.now().millisecondsSinceEpoch}.m4a';
+      final sendLocation = await _messageLocationMetadata();
       final attachment = await chatApi.sendAttachment(
         to: widget.chat.jid,
         name: name,
@@ -8934,6 +9140,9 @@ class _ChatScreenState extends State<ChatScreen> {
         caption: _voiceTranscript.trim(),
         replyToId: _replyingTo?.id == 0 ? '' : '${_replyingTo?.id ?? ''}',
         threadRootId: _threadRootId > 0 ? '$_threadRootId' : '',
+        latitude: sendLocation.latitude,
+        longitude: sendLocation.longitude,
+        locationAddress: sendLocation.address,
         onProgress: (progress) {
           if (mounted) setState(() => _uploadProgress = progress);
         },
@@ -8979,6 +9188,108 @@ class _ChatScreenState extends State<ChatScreen> {
     }
   }
 
+  Future<void> _createChecklistFromComposer() async {
+    final seed = _messageController.text.trim();
+    await _createChecklistFromMessage(
+      ChatMessage(
+        text: seed,
+        time: TimeOfDay.now().format(context),
+        isMe: true,
+      ),
+    );
+  }
+
+  Future<void> _pickAndSendContact() async {
+    if (kIsWeb || !Platform.isAndroid) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Contact picker is available on Android.'),
+        ),
+      );
+      return;
+    }
+    final permission = await ph.Permission.contacts.request();
+    if (!permission.isGranted) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Contacts permission is required to send a contact.'),
+        ),
+      );
+      return;
+    }
+    try {
+      final picked = await _androidPlatform.invokeMapMethod<String, dynamic>(
+        'pickContact',
+      );
+      if (!mounted || picked == null) return;
+      final phones = (picked['phones'] is List)
+          ? (picked['phones'] as List)
+                .map((value) => '$value')
+                .where((value) => value.trim().isNotEmpty)
+                .toList()
+          : <String>[];
+      final emails = (picked['emails'] is List)
+          ? (picked['emails'] as List)
+                .map((value) => '$value')
+                .where((value) => value.trim().isNotEmpty)
+                .toList()
+          : <String>[];
+      final contact = <String, dynamic>{
+        'name': '${picked['name'] ?? ''}'.trim(),
+        'phones': phones,
+        'emails': emails,
+      };
+      if ('${contact['name']}'.trim().isEmpty &&
+          phones.isEmpty &&
+          emails.isEmpty) {
+        return;
+      }
+      final body = _encodeContactCard(contact);
+      final sendLocation = await _messageLocationMetadata();
+      await chatApi.sendMessage(
+        to: widget.chat.jid,
+        message: body,
+        replyToId: _replyingTo?.id == 0 ? '' : '${_replyingTo?.id ?? ''}',
+        mentions: _selectedMentions.toList(),
+        threadRootId: _threadRootId > 0 ? '$_threadRootId' : '',
+        latitude: sendLocation.latitude,
+        longitude: sendLocation.longitude,
+        locationAddress: sendLocation.address,
+        clientMessageId: 'contact-${DateTime.now().microsecondsSinceEpoch}',
+      );
+      if (!mounted) return;
+      setState(() {
+        _messages.add(
+          ChatMessage(
+            text: body,
+            time: TimeOfDay.now().format(context),
+            isMe: true,
+            isRead: false,
+            replyToId: _replyingTo?.id ?? 0,
+            threadRootId: _threadRootId,
+            mentions: _selectedMentions.toList(),
+          ),
+        );
+        _replyingTo = null;
+        _threadRootId = 0;
+        _selectedMentions.clear();
+      });
+      _scrollToBottom();
+    } on PlatformException catch (error) {
+      if (!mounted || error.code == 'cancelled') return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(error.message ?? 'Unable to pick contact.')),
+      );
+    } catch (error) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('Unable to send contact: $error')));
+    }
+  }
+
   Future<void> _pickAndSendAttachment() async {
     if (_isUploading) return;
     final choice = await showModalBottomSheet<String>(
@@ -8999,6 +9310,16 @@ class _ChatScreenState extends State<ChatScreen> {
               onTap: () => Navigator.pop(sheetContext, 'file'),
             ),
             ListTile(
+              leading: const Icon(Icons.checklist_rounded),
+              title: const Text('Create checklist'),
+              onTap: () => Navigator.pop(sheetContext, 'checklist'),
+            ),
+            ListTile(
+              leading: const Icon(Icons.contacts_rounded),
+              title: const Text('Contact'),
+              onTap: () => Navigator.pop(sheetContext, 'contact'),
+            ),
+            ListTile(
               leading: const Icon(Icons.location_on_outlined),
               title: const Text('Current location'),
               onTap: () => Navigator.pop(sheetContext, 'location'),
@@ -9006,8 +9327,20 @@ class _ChatScreenState extends State<ChatScreen> {
             ListTile(
               leading: const Icon(Icons.location_searching_rounded),
               title: const Text('Live location'),
+              subtitle: const Text('Share updates every 1 minute.'),
               onTap: () => Navigator.pop(sheetContext, 'live_location'),
             ),
+            if (_liveLocationSharing)
+              ListTile(
+                leading: const Icon(Icons.stop_circle_outlined),
+                title: const Text('Stop live location'),
+                subtitle: _liveLocationEndsAt == null
+                    ? null
+                    : Text(
+                        'Active until ${TimeOfDay.fromDateTime(_liveLocationEndsAt!).format(context)}',
+                      ),
+                onTap: () => Navigator.pop(sheetContext, 'stop_live_location'),
+              ),
             const SizedBox(height: 8),
           ],
         ),
@@ -9032,11 +9365,20 @@ class _ChatScreenState extends State<ChatScreen> {
         if (!mounted || result == null || result.files.isEmpty) return;
         await _sendPickedFiles(result.files);
         return;
+      case 'checklist':
+        await _createChecklistFromComposer();
+        return;
+      case 'contact':
+        await _pickAndSendContact();
+        return;
       case 'location':
         await _sendCurrentLocationAttachment();
         return;
       case 'live_location':
         await _sendLiveLocationAttachment();
+        return;
+      case 'stop_live_location':
+        _stopLiveLocationSharing();
         return;
       default:
         return;
@@ -9070,7 +9412,7 @@ class _ChatScreenState extends State<ChatScreen> {
     });
     try {
       final reply = _replyingTo;
-      final sendPosition = await _currentMessagePosition();
+      final sendLocation = await _messageLocationMetadata();
       if (!mounted) return;
       for (var index = 0; index < files.length; index++) {
         final file = files[index];
@@ -9091,11 +9433,14 @@ class _ChatScreenState extends State<ChatScreen> {
           replyToId: reply?.id == 0 ? '' : '${reply?.id ?? ''}',
           mentions: _selectedMentions.toList(),
           threadRootId: _threadRootId > 0 ? '$_threadRootId' : '',
-          latitude: sendPosition?.latitude,
-          longitude: sendPosition?.longitude,
+          latitude: sendLocation.latitude,
+          longitude: sendLocation.longitude,
+          locationAddress: sendLocation.address,
           onProgress: (progress) {
             if (mounted) {
-              setState(() => _uploadProgress = (index + progress) / files.length);
+              setState(
+                () => _uploadProgress = (index + progress) / files.length,
+              );
             }
           },
         );
@@ -9184,7 +9529,9 @@ class _ChatScreenState extends State<ChatScreen> {
     return bytes;
   }
 
-  Future<_AttachmentDraft?> _previewAttachments(List<PlatformFile> initialFiles) async {
+  Future<_AttachmentDraft?> _previewAttachments(
+    List<PlatformFile> initialFiles,
+  ) async {
     final captionController = TextEditingController();
     var files = List<PlatformFile>.from(initialFiles);
     try {
@@ -9203,9 +9550,12 @@ class _ChatScreenState extends State<ChatScreen> {
                 ),
               );
             }
+
             final first = files.isEmpty ? null : files.first;
             final title = files.length == 1
-                ? (_mimeTypeForFile(first!.name).startsWith('image/') ? 'Send an image' : 'Send as a file')
+                ? (_mimeTypeForFile(first!.name).startsWith('image/')
+                      ? 'Send an image'
+                      : 'Send as a file')
                 : 'Send ${files.length} files';
             return AlertDialog(
               title: Text(title),
@@ -9222,7 +9572,8 @@ class _ChatScreenState extends State<ChatScreen> {
                           : ListView.separated(
                               shrinkWrap: true,
                               itemCount: files.length,
-                              separatorBuilder: (_, _) => const Divider(height: 18),
+                              separatorBuilder: (_, _) =>
+                                  const Divider(height: 18),
                               itemBuilder: (_, index) {
                                 final file = files[index];
                                 final mimeType = _mimeTypeForFile(file.name);
@@ -9234,12 +9585,17 @@ class _ChatScreenState extends State<ChatScreen> {
                                       dimension: 72,
                                       child: DecoratedBox(
                                         decoration: BoxDecoration(
-                                          color: AppColors.primary.withValues(alpha: 0.09),
-                                          borderRadius: BorderRadius.circular(8),
+                                          color: AppColors.primary.withValues(
+                                            alpha: 0.09,
+                                          ),
+                                          borderRadius: BorderRadius.circular(
+                                            8,
+                                          ),
                                         ),
                                         child: isImage && file.bytes != null
                                             ? ClipRRect(
-                                                borderRadius: BorderRadius.circular(8),
+                                                borderRadius:
+                                                    BorderRadius.circular(8),
                                                 child: Image.memory(
                                                   file.bytes!,
                                                   fit: BoxFit.cover,
@@ -9256,14 +9612,17 @@ class _ChatScreenState extends State<ChatScreen> {
                                     const SizedBox(width: 12),
                                     Expanded(
                                       child: Column(
-                                        crossAxisAlignment: CrossAxisAlignment.start,
+                                        crossAxisAlignment:
+                                            CrossAxisAlignment.start,
                                         mainAxisSize: MainAxisSize.min,
                                         children: [
                                           Text(
                                             file.name,
                                             maxLines: 2,
                                             overflow: TextOverflow.ellipsis,
-                                            style: const TextStyle(fontWeight: FontWeight.w700),
+                                            style: const TextStyle(
+                                              fontWeight: FontWeight.w700,
+                                            ),
                                           ),
                                           const SizedBox(height: 4),
                                           Text(_formatFileBytes(file.size)),
@@ -9273,8 +9632,11 @@ class _ChatScreenState extends State<ChatScreen> {
                                     IconButton(
                                       tooltip: 'Remove',
                                       onPressed: () {
-                                        setDialogState(() => files.removeAt(index));
-                                        if (files.isEmpty) Navigator.pop(dialogContext);
+                                        setDialogState(
+                                          () => files.removeAt(index),
+                                        );
+                                        if (files.isEmpty)
+                                          Navigator.pop(dialogContext);
                                       },
                                       icon: const Icon(Icons.close_rounded),
                                     ),
@@ -9286,11 +9648,14 @@ class _ChatScreenState extends State<ChatScreen> {
                     const SizedBox(height: 14),
                     Focus(
                       onKeyEvent: (_, event) {
-                        if (event is! KeyDownEvent) return KeyEventResult.ignored;
-                        final isEnter = event.logicalKey == LogicalKeyboardKey.enter ||
+                        if (event is! KeyDownEvent)
+                          return KeyEventResult.ignored;
+                        final isEnter =
+                            event.logicalKey == LogicalKeyboardKey.enter ||
                             event.logicalKey == LogicalKeyboardKey.numpadEnter;
                         if (!isEnter) return KeyEventResult.ignored;
-                        final insertNewLine = HardwareKeyboard.instance.isShiftPressed ||
+                        final insertNewLine =
+                            HardwareKeyboard.instance.isShiftPressed ||
                             HardwareKeyboard.instance.isControlPressed ||
                             HardwareKeyboard.instance.isMetaPressed;
                         if (insertNewLine) return KeyEventResult.ignored;
@@ -9426,21 +9791,23 @@ class _ChatScreenState extends State<ChatScreen> {
     });
   }
 
-
   Future<void> _openMentionProfile(String token) async {
     final normalized = token.trim().replaceFirst('@', '').toLowerCase();
     if (normalized.isEmpty) return;
     final specialMentions = {'channel', 'online', 'admins'};
     if (specialMentions.contains(normalized)) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Mention target: @$normalized')),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('Mention target: @$normalized')));
       return;
     }
     GroupMember? member;
     for (final item in _groupMembers) {
-      final byName = item.name.trim().replaceAll(RegExp(r'\s+'), '_').toLowerCase();
+      final byName = item.name
+          .trim()
+          .replaceAll(RegExp(r'\s+'), '_')
+          .toLowerCase();
       if (byName == normalized || item.empId.toLowerCase() == normalized) {
         member = item;
         break;
@@ -9449,6 +9816,7 @@ class _ChatScreenState extends State<ChatScreen> {
     if (member == null) return;
     await _showUserProfile(empId: member.empId, fallbackName: member.name);
   }
+
   List<String> _mentionsFromText(String text) {
     final result = <String>{..._selectedMentions};
     final tokens = RegExp(
@@ -9492,14 +9860,14 @@ class _ChatScreenState extends State<ChatScreen> {
       final copied = await copyTextToClipboard(content);
       if (!copied) throw StateError('Clipboard copy failed');
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Message copied.')),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('Message copied.')));
     } catch (error) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Unable to copy message.')),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('Unable to copy message.')));
     }
   }
 
@@ -9511,7 +9879,9 @@ class _ChatScreenState extends State<ChatScreen> {
         .map((message) {
           final content = message.text.trim().isNotEmpty
               ? cleanMojibakeText(message.text.trim())
-              : cleanMojibakeText(message.attachment?.name ?? message.previewText);
+              : cleanMojibakeText(
+                  message.attachment?.name ?? message.previewText,
+                );
           if (!multiple) return content;
           final sender = message.isMe
               ? 'You'
@@ -9524,9 +9894,9 @@ class _ChatScreenState extends State<ChatScreen> {
     final copied = await copyTextToClipboard(text);
     if (!copied) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Unable to copy message.')),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('Unable to copy message.')));
       return;
     }
     if (!mounted) return;
@@ -9655,7 +10025,9 @@ class _ChatScreenState extends State<ChatScreen> {
   }
 
   Future<void> _bookmarkSelectedMessages() async {
-    final selected = _selectedMessages.where((message) => message.id > 0).toList();
+    final selected = _selectedMessages
+        .where((message) => message.id > 0)
+        .toList();
     if (selected.isEmpty) return;
     final shouldStar = !selected.every((message) => message.isStarred);
     try {
@@ -9673,17 +10045,25 @@ class _ChatScreenState extends State<ChatScreen> {
         _selectedMessageIds.clear();
       });
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(shouldStar ? 'Message bookmarked.' : 'Bookmark removed.')),
+        SnackBar(
+          content: Text(
+            shouldStar ? 'Message bookmarked.' : 'Bookmark removed.',
+          ),
+        ),
       );
     } on ApiException catch (error) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(error.message)));
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text(error.message)));
       }
     }
   }
 
   Future<void> _pinSelectedMessages() async {
-    final selected = _selectedMessages.where((message) => message.id > 0).toList();
+    final selected = _selectedMessages
+        .where((message) => message.id > 0)
+        .toList();
     if (selected.isEmpty) return;
     try {
       for (final message in selected) {
@@ -9696,7 +10076,9 @@ class _ChatScreenState extends State<ChatScreen> {
       );
     } on ApiException catch (error) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(error.message)));
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text(error.message)));
       }
     }
   }
@@ -9713,7 +10095,9 @@ class _ChatScreenState extends State<ChatScreen> {
     if (selected.isEmpty) return '';
     final parts = <String>[];
     for (final message in selected.take(6)) {
-      final prefix = message.isMe ? 'You' : (message.sender ?? widget.chat.name);
+      final prefix = message.isMe
+          ? 'You'
+          : (message.sender ?? widget.chat.name);
       final text = message.previewText.trim();
       if (text.isEmpty) continue;
       parts.add('$prefix: $text');
@@ -9734,7 +10118,6 @@ class _ChatScreenState extends State<ChatScreen> {
         content: SizedBox(
           width: 520,
           child: SelectionArea(
-            contextMenuBuilder: (_, __) => const SizedBox.shrink(),
             child: Text(
               'Selected ${_selectedMessages.length} message(s).\n\n$summary',
               style: const TextStyle(height: 1.45),
@@ -9761,7 +10144,6 @@ class _ChatScreenState extends State<ChatScreen> {
         content: SizedBox(
           width: 520,
           child: SelectionArea(
-            contextMenuBuilder: (_, __) => const SizedBox.shrink(),
             child: Text(
               'Translation workflow is ready to wire into a language service.\n\n$summary',
               style: const TextStyle(height: 1.45),
@@ -9818,22 +10200,30 @@ class _ChatScreenState extends State<ChatScreen> {
                 _SelectionToolbarAction(
                   icon: Icons.forward_rounded,
                   label: 'Forward',
-                  onPressed: selectedCount == 0 ? null : _forwardSelectedMessages,
+                  onPressed: selectedCount == 0
+                      ? null
+                      : _forwardSelectedMessages,
                 ),
                 _SelectionToolbarAction(
                   icon: Icons.bookmark_add_outlined,
                   label: 'Bookmark',
-                  onPressed: selectedCount == 0 ? null : _bookmarkSelectedMessages,
+                  onPressed: selectedCount == 0
+                      ? null
+                      : _bookmarkSelectedMessages,
                 ),
                 _SelectionToolbarAction(
                   icon: Icons.task_alt_rounded,
                   label: 'Create Task',
-                  onPressed: primary == null ? null : _createTaskFromSelectedMessage,
+                  onPressed: primary == null
+                      ? null
+                      : _createTaskFromSelectedMessage,
                 ),
                 _SelectionToolbarAction(
                   icon: Icons.auto_awesome_rounded,
                   label: 'AI Summary',
-                  onPressed: selectedCount == 0 ? null : _showAiSummaryForSelection,
+                  onPressed: selectedCount == 0
+                      ? null
+                      : _showAiSummaryForSelection,
                 ),
                 _SelectionToolbarAction(
                   icon: Icons.format_quote_rounded,
@@ -9849,12 +10239,19 @@ class _ChatScreenState extends State<ChatScreen> {
                   icon: Icons.delete_outline_rounded,
                   label: 'Delete',
                   destructive: true,
-                  onPressed: _canDeleteSelectedMessages ? _deleteSelectedMessages : null,
+                  onPressed: _canDeleteSelectedMessages
+                      ? _deleteSelectedMessages
+                      : null,
                 ),
                 _SelectionToolbarAction(
                   icon: Icons.edit_outlined,
                   label: 'Edit',
-                  onPressed: primary != null && primary.isMe && primary.id > 0 && primary.attachment == null && selectedCount == 1
+                  onPressed:
+                      primary != null &&
+                          primary.isMe &&
+                          primary.id > 0 &&
+                          primary.attachment == null &&
+                          selectedCount == 1
                       ? () async {
                           await _editMessage(primary);
                           _clearMessageSelection();
@@ -9869,7 +10266,9 @@ class _ChatScreenState extends State<ChatScreen> {
                 _SelectionToolbarAction(
                   icon: Icons.info_outline_rounded,
                   label: 'Message Info',
-                  onPressed: primary == null || primary.id <= 0 ? null : _showSelectionMessageInfo,
+                  onPressed: primary == null || primary.id <= 0
+                      ? null
+                      : _showSelectionMessageInfo,
                 ),
               ],
             ),
@@ -10190,7 +10589,8 @@ class _ChatScreenState extends State<ChatScreen> {
       await _updateTaskFromMessage(message);
     } else if (selected == 'Create checklist') {
       await _createChecklistFromMessage(message);
-    } else if (selected == 'Create reminder' || selected == 'Create follow up') {
+    } else if (selected == 'Create reminder' ||
+        selected == 'Create follow up') {
       await _createReminderFromMessage(
         message,
         kind: selected == 'Create follow up' ? 'followup' : 'reminder',
@@ -10238,6 +10638,7 @@ class _ChatScreenState extends State<ChatScreen> {
     if (!widget.chat.isGroup) return int.tryParse(widget.chat.empId);
     return int.tryParse(chatApi.currentJid.split('@').first);
   }
+
   String _taskDescriptionFromMessage(ChatMessage message) {
     final lines = <String>[
       'Conversation: ${widget.chat.name}',
@@ -10285,7 +10686,9 @@ class _ChatScreenState extends State<ChatScreen> {
     final created = await showDialog<bool>(
       context: context,
       builder: (dialogContext) => AlertDialog(
-        title: Text(kind == 'followup' ? 'Create follow up' : 'Create reminder'),
+        title: Text(
+          kind == 'followup' ? 'Create follow up' : 'Create reminder',
+        ),
         content: SizedBox(
           width: 460,
           child: Column(
@@ -10393,7 +10796,9 @@ class _ChatScreenState extends State<ChatScreen> {
     descriptionController.dispose();
     if (create != true || title.isEmpty) return;
     final assignee = _taskAssigneeFromConversation();
-    final groupId = widget.chat.isGroup ? int.tryParse(widget.chat.empId) ?? 0 : 0;
+    final groupId = widget.chat.isGroup
+        ? int.tryParse(widget.chat.empId) ?? 0
+        : 0;
     try {
       await chatApi.createMyHubTask(
         title: title.length <= 120 ? title : title.substring(0, 120),
@@ -10533,7 +10938,7 @@ class _ChatScreenState extends State<ChatScreen> {
                                     if (id.isNotEmpty) '#$id',
                                     if (deadline.isNotEmpty) 'Due $deadline',
                                   ].join(' | '),
-                                  ),
+                                ),
                                 onTap: () => Navigator.pop(sheetContext, task),
                               );
                             },
@@ -10680,9 +11085,13 @@ class _ChatScreenState extends State<ChatScreen> {
     if (items.isEmpty) return;
     final body =
         'SKYLINK_CHECKLIST:${jsonEncode(<String, dynamic>{'title': title, 'items': items, 'created_at': DateTime.now().toIso8601String()})}';
+    final sendLocation = await _messageLocationMetadata();
     await chatApi.sendMessage(
       to: widget.chat.jid,
       message: body,
+      latitude: sendLocation.latitude,
+      longitude: sendLocation.longitude,
+      locationAddress: sendLocation.address,
       clientMessageId: 'checklist-${DateTime.now().microsecondsSinceEpoch}',
     );
     await _loadHistory(silent: true);
@@ -11118,7 +11527,11 @@ class _ChatScreenState extends State<ChatScreen> {
       final reader = Map<String, dynamic>.from(rawReader);
       final name = _infoText(reader, ['name', 'emp_id']);
       final readAt = _infoText(reader, ['read_at']);
-      final device = _deviceDisplay(reader, 'read_source_device', 'read_source_name');
+      final device = _deviceDisplay(
+        reader,
+        'read_source_device',
+        'read_source_name',
+      );
       final address = _infoText(reader, ['read_location_address']);
       final readLines = <String>[
         if (name.isNotEmpty) name,
@@ -11232,8 +11645,10 @@ class _ChatScreenState extends State<ChatScreen> {
                   'Sent from',
                   _deviceDisplay(info, 'source_device', 'source_name'),
                 ),
-                if (_infoText(info, ['read_source_device', 'read_source_name'])
-                    .isNotEmpty)
+                if (_infoText(info, [
+                  'read_source_device',
+                  'read_source_name',
+                ]).isNotEmpty)
                   _messageInfoRow(
                     Icons.phonelink_ring_outlined,
                     'Read from',
@@ -11412,7 +11827,6 @@ class _ChatScreenState extends State<ChatScreen> {
     }
   }
 
-
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -11431,7 +11845,8 @@ class _ChatScreenState extends State<ChatScreen> {
                     Stack(
                       children: [
                         UserAvatar(chat: widget.chat, radius: 20),
-                        if (_presence?.isOnline == true && !widget.chat.isOnline)
+                        if (_presence?.isOnline == true &&
+                            !widget.chat.isOnline)
                           Positioned(
                             right: 0,
                             bottom: 0,
@@ -11441,7 +11856,10 @@ class _ChatScreenState extends State<ChatScreen> {
                               decoration: BoxDecoration(
                                 color: AppColors.online,
                                 shape: BoxShape.circle,
-                                border: Border.all(color: Colors.white, width: 2),
+                                border: Border.all(
+                                  color: Colors.white,
+                                  width: 2,
+                                ),
                               ),
                             ),
                           ),
@@ -11466,7 +11884,8 @@ class _ChatScreenState extends State<ChatScreen> {
                           Text(
                             _presenceLabel,
                             style: TextStyle(
-                              color: (_presence?.isOnline ?? widget.chat.isOnline)
+                              color:
+                                  (_presence?.isOnline ?? widget.chat.isOnline)
                                   ? AppColors.primary
                                   : AppColors.muted,
                               fontSize: 12,
@@ -11531,13 +11950,15 @@ class _ChatScreenState extends State<ChatScreen> {
                   },
                   itemBuilder: (_) => [
                     PopupMenuItem(
-                      value: widget.chat.isGroup ? 'Manage group' : 'View profile',
+                      value: widget.chat.isGroup
+                          ? 'Manage group'
+                          : 'View profile',
                       child: Text(
                         widget.chat.isChannel
                             ? 'Manage channel'
                             : widget.chat.isGroup
-                                ? 'Manage group'
-                                : 'View profile',
+                            ? 'Manage group'
+                            : 'View profile',
                       ),
                     ),
                     if (widget.chat.isChannel && _groupRole == 'owner')
@@ -11554,9 +11975,13 @@ class _ChatScreenState extends State<ChatScreen> {
                       child: Text('Media browser'),
                     ),
                     PopupMenuItem(
-                      value: _isMuted ? 'Unmute notifications' : 'Mute notifications',
+                      value: _isMuted
+                          ? 'Unmute notifications'
+                          : 'Mute notifications',
                       child: Text(
-                        _isMuted ? 'Unmute notifications' : 'Mute notifications',
+                        _isMuted
+                            ? 'Unmute notifications'
+                            : 'Mute notifications',
                       ),
                     ),
                   ],
@@ -11578,14 +12003,17 @@ class _ChatScreenState extends State<ChatScreen> {
                 children: [
                   Positioned.fill(
                     child: CustomPaint(
-              painter: _ChatBackgroundPainter(
-                isDark: Theme.of(context).brightness == Brightness.dark,
-              ),
-              child: _isLoading
-                  ? const Center(child: CircularProgressIndicator())
-                  : _loadError != null
-                      ? _LoadError(message: _loadError!, onRetry: _loadHistory)
-                      : _messages.isEmpty
+                      painter: _ChatBackgroundPainter(
+                        isDark: Theme.of(context).brightness == Brightness.dark,
+                      ),
+                      child: _isLoading
+                          ? const Center(child: CircularProgressIndicator())
+                          : _loadError != null
+                          ? _LoadError(
+                              message: _loadError!,
+                              onRetry: _loadHistory,
+                            )
+                          : _messages.isEmpty
                           ? const Center(
                               child: Text(
                                 'No messages yet. Say hello!',
@@ -11595,13 +12023,24 @@ class _ChatScreenState extends State<ChatScreen> {
                           : ScrollablePositionedList.builder(
                               itemScrollController: _itemScrollController,
                               itemPositionsListener: _itemPositionsListener,
-                              padding: const EdgeInsets.fromLTRB(14, 18, 14, 18),
+                              padding: const EdgeInsets.fromLTRB(
+                                14,
+                                18,
+                                14,
+                                18,
+                              ),
                               itemCount: _messages.length,
                               itemBuilder: (_, index) {
                                 final message = _messages[index];
-                                final previous = index > 0 ? _messages[index - 1] : null;
-                                final showDate = previous == null ||
-                                    !_sameMessageDay(previous.createdAt, message.createdAt);
+                                final previous = index > 0
+                                    ? _messages[index - 1]
+                                    : null;
+                                final showDate =
+                                    previous == null ||
+                                    !_sameMessageDay(
+                                      previous.createdAt,
+                                      message.createdAt,
+                                    );
                                 return _MessageBubble(
                                   key: _messageKeys.putIfAbsent(
                                     message.id,
@@ -11617,23 +12056,29 @@ class _ChatScreenState extends State<ChatScreen> {
                                   onReplyTap: message.replyToId > 0
                                       ? () => _jumpToMessage(message.replyToId)
                                       : null,
-                                  selected: _selectedMessageIds.contains(message.id),
+                                  selected: _selectedMessageIds.contains(
+                                    message.id,
+                                  ),
                                   onTap: () {
                                     if (_selectedMessageIds.isNotEmpty) {
                                       _toggleMessageSelection(message);
                                     }
                                   },
-                                  onLongPress: () => _toggleMessageSelection(message),
-                                  onSecondaryTap: () => _showMessageActions(message),
+                                  onLongPress: () =>
+                                      _toggleMessageSelection(message),
+                                  onSecondaryTap: () =>
+                                      _showMessageActions(message),
                                   onSwipeReply: _isSystemNotification
                                       ? null
                                       : () => setState(() {
-                                            _selectedMessageIds.clear();
-                                            _replyingTo = message;
-                                            _replyQuote = '';
-                                          }),
-                                  onSwipeBack: _showEmojiPicker ||
-                                          MediaQuery.sizeOf(context).width >= 900
+                                          _selectedMessageIds.clear();
+                                          _replyingTo = message;
+                                          _replyQuote = '';
+                                        }),
+                                  onSwipeBack:
+                                      _showEmojiPicker ||
+                                          MediaQuery.sizeOf(context).width >=
+                                              900
                                       ? null
                                       : () {
                                           if (_selectedMessageIds.isNotEmpty) {
@@ -11752,7 +12197,11 @@ class _ChatScreenState extends State<ChatScreen> {
               child: const Row(
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: [
-                  Icon(Icons.lock_outline_rounded, size: 18, color: AppColors.muted),
+                  Icon(
+                    Icons.lock_outline_rounded,
+                    size: 18,
+                    color: AppColors.muted,
+                  ),
                   SizedBox(width: 8),
                   Text(
                     'Replies are disabled for this conversation.',
@@ -11772,7 +12221,8 @@ class _ChatScreenState extends State<ChatScreen> {
               isUploading: _isUploading,
               uploadProgress: _uploadProgress,
               showEmojiPicker: _showEmojiPicker,
-              onEmojiToggle: () => setState(() => _showEmojiPicker = !_showEmojiPicker),
+              onEmojiToggle: () =>
+                  setState(() => _showEmojiPicker = !_showEmojiPicker),
               onEmojiSelected: (emoji) {
                 final value = _messageController.value;
                 final selection = value.selection.isValid
@@ -11791,8 +12241,8 @@ class _ChatScreenState extends State<ChatScreen> {
                 );
               },
             ),
-              ],
-            ),
+        ],
+      ),
       floatingActionButton: !_showJumpToLatest
           ? null
           : Padding(
@@ -11810,6 +12260,7 @@ class _ChatScreenState extends State<ChatScreen> {
             ),
     );
   }
+
   Future<void> _showUserProfile({String? empId, String? fallbackName}) async {
     try {
       final targetEmpId = empId ?? widget.chat.empId;
@@ -11817,7 +12268,8 @@ class _ChatScreenState extends State<ChatScreen> {
       if (!mounted) return;
       final title = '${user['name'] ?? fallbackName ?? widget.chat.name}';
       final designation = '${user['designation'] ?? 'Employee'}';
-      final online = user['messenger_connected'] == true ||
+      final online =
+          user['messenger_connected'] == true ||
           '${user['messenger_connected']}' == '1';
       await showDialog<void>(
         context: context,
@@ -11923,10 +12375,12 @@ class _ChatScreenState extends State<ChatScreen> {
         jid: widget.chat.jid,
       );
       if (!mounted) return;
-      var enabled = config['enabled'] == true ||
+      var enabled =
+          config['enabled'] == true ||
           '${config['enabled']}'.toLowerCase() == '1' ||
           '${config['enabled']}'.toLowerCase() == 'true';
-      var interval = int.tryParse(
+      var interval =
+          int.tryParse(
             '${config['interval_minutes'] ?? config['minutes'] ?? 1440}',
           ) ??
           1440;
@@ -11956,8 +12410,7 @@ class _ChatScreenState extends State<ChatScreen> {
                     title: const Text('Enable wake-up notification'),
                     subtitle: const Text('Weekends are skipped.'),
                     value: enabled,
-                    onChanged: (value) =>
-                        setDialogState(() => enabled = value),
+                    onChanged: (value) => setDialogState(() => enabled = value),
                   ),
                   const SizedBox(height: 8),
                   Wrap(
@@ -12133,14 +12586,15 @@ class _ChatScreenState extends State<ChatScreen> {
                   member.role == 'owner'
                       ? 'Owner'
                       : member.role == 'admin'
-                          ? 'Admin'
-                          : member.isOnline
-                              ? 'online'
-                              : member.lastSeen == null
-                                  ? member.designation
-                                  : 'last active ${_memberLastSeen(member.lastSeen!)}',
+                      ? 'Admin'
+                      : member.isOnline
+                      ? 'online'
+                      : member.lastSeen == null
+                      ? member.designation
+                      : 'last active ${_memberLastSeen(member.lastSeen!)}',
                 ),
-                trailing: const {'owner', 'admin'}.contains(_groupRole) &&
+                trailing:
+                    const {'owner', 'admin'}.contains(_groupRole) &&
                         member.role != 'owner'
                     ? PopupMenuButton<String>(
                         onSelected: (action) => _memberAction(member, action),
@@ -12162,10 +12616,10 @@ class _ChatScreenState extends State<ChatScreen> {
                         ],
                       )
                     : member.role == 'owner'
-                        ? const Chip(label: Text('Owner'))
-                        : member.isOnline
-                            ? const Icon(Icons.circle, color: Colors.green, size: 12)
-                            : null,
+                    ? const Chip(label: Text('Owner'))
+                    : member.isOnline
+                    ? const Icon(Icons.circle, color: Colors.green, size: 12)
+                    : null,
               ),
             ),
           ],
@@ -12325,8 +12779,10 @@ class _MessageBubble extends StatelessWidget {
   Widget build(BuildContext context) {
     final attachment = message.attachment;
     final dark = Theme.of(context).brightness == Brightness.dark;
+    final contactCard = _decodeContactCard(message.text);
     final checklist = _decodeLiveChecklist(message.text);
-    final isTaggedOrReplied = message.replyToId > 0 ||
+    final isTaggedOrReplied =
+        message.replyToId > 0 ||
         message.originalSenderName.isNotEmpty ||
         message.mentions.isNotEmpty;
     if (message.isSystem) {
@@ -12374,6 +12830,7 @@ class _MessageBubble extends StatelessWidget {
               onSwipeReply?.call();
             } else if (velocity < -450 &&
                 attachment == null &&
+                contactCard == null &&
                 checklist == null) {
               onSwipeBack?.call();
             }
@@ -12520,6 +12977,8 @@ class _MessageBubble extends StatelessWidget {
                     ),
                   if (attachment != null)
                     _AttachmentContent(attachment: attachment)
+                  else if (contactCard != null)
+                    _ContactMessageCard(data: contactCard)
                   else if (checklist != null)
                     _LiveChecklistCard(
                       data: checklist,
@@ -12623,7 +13082,6 @@ class _MessageBubble extends StatelessWidget {
                       ),
                     ),
                   if (showLocationAddress &&
-                      (message.attachment?.isLocation ?? false) &&
                       message.locationAddress.trim().isNotEmpty)
                     Padding(
                       padding: const EdgeInsets.only(top: 3),
@@ -12717,7 +13175,6 @@ class _CollapsibleMessageTextState extends State<_CollapsibleMessageText> {
             ValueListenableBuilder<double>(
               valueListenable: appMessageScale,
               builder: (context, _, _) => SelectionArea(
-                contextMenuBuilder: (_, __) => const SizedBox.shrink(),
                 child: Text.rich(
                   _formattedMessageSpan(
                     widget.text,
@@ -13138,8 +13595,15 @@ class _FileTile extends StatelessWidget {
   }
 }
 
-
-enum _AttachmentPreviewKind { image, audio, location, pdf, text, office, binary }
+enum _AttachmentPreviewKind {
+  image,
+  audio,
+  location,
+  pdf,
+  text,
+  office,
+  binary,
+}
 
 class AttachmentPreviewScreen extends StatefulWidget {
   const AttachmentPreviewScreen({super.key, required this.attachment});
@@ -13147,7 +13611,8 @@ class AttachmentPreviewScreen extends StatefulWidget {
   final ChatAttachment attachment;
 
   @override
-  State<AttachmentPreviewScreen> createState() => _AttachmentPreviewScreenState();
+  State<AttachmentPreviewScreen> createState() =>
+      _AttachmentPreviewScreenState();
 }
 
 class _AttachmentPreviewScreenState extends State<AttachmentPreviewScreen> {
@@ -13159,9 +13624,8 @@ class _AttachmentPreviewScreenState extends State<AttachmentPreviewScreen> {
     _previewFuture = _loadPreview();
   }
 
-  String get _title => widget.attachment.name.isEmpty
-      ? 'File preview'
-      : widget.attachment.name;
+  String get _title =>
+      widget.attachment.name.isEmpty ? 'File preview' : widget.attachment.name;
 
   Future<_AttachmentPreviewData> _loadPreview() async {
     final attachment = widget.attachment;
@@ -13221,7 +13685,8 @@ class _AttachmentPreviewScreenState extends State<AttachmentPreviewScreen> {
 
     return _AttachmentPreviewData(
       kind: _AttachmentPreviewKind.binary,
-      text: 'This file opens inside the app, but a rich preview engine is not available for this type yet.',
+      text:
+          'This file opens inside the app, but a rich preview engine is not available for this type yet.',
     );
   }
 
@@ -13230,15 +13695,15 @@ class _AttachmentPreviewScreenState extends State<AttachmentPreviewScreen> {
       await _requestAttachmentStoragePermission(context);
       final path = await chatApi.downloadAttachment(widget.attachment);
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Downloaded to $path')),
-        );
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('Downloaded to $path')));
       }
     } on ApiException catch (error) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(error.message)),
-        );
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text(error.message)));
       }
     }
   }
@@ -13284,10 +13749,7 @@ class _AttachmentPreviewScreenState extends State<AttachmentPreviewScreen> {
 }
 
 class _AttachmentPreviewBody extends StatelessWidget {
-  const _AttachmentPreviewBody({
-    required this.attachment,
-    required this.data,
-  });
+  const _AttachmentPreviewBody({required this.attachment, required this.data});
 
   final ChatAttachment attachment;
   final _AttachmentPreviewData data;
@@ -13305,10 +13767,8 @@ class _AttachmentPreviewBody extends StatelessWidget {
               child: Image.memory(
                 data.bytes ?? Uint8List(0),
                 fit: BoxFit.contain,
-                errorBuilder: (_, _, _) => const Icon(
-                  Icons.broken_image_outlined,
-                  size: 72,
-                ),
+                errorBuilder: (_, _, _) =>
+                    const Icon(Icons.broken_image_outlined, size: 72),
               ),
             ),
           ),
@@ -13320,7 +13780,10 @@ class _AttachmentPreviewBody extends StatelessWidget {
       case _AttachmentPreviewKind.pdf:
         return kIsWeb
             ? SizedBox.expand(
-                child: buildEmbeddedFilePreview(attachment.url, attachment.name),
+                child: buildEmbeddedFilePreview(
+                  attachment.url,
+                  attachment.name,
+                ),
               )
             : const _AttachmentPreviewText(
                 text:
@@ -13341,7 +13804,8 @@ class _AudioAttachmentPreview extends StatefulWidget {
   final ChatAttachment attachment;
 
   @override
-  State<_AudioAttachmentPreview> createState() => _AudioAttachmentPreviewState();
+  State<_AudioAttachmentPreview> createState() =>
+      _AudioAttachmentPreviewState();
 }
 
 class _AudioAttachmentPreviewState extends State<_AudioAttachmentPreview> {
@@ -13376,7 +13840,10 @@ class _AudioAttachmentPreviewState extends State<_AudioAttachmentPreview> {
     }
     final bytes = await chatApi.readAttachmentBytes(widget.attachment);
     final baseDir = await getTemporaryDirectory();
-    final safeName = widget.attachment.name.replaceAll(RegExp(r'[<>:"/\|?*]'), '_');
+    final safeName = widget.attachment.name.replaceAll(
+      RegExp(r'[<>:"/\|?*]'),
+      '_',
+    );
     final file = File(
       '${baseDir.path}${Platform.pathSeparator}${DateTime.now().millisecondsSinceEpoch}_$safeName',
     );
@@ -13433,7 +13900,9 @@ class _AudioAttachmentPreviewState extends State<_AudioAttachmentPreview> {
         final maxMs = duration.inMilliseconds > 0
             ? duration.inMilliseconds.toDouble()
             : 1.0;
-        final valueMs = position.inMilliseconds.clamp(0, maxMs.toInt()).toDouble();
+        final valueMs = position.inMilliseconds
+            .clamp(0, maxMs.toInt())
+            .toDouble();
         return Center(
           child: Padding(
             padding: const EdgeInsets.all(18),
@@ -13461,7 +13930,9 @@ class _AudioAttachmentPreviewState extends State<_AudioAttachmentPreview> {
                           child: IconButton(
                             onPressed: _toggle,
                             icon: Icon(
-                              _playing ? Icons.pause_rounded : Icons.play_arrow_rounded,
+                              _playing
+                                  ? Icons.pause_rounded
+                                  : Icons.play_arrow_rounded,
                             ),
                             color: Colors.white,
                           ),
@@ -13473,7 +13944,9 @@ class _AudioAttachmentPreviewState extends State<_AudioAttachmentPreview> {
                             children: [
                               Text(
                                 widget.attachment.name,
-                                style: const TextStyle(fontWeight: FontWeight.w700),
+                                style: const TextStyle(
+                                  fontWeight: FontWeight.w700,
+                                ),
                               ),
                               const SizedBox(height: 4),
                               Text(
@@ -13520,30 +13993,128 @@ class _LocationAttachmentPreview extends StatelessWidget {
 
   final ChatAttachment attachment;
 
-  String _staticMapUrl() {
-    final lat = attachment.latitude;
-    final lon = attachment.longitude;
-    if (lat == null || lon == null) return '';
-    return 'https://staticmap.openstreetmap.de/staticmap.php?center=${lat.toStringAsFixed(5)},${lon.toStringAsFixed(5)}&zoom=15&size=900x420&markers=${lat.toStringAsFixed(5)},${lon.toStringAsFixed(5)},red-pushpin';
+  int _tileX(double longitude, int zoom) {
+    return ((longitude + 180.0) / 360.0 * (1 << zoom)).floor();
   }
 
-  Future<void> _openMap() async {
-    final url = attachment.url.isNotEmpty ? attachment.url : _staticMapUrl();
-    if (url.isEmpty) return;
-    await launchUrl(Uri.parse(url), mode: LaunchMode.externalApplication);
+  int _tileY(double latitude, int zoom) {
+    final latRad = latitude * pi / 180.0;
+    return ((1.0 - log(tan(latRad) + 1.0 / cos(latRad)) / pi) /
+            2.0 *
+            (1 << zoom))
+        .floor();
+  }
+
+  String _tileUrl(int x, int y, int zoom) {
+    return 'https://tile.openstreetmap.org/$zoom/$x/$y.png';
+  }
+
+  String get _title =>
+      attachment.isLiveLocation ? 'Live location' : 'Current location';
+
+  String get _detail {
+    if (attachment.locationAddress.isNotEmpty)
+      return attachment.locationAddress;
+    if (attachment.latitude != null && attachment.longitude != null) {
+      return '${attachment.latitude!.toStringAsFixed(5)}, ${attachment.longitude!.toStringAsFixed(5)}';
+    }
+    return _title;
+  }
+
+  Widget _mapTiles({required double height}) {
+    final lat = attachment.latitude;
+    final lon = attachment.longitude;
+    if (lat == null || lon == null) {
+      return _mapFallback(height: height);
+    }
+    const zoom = 15;
+    final centerX = _tileX(lon, zoom);
+    final centerY = _tileY(lat, zoom);
+    return SizedBox(
+      height: height,
+      child: Stack(
+        fit: StackFit.expand,
+        children: [
+          GridView.count(
+            crossAxisCount: 3,
+            physics: const NeverScrollableScrollPhysics(),
+            padding: EdgeInsets.zero,
+            children: [
+              for (var y = centerY - 1; y <= centerY + 1; y++)
+                for (var x = centerX - 1; x <= centerX + 1; x++)
+                  Image.network(
+                    _tileUrl(x, y, zoom),
+                    fit: BoxFit.cover,
+                    errorBuilder: (_, __, ___) =>
+                        Container(color: const Color(0xFFE8E2C6)),
+                  ),
+            ],
+          ),
+          const Center(
+            child: Icon(
+              Icons.location_on,
+              color: Colors.redAccent,
+              size: 54,
+              shadows: [Shadow(color: Colors.white, blurRadius: 6)],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _mapFallback({required double height}) {
+    return Container(
+      height: height,
+      color: const Color(0xFFE8E2C6),
+      child: const Center(
+        child: Icon(Icons.location_on, size: 58, color: Colors.redAccent),
+      ),
+    );
+  }
+
+  Future<void> _openMap(BuildContext context) async {
+    await showDialog<void>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: Text(_title),
+        content: SizedBox(
+          width: 560,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              ClipRRect(
+                borderRadius: BorderRadius.circular(10),
+                child: _mapTiles(height: 320),
+              ),
+              const SizedBox(height: 12),
+              SelectableText(_detail),
+              if (attachment.isLiveLocation && attachment.liveMinutes > 0) ...[
+                const SizedBox(height: 8),
+                Text(
+                  'Expires after ${attachment.liveMinutes} minutes. Updates every 1 minute.',
+                  style: Theme.of(context).textTheme.bodySmall,
+                ),
+              ],
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext),
+            child: const Text('Close'),
+          ),
+        ],
+      ),
+    );
   }
 
   @override
   Widget build(BuildContext context) {
-    final mapUrl = _staticMapUrl();
-    final title = attachment.isLiveLocation ? 'Live location' : 'Current location';
-    final detail = attachment.locationAddress.isNotEmpty
-        ? attachment.locationAddress
-        : attachment.latitude != null && attachment.longitude != null
-            ? '${attachment.latitude!.toStringAsFixed(5)}, ${attachment.longitude!.toStringAsFixed(5)}'
-            : title;
+    final detail = _detail;
     return InkWell(
-      onTap: _openMap,
+      onTap: () => _openMap(context),
       borderRadius: BorderRadius.circular(10),
       child: ClipRRect(
         borderRadius: BorderRadius.circular(10),
@@ -13553,38 +14124,7 @@ class _LocationAttachmentPreview extends StatelessWidget {
           child: Stack(
             fit: StackFit.expand,
             children: [
-              if (mapUrl.isEmpty)
-                Container(
-                  color: const Color(0xFFE8E2C6),
-                  child: const Center(
-                    child: Icon(Icons.location_on, size: 58, color: Colors.redAccent),
-                  ),
-                )
-              else
-                Image.network(
-                  mapUrl,
-                  fit: BoxFit.cover,
-                  loadingBuilder: (_, child, progress) => progress == null
-                      ? child
-                      : Container(
-                          color: const Color(0xFFE8E2C6),
-                          child: const Center(child: CircularProgressIndicator()),
-                        ),
-                  errorBuilder: (_, __, ___) => Container(
-                    color: const Color(0xFFE8E2C6),
-                    child: const Center(
-                      child: Icon(Icons.location_on, size: 58, color: Colors.redAccent),
-                    ),
-                  ),
-                ),
-              const Center(
-                child: Icon(
-                  Icons.location_on,
-                  color: Colors.redAccent,
-                  size: 54,
-                  shadows: [Shadow(color: Colors.white, blurRadius: 6)],
-                ),
-              ),
+              _mapTiles(height: 190),
               Positioned(
                 left: 0,
                 right: 0,
@@ -13594,7 +14134,10 @@ class _LocationAttachmentPreview extends StatelessWidget {
                     gradient: LinearGradient(
                       begin: Alignment.topCenter,
                       end: Alignment.bottomCenter,
-                      colors: [Colors.transparent, Colors.black.withValues(alpha: 0.45)],
+                      colors: [
+                        Colors.transparent,
+                        Colors.black.withValues(alpha: 0.45),
+                      ],
                     ),
                   ),
                   child: Padding(
@@ -13608,7 +14151,7 @@ class _LocationAttachmentPreview extends StatelessWidget {
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
                               Text(
-                                title,
+                                _title,
                                 maxLines: 1,
                                 overflow: TextOverflow.ellipsis,
                                 style: const TextStyle(
@@ -13622,22 +14165,32 @@ class _LocationAttachmentPreview extends StatelessWidget {
                                   detail,
                                   maxLines: 1,
                                   overflow: TextOverflow.ellipsis,
-                                  style: const TextStyle(color: Colors.white, fontSize: 10),
+                                  style: const TextStyle(
+                                    color: Colors.white,
+                                    fontSize: 10,
+                                  ),
                                 ),
                             ],
                           ),
                         ),
-                        if (attachment.isLiveLocation && attachment.liveMinutes > 0)
+                        if (attachment.isLiveLocation &&
+                            attachment.liveMinutes > 0)
                           Container(
                             margin: const EdgeInsets.only(right: 6),
-                            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 3),
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 6,
+                              vertical: 3,
+                            ),
                             decoration: BoxDecoration(
                               color: Colors.black.withValues(alpha: 0.38),
                               borderRadius: BorderRadius.circular(999),
                             ),
                             child: Text(
                               '${attachment.liveMinutes} min',
-                              style: const TextStyle(color: Colors.white, fontSize: 10),
+                              style: const TextStyle(
+                                color: Colors.white,
+                                fontSize: 10,
+                              ),
                             ),
                           ),
                       ],
@@ -13663,7 +14216,6 @@ class _AttachmentPreviewText extends StatelessWidget {
     return Padding(
       padding: const EdgeInsets.all(16),
       child: SelectionArea(
-        contextMenuBuilder: (_, __) => const SizedBox.shrink(),
         child: SingleChildScrollView(
           child: Container(
             width: double.infinity,
@@ -13732,11 +14284,7 @@ class _AttachmentPreviewError extends StatelessWidget {
 }
 
 class _AttachmentPreviewData {
-  const _AttachmentPreviewData({
-    required this.kind,
-    this.bytes,
-    this.text,
-  });
+  const _AttachmentPreviewData({required this.kind, this.bytes, this.text});
 
   final _AttachmentPreviewKind kind;
   final Uint8List? bytes;
@@ -13806,34 +14354,58 @@ String _extractXlsxText(Uint8List bytes) {
     final shared = archive.findFile('xl/sharedStrings.xml');
     final sharedStrings = <String>[];
     if (shared != null) {
-      final sharedXml = utf8.decode(shared.content as List<int>, allowMalformed: true);
-      for (final match in RegExp(r'<t[^>]*>([\s\S]*?)</t>').allMatches(sharedXml)) {
+      final sharedXml = utf8.decode(
+        shared.content as List<int>,
+        allowMalformed: true,
+      );
+      for (final match in RegExp(
+        r'<t[^>]*>([\s\S]*?)</t>',
+      ).allMatches(sharedXml)) {
         sharedStrings.add(_xmlUnescape(match.group(1) ?? ''));
       }
     }
-    final sheets = archive.files
-        .where((file) => file.name.startsWith('xl/worksheets/sheet') && file.name.endsWith('.xml'))
-        .toList()
-      ..sort((a, b) => a.name.compareTo(b.name));
+    final sheets =
+        archive.files
+            .where(
+              (file) =>
+                  file.name.startsWith('xl/worksheets/sheet') &&
+                  file.name.endsWith('.xml'),
+            )
+            .toList()
+          ..sort((a, b) => a.name.compareTo(b.name));
     if (sheets.isEmpty) return '';
-    final xml = utf8.decode(sheets.first.content as List<int>, allowMalformed: true);
+    final xml = utf8.decode(
+      sheets.first.content as List<int>,
+      allowMalformed: true,
+    );
     final rows = <String>[];
-    for (final rowMatch in RegExp(r'<row[^>]*>([\s\S]*?)</row>').allMatches(xml)) {
+    for (final rowMatch in RegExp(
+      r'<row[^>]*>([\s\S]*?)</row>',
+    ).allMatches(xml)) {
       final rowXml = rowMatch.group(1) ?? '';
       final cells = <String>[];
-      for (final cellMatch in RegExp(r'<c[^>]*?(?:t="([^"]+)")?[^>]*>([\s\S]*?)</c>').allMatches(rowXml)) {
+      for (final cellMatch in RegExp(
+        r'<c[^>]*?(?:t="([^"]+)")?[^>]*>([\s\S]*?)</c>',
+      ).allMatches(rowXml)) {
         final cellType = cellMatch.group(1) ?? '';
         final cellXml = cellMatch.group(2) ?? '';
-        final sharedIndex = RegExp(r'<v>(\d+)</v>').firstMatch(cellXml)?.group(1);
-        final inline = RegExp(r'<t[^>]*>([\s\S]*?)</t>').firstMatch(cellXml)?.group(1);
+        final sharedIndex = RegExp(
+          r'<v>(\d+)</v>',
+        ).firstMatch(cellXml)?.group(1);
+        final inline = RegExp(
+          r'<t[^>]*>([\s\S]*?)</t>',
+        ).firstMatch(cellXml)?.group(1);
         var value = '';
         if (cellType == 's' && sharedIndex != null) {
           final index = int.tryParse(sharedIndex) ?? -1;
-          if (index >= 0 && index < sharedStrings.length) value = sharedStrings[index];
+          if (index >= 0 && index < sharedStrings.length)
+            value = sharedStrings[index];
         } else if (inline != null) {
           value = _xmlUnescape(inline);
         } else {
-          value = _xmlUnescape(RegExp(r'<v>([\s\S]*?)</v>').firstMatch(cellXml)?.group(1) ?? '');
+          value = _xmlUnescape(
+            RegExp(r'<v>([\s\S]*?)</v>').firstMatch(cellXml)?.group(1) ?? '',
+          );
         }
         cells.add(value);
       }
@@ -13857,9 +14429,113 @@ String _xmlUnescape(String value) {
 }
 
 String _stripXmlTags(String value) {
-  return value.replaceAll(RegExp(r'<[^>]+>'), ' ').replaceAll(RegExp(r'\s+'), ' ').trim();
+  return value
+      .replaceAll(RegExp(r'<[^>]+>'), ' ')
+      .replaceAll(RegExp(r'\s+'), ' ')
+      .trim();
 }
 
+String _encodeContactCard(Map<String, dynamic> contact) {
+  return 'SKYLINK_CONTACT:${jsonEncode(contact)}';
+}
+
+Map<String, dynamic>? _decodeContactCard(String text) {
+  const prefix = 'SKYLINK_CONTACT:';
+  if (!text.startsWith(prefix)) return null;
+  try {
+    final value = jsonDecode(text.substring(prefix.length));
+    if (value is! Map) return null;
+    final data = Map<String, dynamic>.from(value);
+    data['phones'] = data['phones'] is List
+        ? (data['phones'] as List).map((item) => '$item').toList()
+        : <String>[];
+    data['emails'] = data['emails'] is List
+        ? (data['emails'] as List).map((item) => '$item').toList()
+        : <String>[];
+    return data;
+  } catch (_) {
+    return null;
+  }
+}
+
+class _ContactMessageCard extends StatelessWidget {
+  const _ContactMessageCard({required this.data});
+
+  final Map<String, dynamic> data;
+
+  @override
+  Widget build(BuildContext context) {
+    final name = '${data['name'] ?? 'Contact'}'.trim();
+    final phones = data['phones'] is List ? data['phones'] as List : const [];
+    final emails = data['emails'] is List ? data['emails'] as List : const [];
+    return Container(
+      width: 280,
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: AppColors.primary.withValues(alpha: 0.08),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: AppColors.primary.withValues(alpha: 0.18)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Row(
+            children: [
+              const CircleAvatar(
+                radius: 19,
+                backgroundColor: AppColors.primary,
+                child: Icon(Icons.person_rounded, color: Colors.white),
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Text(
+                  name.isEmpty ? 'Contact' : name,
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(fontWeight: FontWeight.w800),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 10),
+          ...phones.map(
+            (phone) => Padding(
+              padding: const EdgeInsets.only(bottom: 4),
+              child: Row(
+                children: [
+                  const Icon(
+                    Icons.call_outlined,
+                    size: 16,
+                    color: AppColors.primary,
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(child: Text('$phone')),
+                ],
+              ),
+            ),
+          ),
+          ...emails.map(
+            (email) => Padding(
+              padding: const EdgeInsets.only(bottom: 4),
+              child: Row(
+                children: [
+                  const Icon(
+                    Icons.mail_outline_rounded,
+                    size: 16,
+                    color: AppColors.primary,
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(child: Text('$email')),
+                ],
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
 
 Map<String, dynamic>? _decodeLiveChecklist(String text) {
   const prefix = 'SKYLINK_CHECKLIST:';
@@ -14097,19 +14773,25 @@ class _MessageComposer extends StatelessWidget {
                                   return KeyEventResult.ignored;
                                 }
                                 final isEnter =
-                                    event.logicalKey == LogicalKeyboardKey.enter ||
-                                    event.logicalKey == LogicalKeyboardKey.numpadEnter;
+                                    event.logicalKey ==
+                                        LogicalKeyboardKey.enter ||
+                                    event.logicalKey ==
+                                        LogicalKeyboardKey.numpadEnter;
                                 if (!isEnter) {
                                   return KeyEventResult.ignored;
                                 }
                                 final insertNewLine =
-                                    HardwareKeyboard.instance.isControlPressed ||
+                                    HardwareKeyboard
+                                        .instance
+                                        .isControlPressed ||
                                     HardwareKeyboard.instance.isMetaPressed;
                                 if (insertNewLine) {
                                   final value = controller.value;
                                   final selection = value.selection.isValid
                                       ? value.selection
-                                      : TextSelection.collapsed(offset: value.text.length);
+                                      : TextSelection.collapsed(
+                                          offset: value.text.length,
+                                        );
                                   final text = value.text.replaceRange(
                                     selection.start,
                                     selection.end,
@@ -14134,11 +14816,14 @@ class _MessageComposer extends StatelessWidget {
                                 minLines: 1,
                                 maxLines: 5,
                                 keyboardType: TextInputType.multiline,
-                                textCapitalization: TextCapitalization.sentences,
+                                textCapitalization:
+                                    TextCapitalization.sentences,
                                 decoration: const InputDecoration(
                                   hintText: 'Message',
                                   filled: false,
-                                  contentPadding: EdgeInsets.symmetric(vertical: 13),
+                                  contentPadding: EdgeInsets.symmetric(
+                                    vertical: 13,
+                                  ),
                                   border: InputBorder.none,
                                   enabledBorder: InputBorder.none,
                                   focusedBorder: InputBorder.none,
@@ -14188,7 +14873,9 @@ class _MessageComposer extends StatelessWidget {
                         width: 50,
                         height: 50,
                         child: Icon(
-                          isRecordingVoice ? Icons.stop_rounded : Icons.mic_rounded,
+                          isRecordingVoice
+                              ? Icons.stop_rounded
+                              : Icons.mic_rounded,
                           color: Colors.white,
                           size: 23,
                         ),
@@ -14221,9 +14908,7 @@ class _MessageComposer extends StatelessWidget {
               ),
             ),
             if (showEmojiPicker)
-              MojibakeEmojiPicker(
-                onEmojiSelected: onEmojiSelected,
-              ),
+              MojibakeEmojiPicker(onEmojiSelected: onEmojiSelected),
           ],
         );
       },
@@ -14246,7 +14931,9 @@ class _SelectionToolbarAction extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final foreground = destructive ? const Color(0xFFB3261E) : AppColors.primary;
+    final foreground = destructive
+        ? const Color(0xFFB3261E)
+        : AppColors.primary;
     final background = destructive
         ? const Color(0x11B3261E)
         : AppColors.primary.withValues(alpha: 0.08);
@@ -14260,10 +14947,14 @@ class _SelectionToolbarAction extends StatelessWidget {
           foregroundColor: foreground,
           backgroundColor: background,
           disabledForegroundColor: AppColors.muted,
-          disabledBackgroundColor: Theme.of(context).colorScheme.surfaceContainerHighest,
+          disabledBackgroundColor: Theme.of(
+            context,
+          ).colorScheme.surfaceContainerHighest,
           visualDensity: VisualDensity.compact,
           padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(12),
+          ),
         ),
       ),
     );
@@ -14302,16 +14993,3 @@ String _formatFileSize(int bytes) {
   final mb = kb / 1024;
   return '${mb.toStringAsFixed(1)} MB';
 }
-
-
-
-
-
-
-
-
-
-
-
-
-

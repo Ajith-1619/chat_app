@@ -109,9 +109,15 @@ if ($view === 'mentions') {
         "SELECT * FROM xmpp_messages
          WHERE deleted_at IS NULL AND from_jid <> :me
            AND mentions_json IS NOT NULL AND JSON_CONTAINS(mentions_json, :needle)
+           AND (COALESCE(xmpp_messages.visibility_mode, 'all') <> 'selected' OR xmpp_messages.from_jid = :visibility_me_jid OR EXISTS (SELECT 1 FROM xmpp_message_recipients vmr WHERE vmr.message_id = xmpp_messages.id AND vmr.emp_id = :visibility_emp_id))
          ORDER BY id DESC LIMIT {$limit}"
     );
-    $stmt->execute([':me' => $me, ':needle' => $needle]);
+    $stmt->execute([
+        ':me' => $me,
+        ':needle' => $needle,
+        ':visibility_me_jid' => $me,
+        ':visibility_emp_id' => $empId,
+    ]);
     chat_json(['status' => true, 'results' => array_map('discovery_message', $stmt->fetchAll(PDO::FETCH_ASSOC) ?: [])]);
 }
 
@@ -120,9 +126,14 @@ if ($view === 'pins') {
         "SELECT m.* FROM xmpp_message_pins p
          INNER JOIN xmpp_messages m ON m.id = p.message_id
          WHERE p.conversation_jid = :jid AND m.deleted_at IS NULL
+           AND (COALESCE(m.visibility_mode, 'all') <> 'selected' OR m.from_jid = :visibility_me_jid OR EXISTS (SELECT 1 FROM xmpp_message_recipients vmr WHERE vmr.message_id = m.id AND vmr.emp_id = :visibility_emp_id))
          ORDER BY p.pinned_at DESC LIMIT {$limit}"
     );
-    $stmt->execute([':jid' => $jid]);
+    $stmt->execute([
+        ':jid' => $jid,
+        ':visibility_me_jid' => $me,
+        ':visibility_emp_id' => $empId,
+    ]);
     chat_json(['status' => true, 'results' => array_map('discovery_message', $stmt->fetchAll(PDO::FETCH_ASSOC) ?: [])]);
 }
 
@@ -135,9 +146,14 @@ if ($view === 'media') {
         $stmt = $pdo->prepare(
             "SELECT * FROM xmpp_messages
              WHERE deleted_at IS NULL AND to_jid = :room
+               AND (COALESCE(xmpp_messages.visibility_mode, 'all') <> 'selected' OR xmpp_messages.from_jid = :visibility_me_jid OR EXISTS (SELECT 1 FROM xmpp_message_recipients vmr WHERE vmr.message_id = xmpp_messages.id AND vmr.emp_id = :visibility_emp_id))
              ORDER BY id DESC LIMIT {$limit}"
         );
-        $stmt->execute([':room' => $jid]);
+        $stmt->execute([
+            ':room' => $jid,
+            ':visibility_me_jid' => $me,
+            ':visibility_emp_id' => $empId,
+        ]);
     } else {
         $stmt = $pdo->prepare(
             "SELECT * FROM xmpp_messages
@@ -167,6 +183,7 @@ if ($query !== '') {
         "SELECT * FROM xmpp_messages
          WHERE deleted_at IS NULL
            AND (body LIKE :q_body OR file_name LIKE :q_file)
+           AND (COALESCE(xmpp_messages.visibility_mode, 'all') <> 'selected' OR xmpp_messages.from_jid = :visibility_me_jid OR EXISTS (SELECT 1 FROM xmpp_message_recipients vmr WHERE vmr.message_id = xmpp_messages.id AND vmr.emp_id = :visibility_emp_id))
            AND (
                 from_jid = :me_from OR to_jid = :me_to OR
                 to_jid IN (
@@ -184,6 +201,8 @@ if ($query !== '') {
         ':me_from' => $me,
         ':me_to' => $me,
         ':emp_id' => $empId,
+        ':visibility_me_jid' => $me,
+        ':visibility_emp_id' => $empId,
     ]);
     $messages = discovery_enrich_messages(array_map('discovery_message', $stmt->fetchAll(PDO::FETCH_ASSOC) ?: []), $empId, $me);
 }

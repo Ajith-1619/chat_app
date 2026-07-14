@@ -13,9 +13,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'GET') {
         'SELECT id, from_jid, to_jid, status, created_at, read_at, edited_at,
                 latitude, longitude, location_address, read_latitude, read_longitude, read_location_address,
                 source_device, source_name, read_source_device, read_source_name
-         FROM xmpp_messages WHERE id = :id AND deleted_at IS NULL LIMIT 1'
+         FROM xmpp_messages WHERE id = :id AND deleted_at IS NULL AND (COALESCE(visibility_mode, \'all\') <> \'selected\' OR from_jid = :visibility_me_jid OR EXISTS (SELECT 1 FROM xmpp_message_recipients vmr WHERE vmr.message_id = xmpp_messages.id AND vmr.emp_id = :visibility_emp_id)) LIMIT 1'
     );
-    $stmt->execute([':id' => $messageId]);
+    $stmt->execute([
+        ':id' => $messageId,
+        ':visibility_me_jid' => chat_jid($empId),
+        ':visibility_emp_id' => $empId,
+    ]);
     $message = $stmt->fetch(PDO::FETCH_ASSOC);
     if (!$message) chat_json(['status' => false, 'error' => 'Message not found'], 404);
 
@@ -102,8 +106,12 @@ if (!is_array($input)) chat_json(['status' => false, 'error' => 'Invalid JSON'],
 $messageId = max(0, (int)($input['message_id'] ?? 0));
 $action = strtolower(trim((string)($input['action'] ?? '')));
 if ($messageId <= 0) chat_json(['status' => false, 'error' => 'Message is required'], 422);
-$exists = $pdo->prepare('SELECT 1 FROM xmpp_messages WHERE id = :id AND deleted_at IS NULL');
-$exists->execute([':id' => $messageId]);
+$exists = $pdo->prepare('SELECT 1 FROM xmpp_messages WHERE id = :id AND deleted_at IS NULL AND (COALESCE(visibility_mode, \'all\') <> \'selected\' OR from_jid = :visibility_me_jid OR EXISTS (SELECT 1 FROM xmpp_message_recipients vmr WHERE vmr.message_id = xmpp_messages.id AND vmr.emp_id = :visibility_emp_id))');
+$exists->execute([
+    ':id' => $messageId,
+    ':visibility_me_jid' => chat_jid($empId),
+    ':visibility_emp_id' => $empId,
+]);
 if (!$exists->fetchColumn()) chat_json(['status' => false, 'error' => 'Message not found'], 404);
 
 if ($action === 'reaction') {

@@ -13,7 +13,6 @@ if (!is_array($in)) chat_json(['status' => false, 'error' => 'Invalid JSON'], 42
 $groupName = trim((string)($in['group_name'] ?? ''));
 $members = array_values(array_unique(array_filter(array_map('intval', (array)($in['members'] ?? [])), static fn(int $id): bool => $id > 0)));
 if ($groupName === '') chat_json(['status' => false, 'error' => 'Group name is required'], 422);
-if (!$members) chat_json(['status' => false, 'error' => 'Select at least one member'], 422);
 $members[] = (int)$session['emp_id'];
 $members = array_values(array_unique($members));
 

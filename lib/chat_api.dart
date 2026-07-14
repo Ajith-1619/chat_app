@@ -522,6 +522,7 @@ class ApiMessage {
     this.originalSourceName = '',
     this.forwardedFromMessageId = '',
     this.messageType = 'chat',
+    this.visibilityMode = 'all',
   });
 
   factory ApiMessage.fromJson(Map<String, dynamic> json) {
@@ -559,6 +560,7 @@ class ApiMessage {
       originalSourceName: '${json['original_source_name'] ?? ''}',
       forwardedFromMessageId: '${json['forwarded_from_message_id'] ?? ''}',
       messageType: '${json['message_type'] ?? 'chat'}',
+      visibilityMode: '${json['visibility_mode'] ?? 'all'}',
     );
   }
 
@@ -590,6 +592,7 @@ class ApiMessage {
   final String originalSourceName;
   final String forwardedFromMessageId;
   final String messageType;
+  final String visibilityMode;
 
   bool get isMine => side.toLowerCase() == 'me';
   bool get isEdited => editedAt.trim().isNotEmpty;
@@ -622,6 +625,7 @@ class ApiMessage {
     'original_source_name': originalSourceName,
     'forwarded_from_message_id': forwardedFromMessageId,
     'message_type': messageType,
+    'visibility_mode': visibilityMode,
   };
   ChatAttachment? get attachment {
     final encoded = ChatAttachment.tryParse(body);
@@ -683,21 +687,34 @@ class SavedMessage {
     required this.id,
     required this.body,
     required this.createdAt,
+    this.fileUrl = '',
+    this.fileName = '',
+    this.fileType = '',
   });
 
   factory SavedMessage.fromJson(Map<String, dynamic> json) => SavedMessage(
     id: _jsonInt(json['id']),
     body: '${json['body'] ?? ''}',
     createdAt: '${json['created_at'] ?? ''}',
+    fileUrl: '${json['file_url'] ?? ''}',
+    fileName: '${json['file_name'] ?? ''}',
+    fileType: '${json['file_type'] ?? ''}',
   );
 
   final int id;
   final String body;
   final String createdAt;
+  final String fileUrl;
+  final String fileName;
+  final String fileType;
+  bool get hasFile => fileUrl.trim().isNotEmpty;
   Map<String, dynamic> toJson() => {
     'id': id,
     'body': body,
     'created_at': createdAt,
+    'file_url': fileUrl,
+    'file_name': fileName,
+    'file_type': fileType,
   };
 }
 
@@ -1316,8 +1333,8 @@ class ChatApi {
     required List<String> memberIds,
   }) async {
     final trimmedName = name.trim();
-    if (trimmedName.isEmpty || memberIds.isEmpty) {
-      throw const ApiException('Enter a group name and select members.');
+    if (trimmedName.isEmpty) {
+      throw const ApiException('Enter a group name.');
     }
     final payload = {'group_name': trimmedName, 'members': memberIds};
     final Map<String, dynamic> body;
@@ -1334,7 +1351,8 @@ class ChatApi {
     return ChatContact(
       empId: '${body['group_id'] ?? ''}',
       name: '${body['room_name'] ?? trimmedName}',
-      designation: '${memberIds.length + 1} members',
+      designation:
+          '${memberIds.length + 1} member${memberIds.isEmpty ? '' : 's'}',
       jid: '${body['room_jid'] ?? ''}',
       type: 'group',
       lastMessage: 'Group created',
@@ -1354,8 +1372,8 @@ class ChatApi {
     int staleAlertMinutes = 0,
   }) async {
     final trimmedName = name.trim().replaceFirst(RegExp(r'^#'), '');
-    if (trimmedName.isEmpty || memberEmployeeIds.isEmpty) {
-      throw const ApiException('Enter a channel name and select members.');
+    if (trimmedName.isEmpty) {
+      throw const ApiException('Enter a channel name.');
     }
     final body = await _postJson('chat/create_channel.php', {
       'channel_name': trimmedName,
@@ -1576,6 +1594,7 @@ class ChatApi {
     double? readLatitude,
     double? readLongitude,
     String readLocationAddress = '',
+    int targetMessageId = 0,
   }) async {
     _validateJid(jid);
     if (jid.toLowerCase() == systemNotificationJid &&
@@ -1591,7 +1610,7 @@ class ChatApi {
         // Fall back to the server history cache after XMPP/MAM failure.
       }
     }
-    if (_useDirectWebXmpp) {
+    if (_useDirectWebXmpp && jid.toLowerCase() != systemNotificationJid) {
       try {
         final result = (await _xmpp.getHistory(
           jid,
@@ -1612,6 +1631,7 @@ class ChatApi {
       'chat/history.php',
       query: {
         'jid': jid,
+        if (targetMessageId > 0) 'target_message_id': '$targetMessageId',
         if (!markRead) 'peek': '1',
         if (markRead && readLatitude != null) 'read_latitude': '$readLatitude',
         if (markRead && readLongitude != null)
@@ -1707,6 +1727,7 @@ class ChatApi {
     String originalSenderJid = '',
     String originalSenderName = '',
     String originalSourceName = '',
+    List<String> recipientEmpIds = const [],
   }) async {
     _validateJid(to);
     if (to.toLowerCase() == systemNotificationJid) {
@@ -1720,7 +1741,7 @@ class ChatApi {
       throw const ApiException('Message cannot be empty.');
     }
 
-    if (_useDirectWebXmpp) {
+    if (_useDirectWebXmpp && recipientEmpIds.isEmpty) {
       try {
         await _xmpp.sendMessage(to, trimmedMessage);
         connectionStatus.value = 'connected';
@@ -1773,6 +1794,10 @@ class ChatApi {
               'original_sender_name': originalSenderName,
             if (originalSourceName.isNotEmpty)
               'original_source_name': originalSourceName,
+            if (recipientEmpIds.isNotEmpty) ...{
+              'visibility_mode': 'selected',
+              'recipient_emp_ids': recipientEmpIds,
+            },
             'source_device': device.platform,
             'source_name': sourceName,
           }),
@@ -2178,8 +2203,54 @@ class ChatApi {
         .toList();
   }
 
-  Future<void> saveMessage(String message) async {
-    await _postJson('chat/saved_messages.php', {'message': message.trim()});
+  Future<void> saveMessage(
+    String message, {
+    String fileUrl = '',
+    String fileName = '',
+    String fileType = '',
+  }) async {
+    await _postJson('chat/saved_messages.php', {
+      'message': message.trim(),
+      if (fileUrl.trim().isNotEmpty) 'file_url': fileUrl.trim(),
+      if (fileName.trim().isNotEmpty) 'file_name': fileName.trim(),
+      if (fileType.trim().isNotEmpty) 'file_type': fileType.trim(),
+    });
+  }
+
+  Future<void> saveAttachmentMessage({
+    required String name,
+    required String mimeType,
+    required List<int> bytes,
+    String message = '',
+  }) async {
+    if (bytes.isEmpty) throw const ApiException('The selected file is empty.');
+    final request = http.MultipartRequest('POST', _uri('chat/upload_file.php'));
+    request.headers.addAll(_headers());
+    request.files.add(
+      http.MultipartFile.fromBytes('file', bytes, filename: name),
+    );
+    final streamed = await _client
+        .send(request)
+        .timeout(const Duration(minutes: 30));
+    final response = await http.Response.fromStream(streamed);
+    _captureCookie(response);
+    final body = _decode(response);
+    if (response.statusCode < 200 ||
+        response.statusCode >= 300 ||
+        body['status'] != true) {
+      throw ApiException(
+        _errorMessage(body, fallback: 'Unable to upload the file.'),
+        statusCode: response.statusCode,
+      );
+    }
+    final url = '${body['url'] ?? ''}'.trim();
+    if (url.isEmpty) throw const ApiException('Upload URL was not returned.');
+    await saveMessage(
+      message,
+      fileUrl: url,
+      fileName: name,
+      fileType: mimeType,
+    );
   }
 
   Future<UserProfile> getProfile() async {

@@ -41,7 +41,7 @@ String repairMojibakeText(String value) {
 String cleanMojibakeText(Object? value) => repairMojibakeText('${value ?? ''}').trim();
 
 int _mojibakeScore(String value) {
-  const suspiciousTokens = <String>['Ã', 'Â', 'â', 'ð', '�'];
+  const suspiciousTokens = <String>['Ãƒ', 'Ã‚', 'Ã¢', 'Ã°', 'ï¿½'];
   var score = 0;
   for (final token in suspiciousTokens) {
     score += token.allMatches(value).length;

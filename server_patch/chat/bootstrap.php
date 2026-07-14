@@ -317,6 +317,17 @@ function chat_push_recipient_ids(PDO $pdo, string $toJid, int $senderEmpId): arr
     return array_values(array_unique(array_map('intval', $stmt->fetchAll(PDO::FETCH_COLUMN) ?: [])));
 }
 
+function chat_message_visibility_sql(string $messageAlias = 'm'): string
+{
+    $alias = preg_replace('/[^A-Za-z0-9_]/', '', $messageAlias) ?: 'm';
+    return "(COALESCE({$alias}.visibility_mode, 'all') <> 'selected' OR {$alias}.from_jid = :visibility_me_jid OR EXISTS (SELECT 1 FROM xmpp_message_recipients vmr WHERE vmr.message_id = {$alias}.id AND vmr.emp_id = :visibility_emp_id))";
+}
+
+function chat_visible_message_condition(string $messageAlias = 'm'): string
+{
+    return chat_message_visibility_sql($messageAlias);
+}
+
 function chat_send_push_notifications(
     PDO $pdo,
     int $senderEmpId,
@@ -325,9 +336,12 @@ function chat_send_push_notifications(
     string $body,
     string $fileName = '',
     string $groupName = '',
-    array $mentionedEmpIds = []
+    array $mentionedEmpIds = [],
+    array $recipientEmpIds = []
 ): void {
-    $recipients = chat_push_recipient_ids($pdo, $toJid, $senderEmpId);
+    $recipients = $recipientEmpIds
+        ? array_values(array_unique(array_filter(array_map('intval', $recipientEmpIds), static fn(int $id): bool => $id > 0 && $id !== $senderEmpId)))
+        : chat_push_recipient_ids($pdo, $toJid, $senderEmpId);
     if (!$recipients) return;
     $placeholders = implode(',', array_fill(0, count($recipients), '?'));
     $stmt = $pdo->prepare(
@@ -382,6 +396,7 @@ function chat_ensure_push_queue(PDO $pdo): void
             INDEX idx_push_queue_created (created_at)
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci'
     );
+    chat_ensure_column($pdo, 'xmpp_push_queue', 'recipient_emp_ids', 'TEXT NULL AFTER mentioned_emp_ids');
 }
 
 function chat_enqueue_push_notification(
@@ -392,13 +407,14 @@ function chat_enqueue_push_notification(
     string $body,
     string $fileName = '',
     string $groupName = '',
-    array $mentionedEmpIds = []
+    array $mentionedEmpIds = [],
+    array $recipientEmpIds = []
 ): int {
     chat_ensure_push_queue($pdo);
     $stmt = $pdo->prepare(
         'INSERT INTO xmpp_push_queue
-         (sender_emp_id, sender_name, to_jid, body, file_name, group_name, mentioned_emp_ids)
-         VALUES (:sender_emp_id, :sender_name, :to_jid, :body, :file_name, :group_name, :mentioned_emp_ids)'
+         (sender_emp_id, sender_name, to_jid, body, file_name, group_name, mentioned_emp_ids, recipient_emp_ids)
+         VALUES (:sender_emp_id, :sender_name, :to_jid, :body, :file_name, :group_name, :mentioned_emp_ids, :recipient_emp_ids)'
     );
     $stmt->execute([
         ':sender_emp_id' => $senderEmpId,
@@ -408,6 +424,7 @@ function chat_enqueue_push_notification(
         ':file_name' => $fileName !== '' ? mb_substr($fileName, 0, 255) : null,
         ':group_name' => $groupName !== '' ? mb_substr($groupName, 0, 255) : null,
         ':mentioned_emp_ids' => $mentionedEmpIds ? json_encode(array_values(array_map('intval', $mentionedEmpIds))) : null,
+        ':recipient_emp_ids' => $recipientEmpIds ? json_encode(array_values(array_unique(array_map('intval', $recipientEmpIds)))) : null,
     ]);
     return (int)($pdo->lastInsertId() ?: 0);
 }
@@ -449,6 +466,8 @@ function chat_process_push_queue(int $limit = 25): int
         try {
             $mentioned = json_decode((string)($job['mentioned_emp_ids'] ?? '[]'), true);
             if (!is_array($mentioned)) $mentioned = [];
+            $recipients = json_decode((string)($job['recipient_emp_ids'] ?? '[]'), true);
+            if (!is_array($recipients)) $recipients = [];
             chat_send_push_notifications(
                 $pdo,
                 (int)$job['sender_emp_id'],
@@ -457,7 +476,8 @@ function chat_process_push_queue(int $limit = 25): int
                 (string)($job['body'] ?? ''),
                 (string)($job['file_name'] ?? ''),
                 (string)($job['group_name'] ?? ''),
-                array_values(array_map('intval', $mentioned))
+                array_values(array_map('intval', $mentioned)),
+                array_values(array_map('intval', $recipients))
             );
             $done = $pdo->prepare('UPDATE xmpp_push_queue SET status = \'sent\', error = NULL, updated_at = NOW() WHERE id = :id');
             $done->execute([':id' => $jobId]);
@@ -650,6 +670,16 @@ function chat_ensure_schema(PDO $pdo): void
     chat_ensure_column($pdo, 'xmpp_messages', 'thread_root_id', 'BIGINT NULL AFTER reply_to_id');
     chat_ensure_column($pdo, 'xmpp_messages', 'source_device', 'VARCHAR(32) NOT NULL DEFAULT \'unknown\' AFTER mentions_json');
     chat_ensure_column($pdo, 'xmpp_messages', 'source_name', 'VARCHAR(120) NULL AFTER source_device');
+    chat_ensure_column($pdo, 'xmpp_messages', 'visibility_mode', 'VARCHAR(16) NOT NULL DEFAULT \'all\' AFTER source_name');
+    $pdo->exec(
+        'CREATE TABLE IF NOT EXISTS xmpp_message_recipients (
+            message_id BIGINT NOT NULL,
+            emp_id INT NOT NULL,
+            created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            PRIMARY KEY (message_id, emp_id),
+            INDEX idx_xmpp_message_recipients_emp (emp_id, message_id)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci'
+    );
     chat_ensure_column($pdo, 'xmpp_users', 'avatar_url', 'VARCHAR(500) NULL AFTER jid');
     chat_ensure_column($pdo, 'xmpp_groups', 'avatar_url', 'VARCHAR(500) NULL AFTER room_jid');
     chat_ensure_column($pdo, 'xmpp_groups', 'group_type', 'VARCHAR(20) NOT NULL DEFAULT \'group\' AFTER avatar_url');

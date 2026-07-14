@@ -6,6 +6,8 @@ $session = chat_require_user();
 $traceId = trim((string)($_SERVER['HTTP_X_SKYLINK_TRACE_ID'] ?? 'history-' . bin2hex(random_bytes(8))));
 $traceStarted = microtime(true);
 $peer = trim((string)($_GET['jid'] ?? ''));
+$targetMessageId = max(0, (int)($_GET['target_message_id'] ?? 0));
+$targetMessageFilterSql = $targetMessageId > 0 ? 'AND id <= :target_message_id' : '';
 $peek = (string)($_GET['peek'] ?? '') === '1';
 $readLatitude = isset($_GET['read_latitude']) && is_numeric($_GET['read_latitude']) ? (float)$_GET['read_latitude'] : null;
 $readLongitude = isset($_GET['read_longitude']) && is_numeric($_GET['read_longitude']) ? (float)$_GET['read_longitude'] : null;
@@ -15,13 +17,14 @@ if ($readLocationAddress === '' && $readLatitude !== null && $readLongitude !== 
 }
 $readSourceDevice = strtolower(trim((string)($_GET['read_source_device'] ?? '')));
 $readSourceName = trim((string)($_GET['read_source_name'] ?? ''));
-if ($peer === '' || (!chat_is_user_jid($peer) && !chat_is_room_jid($peer))) {
+if ($peer === '' || (!chat_is_user_jid($peer) && !chat_is_room_jid($peer) && !chat_is_system_notification_jid($peer))) {
     chat_json(['status' => false, 'error' => 'Valid peer JID is required'], 422);
 }
 
 $me = chat_jid((int)$session['emp_id']);
 try {
     $pdo = chat_db();
+    chat_ensure_schema($pdo);
     if (chat_is_room_jid($peer)) {
         $group = chat_group_for_member($pdo, $peer, (int)$session['emp_id']);
         if (!$group) {
@@ -32,18 +35,26 @@ try {
             'SELECT *
              FROM (
                  SELECT id, from_jid, to_jid, body, file_url, file_name, file_type, file_size, latitude, longitude, location_address, message_type, reply_to_id,
-                        thread_root_id, mentions_json, source_device, source_name, edited_at, status, created_at,
+                        thread_root_id, mentions_json, source_device, source_name, visibility_mode, edited_at, status, created_at,
                         forwarded_from_message_id, original_sender_jid, original_sender_name, original_source_name
                  FROM xmpp_messages
                  WHERE to_jid = :room_jid
                    AND message_type IN (\'groupchat\', \'file\')
                    AND deleted_at IS NULL
+                   AND ' . chat_visible_message_condition('xmpp_messages') . '
+                   ' . $targetMessageFilterSql . '
                  ORDER BY created_at DESC, id DESC
                  LIMIT 200
              ) latest_messages
              ORDER BY created_at ASC, id ASC'
         );
-        $stmt->execute([':room_jid' => strtolower($peer)]);
+        $groupParams = [
+            ':room_jid' => strtolower($peer),
+            ':visibility_me_jid' => $me,
+            ':visibility_emp_id' => (int)$session['emp_id'],
+        ];
+        if ($targetMessageId > 0) $groupParams[':target_message_id'] = $targetMessageId;
+        $stmt->execute($groupParams);
         $messages = [];
         $lastMessageId = 0;
         $senderCache = [];
@@ -70,6 +81,7 @@ try {
                 'longitude' => $row['longitude'] === null ? null : (float)$row['longitude'],
                 'location_address' => (string)($row['location_address'] ?? ''),
                 'message_type' => (string)$row['message_type'],
+                'visibility_mode' => (string)($row['visibility_mode'] ?? 'all'),
                 'reply_to_id' => (int)($row['reply_to_id'] ?? 0),
                 'thread_root_id' => (int)($row['thread_root_id'] ?? 0),
                 'mentions' => json_decode((string)($row['mentions_json'] ?? '[]'), true) ?: [],
@@ -158,17 +170,20 @@ try {
                   OR (from_jid = :peer_from AND to_jid = :me_to)
              )
                AND deleted_at IS NULL
+               ' . $targetMessageFilterSql . '
              ORDER BY created_at DESC, id DESC
              LIMIT 200
          ) latest_messages
          ORDER BY created_at ASC, id ASC'
     );
-    $stmt->execute([
+    $params = [
         ':me_from' => $me,
         ':peer_to' => $peer,
         ':peer_from' => $peer,
         ':me_to' => $me,
-    ]);
+    ];
+    if ($targetMessageId > 0) $params[':target_message_id'] = $targetMessageId;
+    $stmt->execute($params);
     $messages = [];
     foreach (($stmt->fetchAll(PDO::FETCH_ASSOC) ?: []) as $row) {
         $messages[] = [

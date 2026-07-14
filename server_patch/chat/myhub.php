@@ -211,7 +211,7 @@ function myhub_tasks(int $empId): never
          FROM task_master
          WHERE {$where}
          ORDER BY
-           " . ($hasCreatedBy ? "CASE WHEN created_by = :emp_id THEN 0 ELSE 1 END," : "") . "
+           " . ($hasCreatedBy ? "CASE WHEN created_by = :emp_order_id THEN 0 ELSE 1 END," : "") . "
            CASE WHEN NOT ({$closedStatusSql}) AND {$deadlineCol} IS NOT NULL AND {$deadlineCol} < NOW() THEN 0 ELSE 1 END,
            CASE WHEN {$statusExpr} = 1 THEN 0 ELSE 1 END,
            CASE WHEN {$deadlineCol} IS NULL THEN 1 ELSE 0 END,
@@ -219,6 +219,9 @@ function myhub_tasks(int $empId): never
            id DESC
          LIMIT {$limit} OFFSET {$offset}"
     );
+    if ($hasCreatedBy) {
+        $params[':emp_order_id'] = $empId;
+    }
     $stmt->execute($params);
     chat_json([
         'status' => true,

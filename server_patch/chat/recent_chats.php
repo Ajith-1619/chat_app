@@ -6,6 +6,17 @@ $session = chat_require_user();
 $groups = [];
 try {
     $pdo = chat_db();
+    chat_ensure_schema($pdo);
+    chat_ensure_column($pdo, 'xmpp_messages', 'visibility_mode', 'VARCHAR(16) NOT NULL DEFAULT \'all\' AFTER source_name');
+    $pdo->exec(
+        'CREATE TABLE IF NOT EXISTS xmpp_message_recipients (
+            message_id BIGINT NOT NULL,
+            emp_id INT NOT NULL,
+            created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            PRIMARY KEY (message_id, emp_id),
+            INDEX idx_xmpp_message_recipients_emp (emp_id, message_id)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci'
+    );
     $employeePdo = getEmployeeDB();
     $me = chat_jid((int)$session['emp_id']);
     $onlineJids = [];
@@ -116,6 +127,7 @@ try {
                     AND unread.id > COALESCE(gr.last_read_message_id, 0)
                     AND unread.message_type IN (\'groupchat\', \'file\')
                     AND unread.deleted_at IS NULL
+                    AND (COALESCE(unread.visibility_mode, \'all\') <> \'selected\' OR unread.from_jid = :visibility_me_jid_unread OR EXISTS (SELECT 1 FROM xmpp_message_recipients vmr WHERE vmr.message_id = unread.id AND vmr.emp_id = :visibility_emp_id_unread))
                 ) AS unread_count,
                 (
                   SELECT COALESCE(MAX(
@@ -131,6 +143,7 @@ try {
                     AND mention.id > COALESCE(gr.last_read_message_id, 0)
                     AND mention.message_type IN (\'groupchat\', \'file\')
                     AND mention.deleted_at IS NULL
+                    AND (COALESCE(mention.visibility_mode, \'all\') <> \'selected\' OR mention.from_jid = :visibility_me_jid_mention OR EXISTS (SELECT 1 FROM xmpp_message_recipients vmr WHERE vmr.message_id = mention.id AND vmr.emp_id = :visibility_emp_id_mention))
                 ) AS mentioned
          FROM xmpp_groups g
          INNER JOIN xmpp_group_members gm ON gm.group_id = g.id
@@ -145,6 +158,7 @@ try {
              WHERE m2.to_jid = g.room_jid
                AND m2.message_type IN (\'groupchat\', \'file\')
                AND m2.deleted_at IS NULL
+               AND (COALESCE(m2.visibility_mode, \'all\') <> \'selected\' OR m2.from_jid = :visibility_me_jid_last OR EXISTS (SELECT 1 FROM xmpp_message_recipients vmr WHERE vmr.message_id = m2.id AND vmr.emp_id = :visibility_emp_id_last))
              ORDER BY m2.id DESC
              LIMIT 1
            )
@@ -157,6 +171,12 @@ try {
         ':mention_emp' => json_encode((int)$session['emp_id']),
         ':me_unread_group' => $me,
         ':me_mention_group' => $me,
+        ':visibility_me_jid_unread' => $me,
+        ':visibility_emp_id_unread' => (int)$session['emp_id'],
+        ':visibility_me_jid_mention' => $me,
+        ':visibility_emp_id_mention' => (int)$session['emp_id'],
+        ':visibility_me_jid_last' => $me,
+        ':visibility_emp_id_last' => (int)$session['emp_id'],
     ]);
     foreach (($stmt->fetchAll(PDO::FETCH_ASSOC) ?: []) as $row) {
         $groups[] = [

@@ -34,6 +34,12 @@ $mentions = array_values(array_unique(array_filter(
 )));
 $threadRootId = max(0, (int)($input['thread_root_id'] ?? 0));
 $silent = !empty($input['silent']);
+$visibilityMode = strtolower(trim((string)($input['visibility_mode'] ?? 'all')));
+if (!in_array($visibilityMode, ['all', 'selected'], true)) $visibilityMode = 'all';
+$selectedRecipientIds = array_values(array_unique(array_filter(
+    array_map('intval', (array)($input['recipient_emp_ids'] ?? [])),
+    static fn(int $value): bool => $value > 0
+)));
 $clientMessageId = mb_substr(trim((string)($input['client_message_id'] ?? '')), 0, 80);
 $forwardedFromMessageId = max(0, (int)($input['forwarded_from_message_id'] ?? 0));
 $originalSenderJid = mb_substr(trim((string)($input['original_sender_jid'] ?? '')), 0, 255);
@@ -70,8 +76,38 @@ try {
         }
     }
     $isGroup = chat_is_room_jid($to);
-    if ($isGroup && !chat_group_for_member($pdo, $to, (int)$session['emp_id'])) {
-        chat_json(['status' => false, 'error' => 'You are not a member of this group'], 403);
+    $group = [];
+    if ($isGroup) {
+        $group = chat_group_for_member($pdo, $to, (int)$session['emp_id']);
+        if (!$group) {
+            chat_json(['status' => false, 'error' => 'You are not a member of this group'], 403);
+        }
+    } elseif ($visibilityMode === 'selected') {
+        chat_json(['status' => false, 'error' => 'Selected recipients are available only in groups and channels'], 422);
+    }
+    if ($visibilityMode === 'selected') {
+        if ($fileUrl !== '') {
+            chat_json(['status' => false, 'error' => 'Selected recipients are supported for text messages only'], 422);
+        }
+        if (!$selectedRecipientIds) {
+            chat_json(['status' => false, 'error' => 'Select at least one recipient'], 422);
+        }
+        $memberStmt = $pdo->prepare(
+            'SELECT gm.emp_id
+             FROM xmpp_group_members gm
+             INNER JOIN xmpp_groups g ON g.id = gm.group_id
+             WHERE g.room_jid = :room_jid'
+        );
+        $memberStmt->execute([':room_jid' => strtolower($to)]);
+        $memberIds = array_values(array_unique(array_map('intval', $memberStmt->fetchAll(PDO::FETCH_COLUMN) ?: [])));
+        $allowed = array_flip($memberIds);
+        foreach ($selectedRecipientIds as $recipientId) {
+            if (!isset($allowed[$recipientId])) {
+                chat_json(['status' => false, 'error' => 'Selected recipients must be group members'], 422);
+            }
+        }
+        $selectedRecipientIds[] = (int)$session['emp_id'];
+        $selectedRecipientIds = array_values(array_unique(array_filter($selectedRecipientIds, static fn(int $id): bool => $id > 0)));
     }
     if ($locationAddress === '' && $latitude !== null && $longitude !== null) {
         $locationAddress = chat_reverse_geocode_address($latitude, $longitude);
@@ -112,6 +148,7 @@ try {
                  OR (from_jid = :me AND to_jid = :target_direct)
                  OR (from_jid = :target_peer AND to_jid = :me_direct)
                )
+               AND (COALESCE(visibility_mode, \'all\') <> \'selected\' OR from_jid = :me_visibility OR EXISTS (SELECT 1 FROM xmpp_message_recipients vmr WHERE vmr.message_id = xmpp_messages.id AND vmr.emp_id = :visibility_emp_id))
              LIMIT 1'
         );
         $replyCheck->execute([
@@ -121,6 +158,8 @@ try {
             ':target_direct' => strtolower($to),
             ':target_peer' => strtolower($to),
             ':me_direct' => $from,
+            ':me_visibility' => $from,
+            ':visibility_emp_id' => (int)$session['emp_id'],
         ]);
         if (!$replyCheck->fetchColumn()) {
             chat_json(['status' => false, 'error' => 'Reply message is unavailable'], 422);
@@ -131,14 +170,19 @@ try {
     $result = null;
     $xmppDelivered = false;
     try {
-        $result = chat_ejabberd_client()->sendMessage(
-            $from,
-            strtolower($to),
-            $messageBody,
-            $isGroup ? 'groupchat' : 'chat'
-        );
-        $xmppDelivered = true;
-        chat_diagnostic_trace((int)$session['emp_id'], $traceId, 'xmpp', 'send_message', (microtime(true) - $xmppStarted) * 1000, 'success', ['type' => $isGroup ? 'group' : 'dm']);
+        if ($isGroup && $visibilityMode === 'selected') {
+            $result = ['selected_visibility' => true, 'recipients' => count($selectedRecipientIds)];
+            chat_diagnostic_trace((int)$session['emp_id'], $traceId, 'xmpp', 'send_message_selected_skip_room_broadcast', (microtime(true) - $xmppStarted) * 1000, 'success', ['type' => 'group', 'recipients' => count($selectedRecipientIds)]);
+        } else {
+            $result = chat_ejabberd_client()->sendMessage(
+                $from,
+                strtolower($to),
+                $messageBody,
+                $isGroup ? 'groupchat' : 'chat'
+            );
+            $xmppDelivered = true;
+            chat_diagnostic_trace((int)$session['emp_id'], $traceId, 'xmpp', 'send_message', (microtime(true) - $xmppStarted) * 1000, 'success', ['type' => $isGroup ? 'group' : 'dm']);
+        }
     } catch (Throwable $xmppError) {
         chat_diagnostic_trace((int)$session['emp_id'], $traceId, 'xmpp', 'send_message', (microtime(true) - $xmppStarted) * 1000, 'error', ['type' => $isGroup ? 'group' : 'dm']);
         error_log('chat/send_message xmpp delivery skipped: ' . $xmppError->getMessage());
@@ -150,7 +194,7 @@ try {
         'client_message_id', 'forwarded_from_message_id', 'original_sender_jid',
         'original_sender_name', 'original_source_name', 'message_type',
         'reply_to_id', 'thread_root_id', 'mentions_json', 'source_device',
-        'source_name', 'status',
+        'source_name', 'visibility_mode', 'status',
     ];
     $insertValues = [
         ':from_jid' => $from,
@@ -174,6 +218,7 @@ try {
         ':mentions_json' => $mentions ? json_encode($mentions) : null,
         ':source_device' => $sourceDevice,
         ':source_name' => $sourceName !== '' ? mb_substr($sourceName, 0, 120) : null,
+        ':visibility_mode' => $visibilityMode,
         ':status' => 'sent',
     ];
     $runInsert = static function() use ($pdo, $insertColumns, $insertValues): void {
@@ -198,6 +243,14 @@ try {
     }
     chat_diagnostic_trace((int)$session['emp_id'], $traceId, 'database', 'persist_message', (microtime(true) - $dbStarted) * 1000, 'success', ['file_size' => $fileSize]);
     $messageId = (int)($pdo->lastInsertId() ?: 0);
+    if ($visibilityMode === 'selected' && $messageId > 0) {
+        $recipientStmt = $pdo->prepare(
+            'INSERT IGNORE INTO xmpp_message_recipients (message_id, emp_id) VALUES (:message_id, :emp_id)'
+        );
+        foreach ($selectedRecipientIds as $recipientId) {
+            $recipientStmt->execute([':message_id' => $messageId, ':emp_id' => $recipientId]);
+        }
+    }
     $responsePayload = [
         'status' => true,
         'from' => $from,
@@ -206,6 +259,7 @@ try {
         'sent_at' => date('c'),
         'server_result' => $result ?? null,
         'xmpp_delivered' => $xmppDelivered,
+        'visibility_mode' => $visibilityMode,
     ];
     $responseFinished = false;
     if (function_exists('fastcgi_finish_request')) {
@@ -224,7 +278,6 @@ try {
             $sender = chat_user_payload($employeePdo, (int)$session['emp_id'], $from, false);
             $groupName = '';
             if ($isGroup) {
-                $group = chat_group_for_member($pdo, $to, (int)$session['emp_id']);
                 $groupName = (string)($group['room_name'] ?? '');
             }
             $pushJobId = chat_enqueue_push_notification(
@@ -235,7 +288,8 @@ try {
                 $body,
                 $fileName,
                 $groupName,
-                array_values(array_filter($mentions, 'is_int'))
+                array_values(array_filter($mentions, 'is_int')),
+                $visibilityMode === 'selected' ? $selectedRecipientIds : []
             );
             chat_spawn_push_worker();
         }
@@ -260,4 +314,5 @@ chat_json([
     'sent_at' => date('c'),
     'server_result' => $result ?? null,
     'xmpp_delivered' => $xmppDelivered ?? false,
+    'visibility_mode' => $visibilityMode ?? 'all',
 ]);

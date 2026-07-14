@@ -1474,4 +1474,3 @@ class _BulletSection extends StatelessWidget {
 extension _StringFallback on String {
   String ifEmpty(String fallback) => trim().isEmpty ? fallback : this;
 }
-

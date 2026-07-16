@@ -82,3 +82,10 @@
 - Regression Scope: Desktop chat open, profile panel toggle, message bubble layout, attachment/checklist/poll/contact bubbles.
 - Verification: dart analyze lib/home/home_screen.dart lib/chat/chat_screen.dart returned no error-level findings. Existing warnings/infos remain.
 - Build: Not run for this change.
+
+
+## REG-20260716-MULTIPLATFORM-DRAFT-BUILD
+- Date: 2026-07-16 13:20:24
+- Regression Scope: Release packaging, draft registration, artifact upload reachability.
+- Verification: PHP lint passed. flutter analyze completed with existing warnings/infos. Web/APK/Windows builds succeeded. Live artifact HEAD checks returned HTTP 200.
+- Residual Risk: Manual app smoke testing on target devices still recommended before employee 302 production approval.

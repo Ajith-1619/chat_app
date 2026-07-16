@@ -73,3 +73,13 @@
 - Type: Validation only; no build requested or run.
 - Checks: Dart targeted analyzer showed no error-level findings for changed Dart files.
 - Status: Ready for build when requested.
+
+
+## BUILD-20260716-V2.0.4-MULTIPLATFORM-DRAFT
+- Date: 2026-07-16 13:20:24
+- Version: 2.0.4+27
+- Web: Success, release/Skylink-Chat-Web-v2.0.4.zip, remote HTTP 200.
+- APK: Success, release/Skylink-Chat-v2.0.4.apk, remote HTTP 200.
+- Windows: Success, release/Skylink-Chat-Setup-v2.0.4.exe, remote HTTP 200.
+- Draft IDs: android=29, windows=31, web=32.
+- Approval: Production rollout still requires employee 302.

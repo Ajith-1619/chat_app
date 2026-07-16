@@ -1,9 +1,9 @@
 $ErrorActionPreference = 'Stop'
-$Version = '2.0.3'
+$Version = '2.0.4'
 $Root = Resolve-Path (Join-Path $PSScriptRoot '..')
 $ReleaseDir = Join-Path $Root 'release'
 $WinBuild = Join-Path $Root 'build\windows\x64\runner\Release'
-$Stage = 'C:\Temp\skylink_installer_2_0_3'
+$Stage = 'C:\Temp\skylink_installer_2_0_4'
 $PayloadZip = Join-Path $Stage 'SkylinkChatPayload.zip'
 $Installer = Join-Path $Stage "Skylink-Chat-Setup-v$Version.exe"
 $FinalInstaller = Join-Path $ReleaseDir "Skylink-Chat-Setup-v$Version.exe"
@@ -75,9 +75,26 @@ $sedLines = @(
 $sedLines | Set-Content -LiteralPath $Sed -Encoding ASCII
 
 & "$env:WINDIR\System32\iexpress.exe" /N /Q $Sed
-for ($i = 0; $i -lt 90 -and -not (Test-Path $Installer); $i++) {`r`n  Start-Sleep -Milliseconds 500`r`n}
+$lastLength = -1
+$stableCount = 0
+for ($i = 0; $i -lt 180; $i++) {
+  if (Test-Path $Installer) {
+    $currentLength = (Get-Item -LiteralPath $Installer).Length
+    if ($currentLength -gt 1048576 -and $currentLength -eq $lastLength) {
+      $stableCount++
+      if ($stableCount -ge 4) { break }
+    } else {
+      $stableCount = 0
+    }
+    $lastLength = $currentLength
+  }
+  Start-Sleep -Milliseconds 500
+}
 if (-not (Test-Path $Installer)) {
   throw "Installer was not created: $Installer"
+}
+if ((Get-Item -LiteralPath $Installer).Length -le 1048576) {
+  throw "Installer looks incomplete: $Installer"
 }
 
 Copy-Item -LiteralPath $Installer -Destination $FinalInstaller -Force

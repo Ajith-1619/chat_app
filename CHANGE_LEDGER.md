@@ -76,3 +76,9 @@
 - Date: 2026-07-16 12:12:05
 - Files: lib/home/home_screen.dart, lib/chat/chat_screen.dart
 - Change: Default desktop profile panel state changed to closed; opening a chat now keeps profile closed and existing onProfileTap opens it. Chat message bubble max width is capped for desktop and wrapped with IntrinsicWidth plus min-size column so simple text bubbles shrink closer to content width.
+
+
+## CHG-20260716-MULTIPLATFORM-DRAFT-BUILD
+- Date: 2026-07-16 13:20:24
+- Files: server_patch/register_draft_2_0_4.php, tool/package_windows_installer.ps1, tool/deploy_2_0_4.ps1, tool/deploy_2_0_4.psftp, tool/verify_2_0_4_upload.ps1, BUILD_REPORT_2026-07-16_v2.0.4.md
+- Change: Generated v2.0.4 web/APK/Windows artifacts, updated draft registration to cover android/windows/web, added deployment/verification scripts, and hardened Windows installer packaging wait logic.

@@ -60,3 +60,10 @@
 - Date: 2026-07-16 12:12:05
 - Decision: Keep the right profile panel opt-in through ChatScreen.onProfileTap rather than opening automatically on chat selection.
 - Decision: Use desktop-specific bubble max-width cap and shrink-wrapping to move message presentation closer to WhatsApp/Telegram while retaining max width for long content.
+
+
+## DEC-20260716-MULTIPLATFORM-DRAFT-BUILD
+- Date: 2026-07-16 13:20:24
+- Decision: Reuse version 2.0.4+27 already present in pubspec.yaml and refresh all three platform artifacts from current workspace state.
+- Decision: Register all three platforms as Development/Draft with rollout_percent 0 and force_update 0, preserving 302 approval gate.
+- Decision: Upload web ZIP to downloads as draft artifact only; live web app folder was not replaced.

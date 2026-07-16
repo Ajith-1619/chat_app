@@ -65,3 +65,9 @@
 - Date: 2026-07-16 12:12:05
 - Request: Desktop right profile panel must not auto-open on every chat open; it should open only when profile/header is clicked. Message bubbles should shrink to content width like WhatsApp/Telegram instead of stretching full chat width.
 - Status: Implemented, pending build/release.
+
+
+## REQ-20260716-MULTIPLATFORM-DRAFT-BUILD
+- Date: 2026-07-16 13:20:24
+- Request: Build Web, APK, and Windows installer, upload all to live server, and keep them as Draft for approval.
+- Status: Completed.

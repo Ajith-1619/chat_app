@@ -17,6 +17,7 @@ $fileUrl = trim((string)($input['file_url'] ?? ''));
 $fileName = trim((string)($input['file_name'] ?? ''));
 $fileType = mb_substr(trim((string)($input['file_type'] ?? '')), 0, 255);
 $fileSize = max(0, (int)($input['file_size'] ?? 0));
+$fileRestricted = !empty($input['file_restricted']) || !empty($input['restricted']) || !empty($input['is_restricted']);
 $latitude = isset($input['latitude']) && is_numeric($input['latitude']) ? (float)$input['latitude'] : null;
 $longitude = isset($input['longitude']) && is_numeric($input['longitude']) ? (float)$input['longitude'] : null;
 $locationAddress = mb_substr(trim((string)($input['location_address'] ?? '')), 0, 500);
@@ -190,7 +191,7 @@ try {
     $dbStarted = microtime(true);
     $insertColumns = [
         'from_jid', 'to_jid', 'body', 'file_url', 'file_name', 'file_type',
-        'file_size', 'latitude', 'longitude', 'location_address',
+        'file_size', 'file_restricted', 'latitude', 'longitude', 'location_address',
         'client_message_id', 'forwarded_from_message_id', 'original_sender_jid',
         'original_sender_name', 'original_source_name', 'message_type',
         'reply_to_id', 'thread_root_id', 'mentions_json', 'source_device',
@@ -204,6 +205,7 @@ try {
         ':file_name' => $fileName !== '' ? $fileName : null,
         ':file_type' => $fileType !== '' ? $fileType : null,
         ':file_size' => $fileSize,
+        ':file_restricted' => $fileRestricted ? 1 : 0,
         ':latitude' => $latitude,
         ':longitude' => $longitude,
         ':location_address' => $locationAddress !== '' ? $locationAddress : null,
@@ -231,7 +233,10 @@ try {
         $runInsert();
     } catch (PDOException $insertError) {
         $insertMessage = $insertError->getMessage();
-        if (stripos($insertMessage, 'location_address') !== false) {
+        if (stripos($insertMessage, 'file_restricted') !== false) {
+            chat_ensure_column($pdo, 'xmpp_messages', 'file_restricted', 'TINYINT(1) NOT NULL DEFAULT 0 AFTER file_size');
+            $runInsert();
+        } elseif (stripos($insertMessage, 'location_address') !== false) {
             chat_ensure_column($pdo, 'xmpp_messages', 'location_address', 'VARCHAR(500) NULL AFTER longitude');
             $runInsert();
         } elseif (stripos($insertMessage, 'file_type') !== false) {

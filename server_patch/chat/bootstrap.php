@@ -282,7 +282,7 @@ function chat_push_preview(string $body, string $fileName = ''): string
             $caption = trim((string)($decoded['caption'] ?? ''));
             if ($caption !== '') return $caption;
             $name = trim((string)($decoded['name'] ?? $fileName));
-            return $name !== '' ? 'ðŸ“Ž ' . $name : 'ðŸ“Ž File';
+            return $name !== '' ? 'Ã°Å¸â€œÅ½ ' . $name : 'Ã°Å¸â€œÅ½ File';
         }
     }
     if (str_starts_with($body, 'SKYLINK_LOCATION:')) {
@@ -294,9 +294,9 @@ function chat_push_preview(string $body, string $fileName = ''): string
             return $label;
         }
     }
-    if ($fileName !== '') return 'ðŸ“Ž ' . $fileName;
+    if ($fileName !== '') return 'Ã°Å¸â€œÅ½ ' . $fileName;
     $plain = trim(preg_replace('/\s+/', ' ', $body) ?: '');
-    return mb_strlen($plain) > 180 ? mb_substr($plain, 0, 177) . 'â€¦' : ($plain ?: 'New message');
+    return mb_strlen($plain) > 180 ? mb_substr($plain, 0, 177) . 'Ã¢â‚¬Â¦' : ($plain ?: 'New message');
 }
 
 function chat_push_recipient_ids(PDO $pdo, string $toJid, int $senderEmpId): array
@@ -352,7 +352,7 @@ function chat_send_push_notifications(
     if (!$tokens) return;
 
     $push = new FirebasePush(chat_firebase_credentials_path());
-    $title = $groupName !== '' ? $senderName . ' Â· ' . $groupName : $senderName;
+    $title = $groupName !== '' ? $senderName . ' Ã‚Â· ' . $groupName : $senderName;
     $preview = chat_push_preview($body, $fileName);
     $baseTitle = $title;
     foreach ($tokens as $row) {
@@ -662,6 +662,7 @@ function chat_ensure_schema(PDO $pdo): void
     chat_ensure_column($pdo, 'xmpp_messages', 'file_type', 'VARCHAR(255) NULL AFTER file_name');
     $pdo->exec('ALTER TABLE xmpp_messages MODIFY file_type VARCHAR(255) NULL');
     chat_ensure_column($pdo, 'xmpp_messages', 'file_size', 'BIGINT NOT NULL DEFAULT 0 AFTER file_type');
+    chat_ensure_column($pdo, 'xmpp_messages', 'file_restricted', 'TINYINT(1) NOT NULL DEFAULT 0 AFTER file_size');
     chat_ensure_column($pdo, 'xmpp_messages', 'read_at', 'DATETIME NULL AFTER status');
     chat_ensure_column($pdo, 'xmpp_messages', 'reply_to_id', 'BIGINT NULL AFTER message_type');
     chat_ensure_column($pdo, 'xmpp_messages', 'mentions_json', 'TEXT NULL AFTER reply_to_id');
@@ -837,6 +838,7 @@ function chat_ensure_schema(PDO $pdo): void
             PRIMARY KEY (group_id, emp_id)
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci'
     );
+    chat_ensure_column($pdo, 'xmpp_group_members', 'history_visible_from', 'DATETIME NULL AFTER joined_at');
     chat_ensure_column($pdo, 'xmpp_group_reads', 'read_latitude', 'DECIMAL(10,7) NULL AFTER read_at');
     chat_ensure_column($pdo, 'xmpp_group_reads', 'read_longitude', 'DECIMAL(10,7) NULL AFTER read_latitude');
     chat_ensure_column($pdo, 'xmpp_group_reads', 'read_location_address', 'VARCHAR(500) NULL AFTER read_longitude');

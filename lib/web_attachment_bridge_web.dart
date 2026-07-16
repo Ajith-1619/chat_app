@@ -21,7 +21,6 @@ class WebAttachmentBridge {
   late final html.EventListener _dragOverListener;
   late final html.EventListener _dragLeaveListener;
   late final html.EventListener _dropListener;
-  late final html.EventListener _pasteListener;
 
   void _install() {
     _dragEnterListener = (event) {
@@ -53,37 +52,10 @@ class WebAttachmentBridge {
         await onFiles(files);
       }
     };
-    _pasteListener = (event) async {
-      if (_disposed || event is! html.ClipboardEvent) return;
-      final clipboard = event.clipboardData;
-      if (clipboard == null) return;
-      final files = <html.File>[];
-      final clipboardFiles = clipboard.files;
-      if (clipboardFiles != null && clipboardFiles.isNotEmpty) {
-        files.addAll(clipboardFiles);
-      }
-      final items = clipboard.items;
-      final itemCount = items?.length ?? 0;
-      for (var index = 0; index < itemCount; index++) {
-        final item = items![index];
-        if (item.kind == 'file') {
-          final file = item.getAsFile();
-          if (file != null) files.add(file);
-        }
-      }
-      if (files.isEmpty) return;
-      event.preventDefault();
-      final platformFiles = await _extractClipboardFiles(files);
-      if (platformFiles.isNotEmpty) {
-        await onFiles(platformFiles);
-      }
-    };
-
     html.window.addEventListener('dragenter', _dragEnterListener);
     html.window.addEventListener('dragover', _dragOverListener);
     html.window.addEventListener('dragleave', _dragLeaveListener);
     html.window.addEventListener('drop', _dropListener);
-    html.document.addEventListener('paste', _pasteListener, true);
   }
 
   bool _hasFiles(html.Event event) {
@@ -177,7 +149,6 @@ class WebAttachmentBridge {
     html.window.removeEventListener('dragover', _dragOverListener);
     html.window.removeEventListener('dragleave', _dragLeaveListener);
     html.window.removeEventListener('drop', _dropListener);
-    html.document.removeEventListener('paste', _pasteListener, true);
     onDragStateChanged(false);
   }
 }

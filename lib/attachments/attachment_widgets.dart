@@ -65,6 +65,23 @@ class AttachmentContent extends StatelessWidget {
     );
   }
 
+
+  Future<void> _openWith(BuildContext context) async {
+    if (attachment.isRestricted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Restricted files open only inside Flow.')),
+      );
+      return;
+    }
+    final uri = Uri.tryParse(webAttachmentUrl(attachment.url, attachment.name));
+    if (uri == null) return;
+    final ok = await launchUrl(uri, mode: LaunchMode.externalApplication);
+    if (!ok && context.mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('No application is available to open this file.')),
+      );
+    }
+  }
   Future<void> _download(BuildContext context) async {
     try {
       await requestAttachmentStoragePermission(context);
@@ -114,26 +131,57 @@ class AttachmentContent extends StatelessWidget {
                     errorBuilder: (_, _, _) => _FileTile(
                       attachment: attachment,
                       onTap: isPendingUpload ? null : () => _open(context),
-                      onDownload: isPendingUpload ? null : () => _download(context),
+                      onDownload: isPendingUpload
+                          ? null
+                          : () => _download(context),
+                      onOpenWith: isPendingUpload
+                          ? null
+                          : () => _openWith(context),
                     ),
                   ),
-                  Positioned(
-                    top: 8,
-                    right: 8,
-                    child: Material(
-                      color: Colors.black.withValues(alpha: 0.46),
-                      shape: const CircleBorder(),
-                      child: IconButton(
-                        tooltip: 'Download',
-                        onPressed: isPendingUpload ? null : () => _download(context),
-                        icon: const Icon(
-                          Icons.download_rounded,
-                          color: Colors.white,
-                          size: 20,
+                  if (!attachment.isRestricted)
+                    Positioned(
+                      top: 8,
+                      right: 8,
+                      child: Material(
+                        color: Colors.black.withValues(alpha: 0.46),
+                        shape: const CircleBorder(),
+                        child: PopupMenuButton<String>(
+                          tooltip: 'File actions',
+                          icon: const Icon(
+                            Icons.more_vert_rounded,
+                            color: Colors.white,
+                            size: 20,
+                          ),
+                          onSelected: (value) {
+                            if (value == 'download') _download(context);
+                            if (value == 'open_with') _openWith(context);
+                          },
+                          itemBuilder: (_) => const [
+                            PopupMenuItem(
+                              value: 'download',
+                              child: Text('Download'),
+                            ),
+                            PopupMenuItem(
+                              value: 'open_with',
+                              child: Text('Open with'),
+                            ),
+                          ],
                         ),
                       ),
+                    )
+                  else
+                    Positioned(
+                      top: 8,
+                      right: 8,
+                      child: Chip(
+                        label: const Text('Restricted'),
+                        avatar: const Icon(Icons.lock_rounded, size: 16),
+                        visualDensity: VisualDensity.compact,
+                        backgroundColor: Colors.black.withValues(alpha: 0.52),
+                        labelStyle: const TextStyle(color: Colors.white),
+                      ),
                     ),
-                  ),
                 ],
               ),
             ),
@@ -142,7 +190,8 @@ class AttachmentContent extends StatelessWidget {
           _FileTile(
             attachment: attachment,
             onTap: isPendingUpload ? null : () => _open(context),
-            onDownload: () => _download(context),
+            onDownload: attachment.isRestricted ? null : () => _download(context),
+            onOpenWith: attachment.isRestricted ? null : () => _openWith(context),
           ),
         if (attachment.caption.isNotEmpty)
           Padding(
@@ -166,11 +215,13 @@ class _FileTile extends StatelessWidget {
     required this.attachment,
     required this.onTap,
     this.onDownload,
+    this.onOpenWith,
   });
 
   final ChatAttachment attachment;
   final VoidCallback? onTap;
   final VoidCallback? onDownload;
+  final VoidCallback? onOpenWith;
 
   @override
   Widget build(BuildContext context) {
@@ -216,13 +267,24 @@ class _FileTile extends StatelessWidget {
                 ],
               ),
             ),
-            IconButton(
-              onPressed: onDownload,
-              icon: const Icon(
-                Icons.download_rounded,
-                color: AppColors.primary,
+            if (attachment.isRestricted)
+              const Tooltip(
+                message: 'Restricted',
+                child: Icon(Icons.lock_rounded, color: AppColors.primary),
+              )
+            else
+              PopupMenuButton<String>(
+                tooltip: 'File actions',
+                icon: const Icon(Icons.more_vert_rounded, color: AppColors.primary),
+                onSelected: (value) {
+                  if (value == 'download') onDownload?.call();
+                  if (value == 'open_with') onOpenWith?.call();
+                },
+                itemBuilder: (_) => const [
+                  PopupMenuItem(value: 'download', child: Text('Download')),
+                  PopupMenuItem(value: 'open_with', child: Text('Open with')),
+                ],
               ),
-            ),
           ],
         ),
       ),
@@ -343,18 +405,37 @@ class _AttachmentPreviewScreenState extends State<AttachmentPreviewScreen> {
     }
   }
 
+
+  Future<void> _openWith() async {
+    if (widget.attachment.isRestricted) return;
+    final uri = Uri.tryParse(webAttachmentUrl(widget.attachment.url, widget.attachment.name));
+    if (uri == null) return;
+    await launchUrl(uri, mode: LaunchMode.externalApplication);
+  }
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
         title: Text(_title),
-        actions: [
-          IconButton(
-            tooltip: 'Download',
-            onPressed: _download,
-            icon: const Icon(Icons.download_rounded),
-          ),
-        ],
+        actions: widget.attachment.isRestricted
+            ? const [
+                Padding(
+                  padding: EdgeInsets.symmetric(horizontal: 14),
+                  child: Icon(Icons.lock_rounded),
+                ),
+              ]
+            : [
+                IconButton(
+                  tooltip: 'Open with',
+                  onPressed: _openWith,
+                  icon: const Icon(Icons.open_in_new_rounded),
+                ),
+                IconButton(
+                  tooltip: 'Download',
+                  onPressed: _download,
+                  icon: const Icon(Icons.download_rounded),
+                ),
+              ],
       ),
       body: FutureBuilder<_AttachmentPreviewData>(
         future: _previewFuture,
@@ -1172,6 +1253,130 @@ class ContactMessageCard extends StatelessWidget {
   }
 }
 
+Map<String, dynamic>? decodeLivePoll(String text) {
+  const prefix = 'SKYLINK_POLL:';
+  if (!text.startsWith(prefix)) return null;
+  try {
+    final value = jsonDecode(text.substring(prefix.length));
+    return value is Map ? Map<String, dynamic>.from(value) : null;
+  } catch (_) {
+    return null;
+  }
+}
+
+class LivePollCard extends StatelessWidget {
+  const LivePollCard({
+    required this.data,
+    this.onVote,
+    this.showDetails = false,
+    this.participantNames = const {},
+  });
+
+  final Map<String, dynamic> data;
+  final ValueChanged<int>? onVote;
+  final bool showDetails;
+  final Map<int, String> participantNames;
+
+  String _nameFor(dynamic value) {
+    final id = int.tryParse('$value') ?? 0;
+    if (id <= 0) return '';
+    final name = participantNames[id]?.trim();
+    return name == null || name.isEmpty ? '#$id' : name;
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final rawOptions = data['options'];
+    final options = rawOptions is List
+        ? rawOptions
+              .whereType<Map>()
+              .map((item) => Map<String, dynamic>.from(item))
+              .toList()
+        : <Map<String, dynamic>>[];
+    final totalVotes = options.fold<int>(
+      0,
+      (total, option) =>
+          total +
+          ((option['votes'] is List) ? (option['votes'] as List).length : 0),
+    );
+    return SizedBox(
+      width: 300,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Row(
+            children: [
+              const Icon(Icons.poll_outlined, color: AppColors.primary),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  '${data['question'] ?? 'Poll'}',
+                  style: const TextStyle(fontWeight: FontWeight.w800),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 10),
+          ...List.generate(options.length, (index) {
+            final option = options[index];
+            final votes = option['votes'] is List
+                ? option['votes'] as List
+                : const [];
+            final count = votes.length;
+            final value = totalVotes == 0 ? 0.0 : count / totalVotes;
+            final voterNames = votes
+                .map(_nameFor)
+                .where((name) => name.isNotEmpty)
+                .join(', ');
+            return Padding(
+              padding: const EdgeInsets.only(bottom: 8),
+              child: InkWell(
+                borderRadius: BorderRadius.circular(10),
+                onTap: onVote == null ? null : () => onVote!(index),
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 4),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        children: [
+                          Expanded(child: Text('${option['text'] ?? ''}')),
+                          Text('$count'),
+                        ],
+                      ),
+                      if (showDetails && voterNames.isNotEmpty) ...[
+                        const SizedBox(height: 3),
+                        Text(
+                          'Voted: $voterNames',
+                          style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                            color: AppColors.muted,
+                          ),
+                        ),
+                      ],
+                      const SizedBox(height: 4),
+                      ClipRRect(
+                        borderRadius: BorderRadius.circular(99),
+                        child: LinearProgressIndicator(
+                          value: value,
+                          minHeight: 6,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            );
+          }),
+          Text(
+            '$totalVotes vote${totalVotes == 1 ? '' : 's'}',
+            style: Theme.of(context).textTheme.bodySmall,
+          ),
+        ],
+      ),
+    );
+  }
+}
 Map<String, dynamic>? decodeLiveChecklist(String text) {
   const prefix = 'SKYLINK_CHECKLIST:';
   if (!text.startsWith(prefix)) return null;
@@ -1184,10 +1389,24 @@ Map<String, dynamic>? decodeLiveChecklist(String text) {
 }
 
 class LiveChecklistCard extends StatelessWidget {
-  const LiveChecklistCard({required this.data, this.onToggle});
+  const LiveChecklistCard({
+    required this.data,
+    this.onToggle,
+    this.showDetails = false,
+    this.participantNames = const {},
+  });
 
   final Map<String, dynamic> data;
   final ValueChanged<int>? onToggle;
+  final bool showDetails;
+  final Map<int, String> participantNames;
+
+  String _nameFor(dynamic value) {
+    final id = int.tryParse('$value') ?? 0;
+    if (id <= 0) return '';
+    final name = participantNames[id]?.trim();
+    return name == null || name.isEmpty ? '#$id' : name;
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -1231,17 +1450,40 @@ class LiveChecklistCard extends StatelessWidget {
           ...List.generate(items.length, (index) {
             final item = items[index];
             final done = item['done'] == true;
+            final checkedByRaw = item['checked_by'];
+            final checkedBy = checkedByRaw is List
+                ? checkedByRaw
+                : (item['updated_by'] != null && done ? [item['updated_by']] : const []);
+            final checkedNames = checkedBy
+                .map(_nameFor)
+                .where((name) => name.isNotEmpty)
+                .join(', ');
             return CheckboxListTile(
               dense: true,
               contentPadding: EdgeInsets.zero,
               visualDensity: VisualDensity.compact,
               value: done,
               onChanged: onToggle == null ? null : (_) => onToggle!(index),
-              title: Text(
-                '${item['text'] ?? ''}',
-                style: TextStyle(
-                  decoration: done ? TextDecoration.lineThrough : null,
-                ),
+              title: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    '${item['text'] ?? ''}',
+                    style: TextStyle(
+                      decoration: done ? TextDecoration.lineThrough : null,
+                    ),
+                  ),
+                  if (showDetails && checkedNames.isNotEmpty)
+                    Padding(
+                      padding: const EdgeInsets.only(top: 2),
+                      child: Text(
+                        'Checked: $checkedNames',
+                        style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                          color: AppColors.muted,
+                        ),
+                      ),
+                    ),
+                ],
               ),
               controlAffinity: ListTileControlAffinity.leading,
             );
@@ -1250,11 +1492,7 @@ class LiveChecklistCard extends StatelessWidget {
       ),
     );
   }
-
-
-
 }
-
 String formatFileSize(int bytes) {
   if (bytes < 1024) return ' B';
   final kb = bytes / 1024;

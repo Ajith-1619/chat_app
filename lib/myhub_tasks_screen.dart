@@ -276,6 +276,39 @@ class _MyHubTasksScreenState extends State<MyHubTasksScreen> {
     await AppCache.instance.writeJson(_taskSnapshotCacheKey, current);
   }
 
+  bool _matchesTaskSearch(Map<String, dynamic> task, String query) {
+    if (query.isEmpty) return true;
+    final haystack = StringBuffer()
+      ..write(' ${task['id'] ?? ''}')
+      ..write(' ${task['title'] ?? ''}')
+      ..write(' ${task['description'] ?? ''}')
+      ..write(' ${task['priority'] ?? ''}')
+      ..write(' ${task['emp_id'] ?? ''}')
+      ..write(' ${task['follower_ids'] ?? task['task_followers'] ?? ''}')
+      ..write(' ${task['created_by'] ?? ''}');
+    void addPerson(dynamic person) {
+      if (person is! Map) return;
+      haystack
+        ..write(' ${person['emp_id'] ?? person['id'] ?? ''}')
+        ..write(' ${person['name'] ?? ''}')
+        ..write(' ${person['designation'] ?? ''}');
+    }
+    final assignees = task['assignees'];
+    if (assignees is List) {
+      for (final person in assignees) {
+        addPerson(person);
+      }
+    }
+    final followers = task['followers'];
+    if (followers is List) {
+      for (final person in followers) {
+        addPerson(person);
+      }
+    }
+    addPerson(task['creator']);
+    return haystack.toString().toLowerCase().contains(query);
+  }
+
   bool _matchesFilter(Map<String, dynamic> task) {
     return switch (_activeFilter) {
       _TaskFilter.all => true,
@@ -295,15 +328,7 @@ class _MyHubTasksScreenState extends State<MyHubTasksScreen> {
     final tasks = _extractTasks(_tasksData);
     final query = _searchController.text.trim().toLowerCase();
     final filtered = tasks
-        .where((task) {
-          if (query.isEmpty) return true;
-          final id = '${task['id'] ?? ''}'.toLowerCase();
-          final title = '${task['title'] ?? ''}'.toLowerCase();
-          final desc = '${task['description'] ?? ''}'.toLowerCase();
-          return id.contains(query) ||
-              title.contains(query) ||
-              desc.contains(query);
-        })
+        .where((task) => _matchesTaskSearch(task, query))
         .where(_matchesFilter)
         .toList();
     return LayoutBuilder(
@@ -420,7 +445,7 @@ class _TaskListPane extends StatelessWidget {
             controller: searchController,
             onChanged: onSearchChanged,
             decoration: const InputDecoration(
-              hintText: 'Search tasks',
+              hintText: 'Search tasks, assignees, followers',
               prefixIcon: Icon(Icons.search_rounded),
               border: OutlineInputBorder(),
             ),

@@ -21,9 +21,16 @@ Future<void> main() async {
     return true;
   };
   final preferences = await SharedPreferences.getInstance();
-  appThemeMode.value = preferences.getBool('dark_mode') == true
-      ? ThemeMode.dark
-      : ThemeMode.light;
+  final savedThemeMode = preferences.getString('theme_mode');
+  appThemeMode.value = switch (savedThemeMode) {
+    'dark' => ThemeMode.dark,
+    'system' => ThemeMode.system,
+    'light' => ThemeMode.light,
+    _ => preferences.getBool('dark_mode') == true
+        ? ThemeMode.dark
+        : ThemeMode.light,
+  };
+  appThemeName.value = preferences.getString('theme_name') ?? 'flow_blue';
   appMessageScale.value = preferences.getDouble('message_scale') ?? 1.0;
   appChatDensity.value = preferences.getDouble('chat_density') ?? 1.0;
   appShowAvatars.value = preferences.getBool('show_avatars') ?? true;

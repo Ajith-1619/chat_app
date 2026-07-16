@@ -3,6 +3,27 @@ declare(strict_types=1);
 require_once __DIR__ . '/bootstrap.php';
 require_once __DIR__ . '/wakeup_helpers.php';
 $session = chat_require_user();
+
+function wakeup_add_business_seconds(DateTimeImmutable $start, int $seconds): DateTimeImmutable
+{
+    $cursor = $start;
+    $remaining = max(0, $seconds);
+    while ($remaining > 0) {
+        $dayEnd = $cursor->setTime(23, 59, 59)->modify('+1 second');
+        if (!wakeup_is_business_day($cursor)) {
+            $cursor = $dayEnd;
+            continue;
+        }
+        $available = max(0, $dayEnd->getTimestamp() - $cursor->getTimestamp());
+        if ($remaining <= $available) {
+            return $cursor->modify('+' . $remaining . ' seconds');
+        }
+        $remaining -= $available;
+        $cursor = $dayEnd;
+    }
+    return $cursor;
+}
+
 $pdo = chat_db();
 chat_ensure_schema($pdo);
 $input = [];
@@ -64,6 +85,10 @@ $lastActivity = new DateTimeImmutable((string)$group['last_activity_at']);
 $intervalMinutes = max(60, (int)($group['wakeup_interval_minutes'] ?? 1440));
 $enabled = (int)($group['wakeup_enabled'] ?? 0) === 1;
 $remainingSeconds = $enabled ? wakeup_business_remaining_seconds($intervalMinutes, $lastActivity) : 0;
+$nextWakeupAt = '';
+if ($enabled) {
+    $nextWakeupAt = wakeup_add_business_seconds(new DateTimeImmutable('now'), $remainingSeconds)->format('Y-m-d H:i:s');
+}
 chat_json([
     'status' => true,
     'config' => [
@@ -76,6 +101,8 @@ chat_json([
         'last_activity_at' => (string)$group['last_activity_at'],
         'last_sent_at' => (string)($group['wakeup_last_sent_at'] ?? ''),
         'remaining_seconds' => $remainingSeconds,
+        'next_wakeup_at' => $nextWakeupAt,
+        'next_wakeup_label' => $nextWakeupAt !== '' ? date('d/m/Y h:i A', strtotime($nextWakeupAt)) : '',
         'remaining_label' => sprintf('%dh %dm', intdiv($remainingSeconds, 3600), intdiv($remainingSeconds % 3600, 60)),
         'can_edit' => $canEdit,
     ],

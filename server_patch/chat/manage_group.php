@@ -8,6 +8,7 @@ if (!is_array($input)) chat_json(['status' => false, 'error' => 'Invalid JSON'],
 $groupId = (int)($input['group_id'] ?? 0);
 $empId = (int)($input['emp_id'] ?? 0);
 $action = strtolower(trim((string)($input['action'] ?? '')));
+$showHistory = filter_var($input['show_history'] ?? false, FILTER_VALIDATE_BOOLEAN);
 if ($action === 'leave') $empId = (int)$session['emp_id'];
 if ($groupId <= 0 || $empId <= 0 || !in_array($action, ['add', 'remove', 'promote', 'demote', 'leave'], true)) {
     chat_json(['status' => false, 'error' => 'Valid group, employee and action are required'], 422);
@@ -16,6 +17,7 @@ if ($groupId <= 0 || $empId <= 0 || !in_array($action, ['add', 'remove', 'promot
 try {
     $pdo = chat_db();
     chat_ensure_schema($pdo);
+    chat_ensure_column($pdo, 'xmpp_group_members', 'history_visible_from', 'DATETIME NULL AFTER joined_at');
     $owner = $pdo->prepare(
         'SELECT g.room_jid, gm.role
          FROM xmpp_groups g
@@ -50,11 +52,17 @@ try {
     $room = explode('@', $roomJid, 2)[0];
     if ($action === 'add') {
         $stmt = $pdo->prepare(
-            'INSERT INTO xmpp_group_members (group_id, emp_id, role)
-             VALUES (:group_id, :emp_id, \'member\')
-             ON DUPLICATE KEY UPDATE role = IF(role IN (\'owner\', \'admin\'), role, \'member\')'
+            "INSERT INTO xmpp_group_members (group_id, emp_id, role, history_visible_from)
+             VALUES (:group_id, :emp_id, 'member', :history_visible_from)
+             ON DUPLICATE KEY UPDATE
+               role = IF(role IN ('owner', 'admin'), role, 'member'),
+               history_visible_from = VALUES(history_visible_from)"
         );
-        $stmt->execute([':group_id' => $groupId, ':emp_id' => $empId]);
+        $stmt->execute([
+            ':group_id' => $groupId,
+            ':emp_id' => $empId,
+            ':history_visible_from' => $showHistory ? null : date('Y-m-d H:i:s'),
+        ]);
         $read = $pdo->prepare(
             'INSERT INTO xmpp_group_reads (group_id, emp_id, last_read_message_id, read_at)
              SELECT :group_id, :emp_id, COALESCE(MAX(id), 0), NOW()

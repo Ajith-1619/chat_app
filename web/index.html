@@ -45,9 +45,16 @@
     // Skylink web shell guards: keep desktop-style interactions inside Flutter.
     (function () {
       const block = function (event) {
+        const target = event.target;
+        const editable = target && target.closest && target.closest('input, textarea, [contenteditable="true"], flt-semantics-host');
+        if (editable) return;
         event.preventDefault();
       };
       window.addEventListener('contextmenu', block, { capture: true });
+      window.skylinkHasTextSelection = function () {
+        const selection = window.getSelection && window.getSelection();
+        return !!(selection && selection.toString && selection.toString().length > 0);
+      };
       window.addEventListener('dragover', function (event) {
         event.preventDefault();
         if (event.dataTransfer) event.dataTransfer.dropEffect = 'copy';

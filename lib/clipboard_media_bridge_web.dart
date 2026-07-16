@@ -29,9 +29,17 @@ void registerClipboardMediaHandler(ClipboardMediaHandler handler) {
       if (data == null) return;
 
       final browserFiles = <html.File>[];
+      final seen = <String>{};
+      void addFile(html.File file) {
+        final key = '${file.name}|${file.size}|${file.type}|${file.lastModified}';
+        if (seen.add(key)) browserFiles.add(file);
+      }
+
       final files = data.files;
       if (files != null && files.isNotEmpty) {
-        browserFiles.addAll(files);
+        for (final file in files) {
+          addFile(file);
+        }
       }
 
       final items = data.items;
@@ -40,9 +48,7 @@ void registerClipboardMediaHandler(ClipboardMediaHandler handler) {
         final item = items![index];
         if (item.kind != 'file') continue;
         final file = item.getAsFile();
-        if (file != null && !browserFiles.contains(file)) {
-          browserFiles.add(file);
-        }
+        if (file != null) addFile(file);
       }
 
       if (browserFiles.isEmpty) return;
@@ -50,12 +56,15 @@ void registerClipboardMediaHandler(ClipboardMediaHandler handler) {
       event.stopPropagation();
 
       final pasted = <PastedMediaFile>[];
+      final payloadSeen = <String>{};
       for (final file in browserFiles) {
         final bytes = await _readFileBytes(file);
         if (bytes.isEmpty) continue;
         final mimeType = file.type.isEmpty
             ? 'application/octet-stream'
             : file.type;
+        final payloadKey = _payloadKey(mimeType, bytes);
+        if (!payloadSeen.add(payloadKey)) continue;
         pasted.add(
           PastedMediaFile(
             name: file.name.trim().isEmpty
@@ -93,6 +102,17 @@ Future<Uint8List> _readFileBytes(html.File file) async {
   return completer.future;
 }
 
+
+String _payloadKey(String mimeType, Uint8List bytes) {
+  var hash = 0;
+  final step = bytes.length < 64 ? 1 : (bytes.length ~/ 64);
+  for (var index = 0; index < bytes.length; index += step) {
+    hash = 0x1fffffff & (hash + bytes[index] + ((hash << 10) & 0x1fffffff));
+    hash ^= hash >> 6;
+  }
+  return '$mimeType|${bytes.length}|$hash';
+}
+
 String _generatedName(String mimeType) {
   final stamp = DateTime.now().millisecondsSinceEpoch;
   final type = mimeType.toLowerCase();
@@ -116,7 +136,8 @@ String _generatedName(String mimeType) {
   return 'pasted_file_$stamp.$extension';
 }
 
-void unregisterClipboardMediaHandler() {
+void unregisterClipboardMediaHandler([ClipboardMediaHandler? handler]) {
+  if (handler != null && !identical(_handler, handler)) return;
   if (_pasteListener != null) {
     html.document.removeEventListener('paste', _pasteListener!, true);
     _pasteListener = null;

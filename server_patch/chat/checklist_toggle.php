@@ -62,9 +62,23 @@ try {
         chat_json(['status' => false, 'error' => 'Checklist item not found'], 404);
     }
 
-    $checklist['items'][$itemIndex]['done'] = !((bool)($checklist['items'][$itemIndex]['done'] ?? false));
-    $checklist['items'][$itemIndex]['updated_by'] = (int)$session['emp_id'];
-    $checklist['items'][$itemIndex]['updated_at'] = date(DATE_ATOM);
+    $item = &$checklist['items'][$itemIndex];
+    $checkedBy = isset($item['checked_by']) && is_array($item['checked_by'])
+        ? array_values(array_unique(array_filter(array_map('intval', $item['checked_by']), static fn(int $id): bool => $id > 0)))
+        : [];
+    $me = (int)$session['emp_id'];
+    $wasDone = (bool)($item['done'] ?? false);
+    if ($wasDone) {
+        $item['done'] = false;
+        $checkedBy = array_values(array_filter($checkedBy, static fn(int $id): bool => $id !== $me));
+    } else {
+        $item['done'] = true;
+        if (!in_array($me, $checkedBy, true)) $checkedBy[] = $me;
+    }
+    $item['checked_by'] = $checkedBy;
+    $item['updated_by'] = $me;
+    $item['updated_at'] = date(DATE_ATOM);
+    unset($item);
     $updatedBody = $prefix . json_encode($checklist, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
 
     $update = $pdo->prepare('UPDATE xmpp_messages SET body = :body, edited_at = NOW() WHERE id = :id');

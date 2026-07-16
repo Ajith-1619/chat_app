@@ -25,40 +25,61 @@ $me = chat_jid((int)$session['emp_id']);
 try {
     $pdo = chat_db();
     chat_ensure_schema($pdo);
+    chat_ensure_column($pdo, 'xmpp_group_members', 'history_visible_from', 'DATETIME NULL AFTER joined_at');
+    chat_ensure_column($pdo, 'xmpp_messages', 'visibility_mode', 'VARCHAR(16) NOT NULL DEFAULT \'all\' AFTER source_name');
+    chat_ensure_column($pdo, 'xmpp_messages', 'file_restricted', 'TINYINT(1) NOT NULL DEFAULT 0 AFTER file_size');
+    $pdo->exec(
+        'CREATE TABLE IF NOT EXISTS xmpp_message_recipients (
+            message_id BIGINT NOT NULL,
+            emp_id INT NOT NULL,
+            created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            PRIMARY KEY (message_id, emp_id),
+            INDEX idx_xmpp_message_recipients_emp (emp_id, message_id)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci'
+    );
     if (chat_is_room_jid($peer)) {
         $group = chat_group_for_member($pdo, $peer, (int)$session['emp_id']);
         if (!$group) {
             chat_json(['status' => false, 'error' => 'You are not a member of this group'], 403);
         }
+        $cutoffStmt = $pdo->prepare(
+            'SELECT history_visible_from FROM xmpp_group_members WHERE group_id = :group_id AND emp_id = :emp_id LIMIT 1'
+        );
+        $cutoffStmt->execute([
+            ':group_id' => (int)$group['id'],
+            ':emp_id' => (int)$session['emp_id'],
+        ]);
+        $historyVisibleFrom = $cutoffStmt->fetchColumn();
+        $historyVisibleFrom = $historyVisibleFrom === false ? null : $historyVisibleFrom;
         $employeePdo = getEmployeeDB();
-        $stmt = $pdo->prepare(
-            'SELECT *
+        $historySql = 'SELECT *
              FROM (
-                 SELECT id, from_jid, to_jid, body, file_url, file_name, file_type, file_size, latitude, longitude, location_address, message_type, reply_to_id,
-                        thread_root_id, mentions_json, source_device, source_name, visibility_mode, edited_at, status, created_at,
-                        forwarded_from_message_id, original_sender_jid, original_sender_name, original_source_name
+                 SELECT *
                  FROM xmpp_messages
                  WHERE to_jid = :room_jid
-                   AND message_type IN (\'groupchat\', \'file\')
-                   AND deleted_at IS NULL
-                   AND ' . chat_visible_message_condition('xmpp_messages') . '
+                   AND (deleted_at IS NULL OR deleted_at = \'0000-00-00 00:00:00\')
                    ' . $targetMessageFilterSql . '
                  ORDER BY created_at DESC, id DESC
                  LIMIT 200
              ) latest_messages
-             ORDER BY created_at ASC, id ASC'
-        );
-        $groupParams = [
-            ':room_jid' => strtolower($peer),
-            ':visibility_me_jid' => $me,
-            ':visibility_emp_id' => (int)$session['emp_id'],
-        ];
+             ORDER BY created_at ASC, id ASC';
+        $stmt = $pdo->prepare($historySql);
+        $groupParams = [':room_jid' => strtolower($peer)];
         if ($targetMessageId > 0) $groupParams[':target_message_id'] = $targetMessageId;
-        $stmt->execute($groupParams);
+        try {
+            $stmt->execute($groupParams);
+            $historyRows = $stmt->fetchAll(PDO::FETCH_ASSOC) ?: [];
+        } catch (Throwable $historyError) {
+            error_log('chat/history group legacy fallback for ' . $peer . ': ' . $historyError->getMessage());
+            $fallbackSql = 'SELECT * FROM xmpp_messages WHERE to_jid = :room_jid ORDER BY id DESC LIMIT 200';
+            $fallback = $pdo->prepare($fallbackSql);
+            $fallback->execute([':room_jid' => strtolower($peer)]);
+            $historyRows = array_reverse($fallback->fetchAll(PDO::FETCH_ASSOC) ?: []);
+        }
         $messages = [];
         $lastMessageId = 0;
         $senderCache = [];
-        foreach (($stmt->fetchAll(PDO::FETCH_ASSOC) ?: []) as $row) {
+        foreach ($historyRows as $row) {
             $lastMessageId = max($lastMessageId, (int)$row['id']);
             $senderName = '';
             if (preg_match('/^(\d+)@chat\.skylinkonline\.net$/i', (string)$row['from_jid'], $match)) {
@@ -77,6 +98,7 @@ try {
                 'file_name' => (string)($row['file_name'] ?? ''),
                 'file_type' => (string)($row['file_type'] ?? ''),
                 'file_size' => (int)($row['file_size'] ?? 0),
+                'file_restricted' => !empty($row['file_restricted']),
                 'latitude' => $row['latitude'] === null ? null : (float)$row['latitude'],
                 'longitude' => $row['longitude'] === null ? null : (float)$row['longitude'],
                 'location_address' => (string)($row['location_address'] ?? ''),
@@ -161,7 +183,7 @@ try {
     $stmt = $pdo->prepare(
         'SELECT *
          FROM (
-             SELECT id, from_jid, to_jid, body, file_url, file_name, file_type, file_size, latitude, longitude, location_address, message_type, reply_to_id,
+             SELECT id, from_jid, to_jid, body, file_url, file_name, file_type, file_size, file_restricted, latitude, longitude, location_address, message_type, reply_to_id,
                     thread_root_id, mentions_json, source_device, source_name, edited_at, status, read_at, created_at,
                     forwarded_from_message_id, original_sender_jid, original_sender_name, original_source_name
              FROM xmpp_messages
@@ -169,7 +191,7 @@ try {
                   (from_jid = :me_from AND to_jid = :peer_to)
                   OR (from_jid = :peer_from AND to_jid = :me_to)
              )
-               AND deleted_at IS NULL
+               AND (deleted_at IS NULL OR deleted_at = \'0000-00-00 00:00:00\')
                ' . $targetMessageFilterSql . '
              ORDER BY created_at DESC, id DESC
              LIMIT 200
@@ -195,6 +217,7 @@ try {
             'file_name' => (string)($row['file_name'] ?? ''),
             'file_type' => (string)($row['file_type'] ?? ''),
             'file_size' => (int)($row['file_size'] ?? 0),
+            'file_restricted' => !empty($row['file_restricted']),
             'latitude' => $row['latitude'] === null ? null : (float)$row['latitude'],
             'longitude' => $row['longitude'] === null ? null : (float)$row['longitude'],
             'location_address' => (string)($row['location_address'] ?? ''),

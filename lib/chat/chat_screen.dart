@@ -37,6 +37,7 @@ import '../clipboard_text_bridge.dart';
 import '../file_preview_embed.dart';
 import '../web_attachment_bridge.dart';
 import '../web_file_actions.dart';
+import '../web_text_selection_state.dart';
 import '../xmpp_bridge.dart';
 
 import '../app/skylink_app.dart';
@@ -171,10 +172,15 @@ class ChatMessage {
 }
 
 class _AttachmentDraft {
-  const _AttachmentDraft({required this.files, required this.caption});
+  const _AttachmentDraft({
+    required this.files,
+    required this.caption,
+    required this.restricted,
+  });
 
   final List<PlatformFile> files;
   final String caption;
+  final bool restricted;
 }
 
 class _MessageLocationMetadata {
@@ -260,6 +266,11 @@ class _ChatScreenState extends State<ChatScreen> {
   Position? _lastMessagePosition;
   DateTime? _lastMessagePositionAt;
   Future<Position?>? _messagePositionFuture;
+  DateTime? _textSelectionActiveUntil;
+  int? _selectionAnchorIndex;
+  double _selectionAnchorAlignment = 0;
+  String _lastClipboardPasteKey = '';
+  DateTime? _lastClipboardPasteAt;
   String _lastMessageAddress = '';
   double? _lastMessageAddressLatitude;
   double? _lastMessageAddressLongitude;
@@ -377,7 +388,7 @@ class _ChatScreenState extends State<ChatScreen> {
     _itemPositionsListener.itemPositions.removeListener(_trackScrollPosition);
     _voiceRecorder.dispose();
     _speechToText.stop();
-    unregisterClipboardMediaHandler();
+    unregisterClipboardMediaHandler(_handleClipboardMediaPaste);
     _messageController.dispose();
     super.dispose();
   }
@@ -499,9 +510,14 @@ class _ChatScreenState extends State<ChatScreen> {
       ...historyMessages,
       ..._pendingOutgoing.map((pending) => pending.message),
     ];
-    final oldLength = _messages.length;
-    final addedCount = max(0, refreshedMessages.length - oldLength);
-    final wasEmpty = oldLength == 0;
+    final previousIds = _messages
+        .where((message) => message.id > 0)
+        .map((message) => message.id)
+        .toSet();
+    final addedCount = refreshedMessages
+        .where((message) => message.id > 0 && !previousIds.contains(message.id))
+        .length;
+    final wasEmpty = _messages.isEmpty;
     final viewingOlderMessages = _showJumpToLatest;
     setState(() {
       _messages
@@ -520,7 +536,7 @@ class _ChatScreenState extends State<ChatScreen> {
         _jumpToMessage(widget.initialMessageId);
       });
     } else if (wasEmpty) {
-      _scrollToBottom();
+      // The message list is initially built at the latest item via initialScrollIndex.
     } else if (!viewingOlderMessages && addedCount > 0) {
       _scrollToBottom();
     }
@@ -555,6 +571,22 @@ class _ChatScreenState extends State<ChatScreen> {
       // Group messages remain available if member details cannot refresh.
     }
   }
+  Map<int, String> _participantNamesForMessage(ChatMessage message) {
+    final names = <int, String>{};
+    final myId = int.tryParse(chatApi.currentJid.split('@').first);
+    if (myId != null && myId > 0) names[myId] = 'You';
+    final directId = int.tryParse(widget.chat.empId);
+    if (!widget.chat.isGroup && directId != null && directId > 0) {
+      names[directId] = widget.chat.name;
+    }
+    for (final member in _groupMembers) {
+      final id = int.tryParse(member.empId);
+      if (id != null && id > 0) {
+        names[id] = member.name.trim().isEmpty ? member.empId : member.name;
+      }
+    }
+    return names;
+  }
 
   Future<void> _loadMessageLocationVisibility() async {
     try {
@@ -569,6 +601,10 @@ class _ChatScreenState extends State<ChatScreen> {
   }
 
   String get _presenceLabel {
+    if (widget.chat.isChannel) {
+      final label = widget.chat.designation.trim();
+      return label.isEmpty ? 'Channel' : label;
+    }
     if (widget.chat.isGroup) return 'Group conversation';
     final presence = _presence;
     if (presence?.isOnline ?? widget.chat.isOnline) return 'online';
@@ -694,6 +730,7 @@ class _ChatScreenState extends State<ChatScreen> {
     }
     if (!mounted) return;
     final selected = <String>{};
+    var memberQuery = '';
     final recipients = await showModalBottomSheet<List<String>>(
       context: context,
       isScrollControlled: true,
@@ -701,6 +738,14 @@ class _ChatScreenState extends State<ChatScreen> {
       builder: (context) => StatefulBuilder(
         builder: (context, setSheetState) {
           final canSend = selected.isNotEmpty;
+          final needle = memberQuery.trim().toLowerCase();
+          final visibleMembers = _groupMembers.where((member) {
+            if (needle.isEmpty) return true;
+            return member.name.toLowerCase().contains(needle) ||
+                member.empId.toLowerCase().contains(needle) ||
+                member.designation.toLowerCase().contains(needle) ||
+                member.role.toLowerCase().contains(needle);
+          }).toList();
           return SafeArea(
             child: SizedBox(
               height: min(MediaQuery.sizeOf(context).height * 0.78, 620),
@@ -722,22 +767,33 @@ class _ChatScreenState extends State<ChatScreen> {
                         FilledButton(
                           onPressed: canSend
                               ? () => Navigator.pop(
-                                    context,
-                                    selected.toList(growable: false),
-                                  )
+                                  context,
+                                  selected.toList(growable: false),
+                                )
                               : null,
                           child: Text('Send (${selected.length})'),
                         ),
                       ],
                     ),
                   ),
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(20, 0, 20, 10),
+                    child: TextField(
+                      decoration: const InputDecoration(
+                        hintText: 'Search members',
+                        prefixIcon: Icon(Icons.search_rounded),
+                      ),
+                      onChanged: (value) =>
+                          setSheetState(() => memberQuery = value),
+                    ),
+                  ),
                   Expanded(
-                    child: _groupMembers.isEmpty
+                    child: visibleMembers.isEmpty
                         ? const Center(child: Text('No members found.'))
                         : ListView.builder(
-                            itemCount: _groupMembers.length,
+                            itemCount: visibleMembers.length,
                             itemBuilder: (context, index) {
-                              final member = _groupMembers[index];
+                              final member = visibleMembers[index];
                               final checked = selected.contains(member.empId);
                               return CheckboxListTile(
                                 value: checked,
@@ -752,22 +808,27 @@ class _ChatScreenState extends State<ChatScreen> {
                                 },
                                 secondary: CircleAvatar(
                                   child: Text(
-                                    (member.name.isEmpty ? member.empId : member.name)
+                                    (member.name.isEmpty
+                                            ? member.empId
+                                            : member.name)
                                         .trim()
                                         .substring(0, 1),
                                   ),
                                 ),
                                 title: Text(
-                                  member.name.isEmpty ? member.empId : member.name,
+                                  member.name.isEmpty
+                                      ? member.empId
+                                      : member.name,
                                 ),
                                 subtitle: Text(
                                   member.role == 'owner'
                                       ? 'Owner'
                                       : member.role == 'admin'
-                                          ? 'Admin'
-                                          : member.designation,
+                                      ? 'Admin'
+                                      : member.designation,
                                 ),
-                                controlAffinity: ListTileControlAffinity.trailing,
+                                controlAffinity:
+                                    ListTileControlAffinity.trailing,
                               );
                             },
                           ),
@@ -1365,6 +1426,87 @@ class _ChatScreenState extends State<ChatScreen> {
     }
   }
 
+  Future<void> _createPollFromComposer() async {
+    final questionController = TextEditingController(
+      text: _messageController.text.trim().isEmpty
+          ? 'Poll'
+          : _messageController.text.trim(),
+    );
+    final optionsController = TextEditingController();
+    var allowMultiple = false;
+    final create = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => StatefulBuilder(
+        builder: (context, setDialogState) => AlertDialog(
+          title: const Text('Create poll'),
+          content: SizedBox(
+            width: 460,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                TextField(
+                  controller: questionController,
+                  decoration: const InputDecoration(labelText: 'Question'),
+                ),
+                const SizedBox(height: 12),
+                TextField(
+                  controller: optionsController,
+                  minLines: 4,
+                  maxLines: 8,
+                  decoration: const InputDecoration(
+                    labelText: 'Options',
+                    helperText: 'Enter one option per line.',
+                  ),
+                ),
+                CheckboxListTile(
+                  contentPadding: EdgeInsets.zero,
+                  value: allowMultiple,
+                  title: const Text('Allow multiple answers'),
+                  onChanged: (value) =>
+                      setDialogState(() => allowMultiple = value ?? false),
+                ),
+              ],
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(dialogContext, false),
+              child: const Text('Cancel'),
+            ),
+            FilledButton.icon(
+              onPressed: () => Navigator.pop(dialogContext, true),
+              icon: const Icon(Icons.poll_outlined),
+              label: const Text('Send poll'),
+            ),
+          ],
+        ),
+      ),
+    );
+    final question = questionController.text.trim();
+    final options = optionsController.text
+        .split('\n')
+        .map((item) => item.trim())
+        .where((item) => item.isNotEmpty)
+        .toList();
+    questionController.dispose();
+    optionsController.dispose();
+    if (create != true || question.isEmpty || options.length < 2) return;
+    final body =
+        'SKYLINK_POLL:${jsonEncode(<String, dynamic>{
+          'question': question,
+          'allow_multiple': allowMultiple,
+          'options': options.map((text) => {'text': text, 'votes': <int>[]}).toList(),
+          'created_at': DateTime.now().toIso8601String(),
+        })}';
+    await chatApi.sendMessage(
+      to: widget.chat.jid,
+      message: body,
+      clientMessageId: 'poll-${DateTime.now().microsecondsSinceEpoch}',
+    );
+    _messageController.clear();
+    await _loadHistory(silent: true);
+  }
+
   Future<void> _createChecklistFromComposer() async {
     final seed = _messageController.text.trim();
     await _createChecklistFromMessage(
@@ -1492,6 +1634,11 @@ class _ChatScreenState extends State<ChatScreen> {
               onTap: () => Navigator.pop(sheetContext, 'checklist'),
             ),
             ListTile(
+              leading: const Icon(Icons.poll_outlined),
+              title: const Text('Create poll'),
+              onTap: () => Navigator.pop(sheetContext, 'poll'),
+            ),
+            ListTile(
               leading: const Icon(Icons.contacts_rounded),
               title: const Text('Contact'),
               onTap: () => Navigator.pop(sheetContext, 'contact'),
@@ -1545,6 +1692,9 @@ class _ChatScreenState extends State<ChatScreen> {
       case 'checklist':
         await _createChecklistFromComposer();
         return;
+      case 'poll':
+        await _createPollFromComposer();
+        return;
       case 'contact':
         await _pickAndSendContact();
         return;
@@ -1572,6 +1722,24 @@ class _ChatScreenState extends State<ChatScreen> {
 
   Future<void> _handleClipboardMediaPaste(List<PastedMediaFile> files) async {
     if (!mounted || _isUploading || files.isEmpty) return;
+    final pasteKey = files.map((file) {
+      final bytes = file.bytes;
+      var hash = 0;
+      for (var index = 0; index < bytes.length; index += max(1, bytes.length ~/ 64)) {
+        hash = 0x1fffffff & (hash + bytes[index] + ((hash << 10) & 0x1fffffff));
+        hash ^= hash >> 6;
+      }
+      return '${file.name}|${file.mimeType}|${bytes.length}|$hash';
+    }).join('::');
+    final now = DateTime.now();
+    final previousAt = _lastClipboardPasteAt;
+    if (pasteKey == _lastClipboardPasteKey &&
+        previousAt != null &&
+        now.difference(previousAt) < const Duration(milliseconds: 1200)) {
+      return;
+    }
+    _lastClipboardPasteKey = pasteKey;
+    _lastClipboardPasteAt = now;
     final converted = _platformFilesFromClipboard(files);
     if (converted.isEmpty) return;
     await _sendPickedFiles(converted);
@@ -1583,6 +1751,7 @@ class _ChatScreenState extends State<ChatScreen> {
     if (!mounted || draft == null || draft.files.isEmpty) return;
     files = draft.files;
     final caption = draft.caption;
+    final restricted = draft.restricted;
     setState(() {
       _isUploading = true;
       _uploadProgress = 0;
@@ -1608,6 +1777,7 @@ class _ChatScreenState extends State<ChatScreen> {
           mimeType: mimeType,
           size: bytes.length,
           caption: index == 0 ? caption : '',
+          isRestricted: restricted,
         );
         final tempMessage = ChatMessage(
           id: tempId,
@@ -1630,13 +1800,15 @@ class _ChatScreenState extends State<ChatScreen> {
             mimeType: mimeType,
             bytes: bytes,
             caption: index == 0 ? caption : '',
+            restricted: restricted,
             replyToId: reply?.id == 0 ? '' : '${reply?.id ?? ''}',
             mentions: _selectedMentions.toList(),
             threadRootId: _threadRootId > 0 ? '$_threadRootId' : '',
             latitude: sendLocation.latitude,
             longitude: sendLocation.longitude,
             locationAddress: sendLocation.address,
-            clientMessageId: 'file-${DateTime.now().microsecondsSinceEpoch}-$index',
+            clientMessageId:
+                'file-${DateTime.now().microsecondsSinceEpoch}-$index',
             onProgress: (progress) {
               if (mounted) {
                 setState(
@@ -1652,7 +1824,9 @@ class _ChatScreenState extends State<ChatScreen> {
             isSending: false,
           );
           setState(() {
-            final messageIndex = _messages.indexWhere((item) => item.id == tempId);
+            final messageIndex = _messages.indexWhere(
+              (item) => item.id == tempId,
+            );
             if (messageIndex >= 0) {
               _messages[messageIndex] = message;
             } else {
@@ -1665,7 +1839,9 @@ class _ChatScreenState extends State<ChatScreen> {
         } catch (_) {
           if (mounted) {
             setState(() {
-              final messageIndex = _messages.indexWhere((item) => item.id == tempId);
+              final messageIndex = _messages.indexWhere(
+                (item) => item.id == tempId,
+              );
               if (messageIndex >= 0) {
                 _messages[messageIndex] = tempMessage.copyWith(
                   isSending: false,
@@ -1748,6 +1924,7 @@ class _ChatScreenState extends State<ChatScreen> {
   ) async {
     final captionController = TextEditingController();
     var files = List<PlatformFile>.from(initialFiles);
+    var restricted = false;
     try {
       return await showDialog<_AttachmentDraft>(
         context: context,
@@ -1761,6 +1938,7 @@ class _ChatScreenState extends State<ChatScreen> {
                 _AttachmentDraft(
                   files: List<PlatformFile>.from(files),
                   caption: captionController.text.trim(),
+                  restricted: restricted,
                 ),
               );
             }
@@ -1858,6 +2036,17 @@ class _ChatScreenState extends State<ChatScreen> {
                                 );
                               },
                             ),
+                    ),
+                    const SizedBox(height: 8),
+                    CheckboxListTile(
+                      contentPadding: EdgeInsets.zero,
+                      value: restricted,
+                      title: const Text('Restricted'),
+                      subtitle: const Text('Open only inside Flow. Download and Open with are disabled.'),
+                      controlAffinity: ListTileControlAffinity.leading,
+                      onChanged: (value) => setDialogState(
+                        () => restricted = value ?? false,
+                      ),
                     ),
                     const SizedBox(height: 14),
                     Focus(
@@ -2126,6 +2315,7 @@ class _ChatScreenState extends State<ChatScreen> {
       chatApi.searchUsers(),
     ]);
     final byJid = <String, ChatContact>{};
+    byJid[_savedMessagesForwardTarget.jid.toLowerCase()] = _savedMessagesForwardTarget;
     for (final chat in [...values[0], ...values[1]]) {
       byJid[chat.jid.toLowerCase()] = chat;
     }
@@ -2142,21 +2332,10 @@ class _ChatScreenState extends State<ChatScreen> {
     final target = await _pickForwardTarget();
     if (target == null) return;
     for (final message in selected) {
-      await chatApi.sendMessage(
-        to: target.jid,
-        message: message.attachment?.encode() ?? message.text,
-        clientMessageId:
-            'multi-forward-${message.id}-${DateTime.now().microsecondsSinceEpoch}',
-        forwardedFromMessageId: message.id,
-        originalSenderJid: message.originalSenderJid.isNotEmpty
-            ? message.originalSenderJid
-            : (message.isMe ? chatApi.currentJid : widget.chat.jid),
-        originalSenderName: message.originalSenderName.isNotEmpty
-            ? message.originalSenderName
-            : (message.isMe ? 'You' : (message.sender ?? widget.chat.name)),
-        originalSourceName: message.originalSourceName.isNotEmpty
-            ? message.originalSourceName
-            : message.sourceName,
+      await _forwardMessageToTarget(
+        message,
+        target,
+        clientMessagePrefix: 'multi-forward',
       );
     }
     if (mounted) {
@@ -2169,6 +2348,56 @@ class _ChatScreenState extends State<ChatScreen> {
         ),
       );
     }
+  }
+
+  static const String _savedMessagesForwardJid = 'saved@chat.skylinkonline.net';
+
+  static const ChatContact _savedMessagesForwardTarget = ChatContact(
+    empId: 'saved',
+    name: 'Saved Messages',
+    designation: 'Private notes',
+    jid: _savedMessagesForwardJid,
+    type: 'saved',
+    isPinned: true,
+  );
+
+  bool _isSavedMessagesTarget(ChatContact target) =>
+      target.jid.toLowerCase() == _savedMessagesForwardJid;
+
+  Future<void> _forwardMessageToTarget(
+    ChatMessage message,
+    ChatContact target, {
+    required String clientMessagePrefix,
+  }) async {
+    final body = message.attachment?.encode() ?? message.text;
+    if (_isSavedMessagesTarget(target)) {
+      final attachment = message.attachment;
+      await chatApi.saveMessage(
+        attachment?.caption.trim().isNotEmpty == true
+            ? attachment!.caption
+            : message.text,
+        fileUrl: attachment?.url ?? '',
+        fileName: attachment?.name ?? '',
+        fileType: attachment?.mimeType ?? '',
+      );
+      return;
+    }
+    await chatApi.sendMessage(
+      to: target.jid,
+      message: body,
+      clientMessageId:
+          '$clientMessagePrefix-${message.id}-${DateTime.now().microsecondsSinceEpoch}',
+      forwardedFromMessageId: message.id,
+      originalSenderJid: message.originalSenderJid.isNotEmpty
+          ? message.originalSenderJid
+          : (message.isMe ? chatApi.currentJid : widget.chat.jid),
+      originalSenderName: message.originalSenderName.isNotEmpty
+          ? message.originalSenderName
+          : (message.isMe ? 'You' : (message.sender ?? widget.chat.name)),
+      originalSourceName: message.originalSourceName.isNotEmpty
+          ? message.originalSourceName
+          : message.sourceName,
+    );
   }
 
   bool get _canDeleteSelectedMessages {
@@ -2513,10 +2742,15 @@ class _ChatScreenState extends State<ChatScreen> {
             value: 'reply',
             child: _MessageMenuItem(icon: Icons.reply_rounded, label: 'Reply'),
           ),
-        if (message.isMe && message.id > 0 && decodeLiveChecklist(message.text) != null)
+        if (message.isMe &&
+            message.id > 0 &&
+            decodeLiveChecklist(message.text) != null)
           const PopupMenuItem(
             value: 'edit_checklist',
-            child: _MessageMenuItem(icon: Icons.checklist_rtl_rounded, label: 'Edit'),
+            child: _MessageMenuItem(
+              icon: Icons.checklist_rtl_rounded,
+              label: 'Edit',
+            ),
           )
         else if (message.isMe && message.id > 0 && message.attachment == null)
           const PopupMenuItem(
@@ -2526,20 +2760,32 @@ class _ChatScreenState extends State<ChatScreen> {
         if (message.id > 0)
           const PopupMenuItem(
             value: 'pin',
-            child: _MessageMenuItem(icon: Icons.push_pin_outlined, label: 'Pin'),
+            child: _MessageMenuItem(
+              icon: Icons.push_pin_outlined,
+              label: 'Pin',
+            ),
           ),
         if (message.previewText.isNotEmpty)
           const PopupMenuItem(
             value: 'copy',
-            child: _MessageMenuItem(icon: Icons.copy_rounded, label: 'Copy Text'),
+            child: _MessageMenuItem(
+              icon: Icons.copy_rounded,
+              label: 'Copy Text',
+            ),
           ),
         const PopupMenuItem(
           value: 'forward',
-          child: _MessageMenuItem(icon: Icons.forward_rounded, label: 'Forward'),
+          child: _MessageMenuItem(
+            icon: Icons.forward_rounded,
+            label: 'Forward',
+          ),
         ),
         const PopupMenuItem(
           value: 'create',
-          child: _MessageMenuItem(icon: Icons.add_circle_outline_rounded, label: 'Create'),
+          child: _MessageMenuItem(
+            icon: Icons.add_circle_outline_rounded,
+            label: 'Create',
+          ),
         ),
         if (message.isMe && message.id > 0)
           const PopupMenuItem(
@@ -2553,14 +2799,19 @@ class _ChatScreenState extends State<ChatScreen> {
         PopupMenuItem(
           value: 'select',
           child: _MessageMenuItem(
-            icon: _selectedMessageIds.contains(message.id) ? Icons.check_circle_rounded : Icons.check_circle_outline_rounded,
+            icon: _selectedMessageIds.contains(message.id)
+                ? Icons.check_circle_rounded
+                : Icons.check_circle_outline_rounded,
             label: 'Select',
           ),
         ),
         if (message.id > 0)
           const PopupMenuItem(
             value: 'info',
-            child: _MessageMenuItem(icon: Icons.info_outline_rounded, label: 'Message Info'),
+            child: _MessageMenuItem(
+              icon: Icons.info_outline_rounded,
+              label: 'Message Info',
+            ),
           ),
       ],
     );
@@ -2713,13 +2964,16 @@ class _ChatScreenState extends State<ChatScreen> {
                   title: const Text('Save message'),
                   onTap: () => Navigator.pop(sheetContext, 'save'),
                 ),
-              if (message.isMe && message.id > 0 && decodeLiveChecklist(message.text) != null)
+              if (message.isMe &&
+                  message.id > 0 &&
+                  decodeLiveChecklist(message.text) != null)
                 ListTile(
                   leading: const Icon(Icons.checklist_rtl_rounded),
                   title: const Text('Edit checklist'),
                   onTap: () => Navigator.pop(sheetContext, 'edit_checklist'),
                 ),
-              if (message.isMe && message.id > 0 &&
+              if (message.isMe &&
+                  message.id > 0 &&
                   message.attachment == null &&
                   decodeLiveChecklist(message.text) == null)
                 ListTile(
@@ -3061,41 +3315,109 @@ class _ChatScreenState extends State<ChatScreen> {
     final descriptionController = TextEditingController(
       text: _taskDescriptionFromMessage(message),
     );
+    final directory = await chatApi.getMyHubDirectory();
+    final verticals = await chatApi.getMyHubVerticals();
+    final defaultAssignee = _taskAssigneeFromConversation();
+    final assignees = <int>{if (defaultAssignee != null) defaultAssignee};
+    final followers = <int>{
+      int.tryParse(chatApi.currentJid.split('@').first) ?? 0,
+    }..remove(0);
+    var priority = 'medium';
+    var vertical = verticals.isNotEmpty
+        ? '${verticals.first['name'] ?? ''}'
+        : '';
     final create = await showDialog<bool>(
       context: context,
-      builder: (dialogContext) => AlertDialog(
-        title: const Text('Create task'),
-        content: SizedBox(
-          width: 460,
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              TextField(
-                controller: titleController,
-                maxLength: 120,
-                decoration: const InputDecoration(labelText: 'Title'),
+      builder: (dialogContext) => StatefulBuilder(
+        builder: (context, setDialogState) => AlertDialog(
+          title: const Text('Create task'),
+          content: SizedBox(
+            width: 520,
+            child: SingleChildScrollView(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  TextField(
+                    controller: titleController,
+                    maxLength: 120,
+                    decoration: const InputDecoration(labelText: 'Title'),
+                  ),
+                  const SizedBox(height: 12),
+                  TextField(
+                    controller: descriptionController,
+                    minLines: 4,
+                    maxLines: 7,
+                    decoration: const InputDecoration(labelText: 'Description'),
+                  ),
+                  const SizedBox(height: 12),
+                  DropdownButtonFormField<String>(
+                    value: priority,
+                    decoration: const InputDecoration(labelText: 'Priority'),
+                    items: const [
+                      DropdownMenuItem(value: 'high', child: Text('High')),
+                      DropdownMenuItem(value: 'medium', child: Text('Medium')),
+                      DropdownMenuItem(value: 'low', child: Text('Low')),
+                    ],
+                    onChanged: (value) =>
+                        setDialogState(() => priority = value ?? 'medium'),
+                  ),
+                  const SizedBox(height: 12),
+                  DropdownButtonFormField<String>(
+                    value: vertical.isEmpty ? null : vertical,
+                    decoration: const InputDecoration(labelText: 'Vertical'),
+                    items: verticals
+                        .map(
+                          (item) => DropdownMenuItem<String>(
+                            value: '${item['name'] ?? ''}',
+                            child: Text('${item['name'] ?? ''}'),
+                          ),
+                        )
+                        .where(
+                          (item) =>
+                              item.value != null && item.value!.isNotEmpty,
+                        )
+                        .toList(),
+                    onChanged: (value) =>
+                        setDialogState(() => vertical = value ?? ''),
+                  ),
+                  const SizedBox(height: 12),
+                  _TaskPeoplePicker(
+                    title: 'Assignees',
+                    directory: directory,
+                    selected: assignees,
+                    onChanged: (values) => setDialogState(() {
+                      assignees
+                        ..clear()
+                        ..addAll(values);
+                    }),
+                  ),
+                  const SizedBox(height: 8),
+                  _TaskPeoplePicker(
+                    title: 'Followers',
+                    directory: directory,
+                    selected: followers,
+                    onChanged: (values) => setDialogState(() {
+                      followers
+                        ..clear()
+                        ..addAll(values);
+                    }),
+                  ),
+                ],
               ),
-              const SizedBox(height: 12),
-              TextField(
-                controller: descriptionController,
-                minLines: 5,
-                maxLines: 9,
-                decoration: const InputDecoration(labelText: 'Description'),
-              ),
-            ],
+            ),
           ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(dialogContext, false),
+              child: const Text('Cancel'),
+            ),
+            FilledButton.icon(
+              onPressed: () => Navigator.pop(dialogContext, true),
+              icon: const Icon(Icons.task_alt_rounded),
+              label: const Text('Create'),
+            ),
+          ],
         ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(dialogContext, false),
-            child: const Text('Cancel'),
-          ),
-          FilledButton.icon(
-            onPressed: () => Navigator.pop(dialogContext, true),
-            icon: const Icon(Icons.task_alt_rounded),
-            label: const Text('Create'),
-          ),
-        ],
       ),
     );
     final title = titleController.text.trim();
@@ -3103,7 +3425,6 @@ class _ChatScreenState extends State<ChatScreen> {
     titleController.dispose();
     descriptionController.dispose();
     if (create != true || title.isEmpty) return;
-    final assignee = _taskAssigneeFromConversation();
     final groupId = widget.chat.isGroup
         ? int.tryParse(widget.chat.empId) ?? 0
         : 0;
@@ -3111,7 +3432,10 @@ class _ChatScreenState extends State<ChatScreen> {
       await chatApi.createMyHubTask(
         title: title.length <= 120 ? title : title.substring(0, 120),
         description: description,
-        assignees: assignee == null ? const <int>[] : <int>[assignee],
+        assignees: assignees.toList(),
+        followers: followers.toList(),
+        priority: priority,
+        vertical: vertical,
         groupId: groupId,
       );
       await chatApi.invalidateMyHubTasksCache();
@@ -3405,7 +3729,6 @@ class _ChatScreenState extends State<ChatScreen> {
     await _loadHistory(silent: true);
   }
 
-
   Future<void> _editChecklistMessage(ChatMessage message) async {
     final checklist = decodeLiveChecklist(message.text);
     if (checklist == null || message.id <= 0) return;
@@ -3419,67 +3742,121 @@ class _ChatScreenState extends State<ChatScreen> {
     final titleController = TextEditingController(
       text: '${checklist['title'] ?? 'Checklist'}',
     );
-    final itemsController = TextEditingController(
-      text: items
-          .map((item) => '${item['text'] ?? ''}'.trim())
-          .where((item) => item.isNotEmpty)
-          .join('\n'),
-    );
+    final itemControllers = items.isEmpty
+        ? <TextEditingController>[TextEditingController()]
+        : items
+              .map(
+                (item) => TextEditingController(
+                  text: '${item['text'] ?? ''}'.trim(),
+                ),
+              )
+              .toList();
     final save = await showDialog<bool>(
       context: context,
-      builder: (dialogContext) => AlertDialog(
-        title: const Text('Edit checklist'),
-        content: SizedBox(
-          width: 440,
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              TextField(
-                controller: titleController,
-                autofocus: true,
-                decoration: const InputDecoration(labelText: 'Title'),
+      builder: (dialogContext) => StatefulBuilder(
+        builder: (context, setDialogState) => AlertDialog(
+          title: const Text('Edit checklist'),
+          content: SizedBox(
+            width: 500,
+            child: ConstrainedBox(
+              constraints: BoxConstraints(
+                maxHeight: MediaQuery.sizeOf(context).height * 0.62,
               ),
-              const SizedBox(height: 12),
-              TextField(
-                controller: itemsController,
-                minLines: 5,
-                maxLines: 10,
-                decoration: const InputDecoration(
-                  labelText: 'Items',
-                  helperText: 'Enter one checklist item per line.',
-                ),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  TextField(
+                    controller: titleController,
+                    autofocus: true,
+                    decoration: const InputDecoration(labelText: 'Title'),
+                  ),
+                  const SizedBox(height: 12),
+                  Expanded(
+                    child: ListView.separated(
+                      shrinkWrap: true,
+                      itemCount: itemControllers.length,
+                      separatorBuilder: (_, __) => const SizedBox(height: 8),
+                      itemBuilder: (context, index) => Row(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Expanded(
+                            child: TextField(
+                              controller: itemControllers[index],
+                              minLines: 1,
+                              maxLines: 3,
+                              decoration: InputDecoration(
+                                labelText: 'Item ${index + 1}',
+                              ),
+                            ),
+                          ),
+                          IconButton(
+                            tooltip: 'Remove item',
+                            onPressed: itemControllers.length == 1
+                                ? null
+                                : () => setDialogState(() {
+                                    itemControllers.removeAt(index).dispose();
+                                  }),
+                            icon: const Icon(Icons.remove_circle_outline),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  Align(
+                    alignment: Alignment.centerLeft,
+                    child: TextButton.icon(
+                      onPressed: () => setDialogState(
+                        () => itemControllers.add(TextEditingController()),
+                      ),
+                      icon: const Icon(Icons.add_rounded),
+                      label: const Text('Add item'),
+                    ),
+                  ),
+                ],
               ),
-            ],
+            ),
           ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(dialogContext, false),
+              child: const Text('Cancel'),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.pop(dialogContext, true),
+              child: const Text('Save'),
+            ),
+          ],
         ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(dialogContext, false),
-            child: const Text('Cancel'),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.pop(dialogContext, true),
-            child: const Text('Save'),
-          ),
-        ],
       ),
     );
     final title = titleController.text.trim().isEmpty
         ? 'Checklist'
         : titleController.text.trim();
-    final nextItems = itemsController.text
-        .split('\n')
-        .map((item) => item.trim())
+    final nextItems = itemControllers
+        .map((controller) => controller.text.trim())
         .where((item) => item.isNotEmpty)
         .toList();
     titleController.dispose();
-    itemsController.dispose();
+    for (final controller in itemControllers) {
+      controller.dispose();
+    }
     if (save != true || nextItems.isEmpty) return;
+    final previousByText = <String, Map<String, dynamic>>{};
+    for (final item in items) {
+      final text = '${item['text'] ?? ''}'.trim().toLowerCase();
+      if (text.isNotEmpty) previousByText[text] = item;
+    }
     final encodedItems = <Map<String, dynamic>>[];
     for (var i = 0; i < nextItems.length; i++) {
+      final previous = previousByText[nextItems[i].toLowerCase()] ??
+          (i < items.length ? items[i] : <String, dynamic>{});
       encodedItems.add(<String, dynamic>{
         'text': nextItems[i],
-        'done': i < items.length && items[i]['done'] == true,
+        'done': previous['done'] == true,
+        if (previous['checked_by'] is List) 'checked_by': previous['checked_by'],
+        if (previous['updated_by'] != null) 'updated_by': previous['updated_by'],
+        if (previous['updated_at'] != null) 'updated_at': previous['updated_at'],
       });
     }
     final editedBody =
@@ -3495,14 +3872,199 @@ class _ChatScreenState extends State<ChatScreen> {
       });
     } on ApiException catch (error) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(error.message)),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(error.message)));
     } catch (error) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text('Could not edit checklist: $error')),
       );
+    }
+  }
+  Future<void> _editPollMessage(ChatMessage message) async {
+    final poll = decodeLivePoll(message.text);
+    if (poll == null || message.id <= 0) return;
+    final rawOptions = poll['options'];
+    final options = rawOptions is List
+        ? rawOptions
+              .whereType<Map>()
+              .map((item) => Map<String, dynamic>.from(item))
+              .toList()
+        : <Map<String, dynamic>>[];
+    final questionController = TextEditingController(
+      text: '${poll['question'] ?? 'Poll'}',
+    );
+    final optionControllers = options.length < 2
+        ? <TextEditingController>[TextEditingController(), TextEditingController()]
+        : options
+              .map(
+                (item) => TextEditingController(
+                  text: '${item['text'] ?? ''}'.trim(),
+                ),
+              )
+              .toList();
+    var allowMultiple =
+        poll['allow_multiple'] == true ||
+        '${poll['allow_multiple']}'.toLowerCase() == 'true' ||
+        '${poll['allow_multiple']}' == '1';
+    final save = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => StatefulBuilder(
+        builder: (context, setDialogState) => AlertDialog(
+          title: const Text('Edit poll'),
+          content: SizedBox(
+            width: 500,
+            child: ConstrainedBox(
+              constraints: BoxConstraints(
+                maxHeight: MediaQuery.sizeOf(context).height * 0.62,
+              ),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  TextField(
+                    controller: questionController,
+                    autofocus: true,
+                    decoration: const InputDecoration(labelText: 'Question'),
+                  ),
+                  const SizedBox(height: 12),
+                  Expanded(
+                    child: ListView.separated(
+                      shrinkWrap: true,
+                      itemCount: optionControllers.length,
+                      separatorBuilder: (_, __) => const SizedBox(height: 8),
+                      itemBuilder: (context, index) => Row(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Expanded(
+                            child: TextField(
+                              controller: optionControllers[index],
+                              minLines: 1,
+                              maxLines: 2,
+                              decoration: InputDecoration(
+                                labelText: 'Option ${index + 1}',
+                              ),
+                            ),
+                          ),
+                          IconButton(
+                            tooltip: 'Remove option',
+                            onPressed: optionControllers.length <= 2
+                                ? null
+                                : () => setDialogState(() {
+                                    optionControllers.removeAt(index).dispose();
+                                  }),
+                            icon: const Icon(Icons.remove_circle_outline),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  Row(
+                    children: [
+                      TextButton.icon(
+                        onPressed: () => setDialogState(
+                          () => optionControllers.add(TextEditingController()),
+                        ),
+                        icon: const Icon(Icons.add_rounded),
+                        label: const Text('Add option'),
+                      ),
+                      const Spacer(),
+                      Flexible(
+                        child: CheckboxListTile(
+                          value: allowMultiple,
+                          contentPadding: EdgeInsets.zero,
+                          dense: true,
+                          title: const Text('Multiple'),
+                          onChanged: (value) => setDialogState(
+                            () => allowMultiple = value ?? false,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(dialogContext, false),
+              child: const Text('Cancel'),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.pop(dialogContext, true),
+              child: const Text('Save'),
+            ),
+          ],
+        ),
+      ),
+    );
+    final question = questionController.text.trim().isEmpty
+        ? 'Poll'
+        : questionController.text.trim();
+    final nextOptions = optionControllers
+        .map((controller) => controller.text.trim())
+        .where((item) => item.isNotEmpty)
+        .toList();
+    questionController.dispose();
+    for (final controller in optionControllers) {
+      controller.dispose();
+    }
+    if (save != true || nextOptions.length < 2) return;
+
+    final votesByText = <String, List<int>>{};
+    for (final option in options) {
+      final text = '${option['text'] ?? ''}'.trim().toLowerCase();
+      final votes = option['votes'];
+      if (text.isNotEmpty && votes is List) {
+        votesByText[text] = votes
+            .map((value) => int.tryParse('$value') ?? 0)
+            .where((value) => value > 0)
+            .toList();
+      }
+    }
+    final encodedOptions = nextOptions
+        .map(
+          (text) => <String, dynamic>{
+            'text': text,
+            'votes': votesByText[text.toLowerCase()] ?? <int>[],
+          },
+        )
+        .toList();
+    final editedBody =
+        'SKYLINK_POLL:${jsonEncode(<String, dynamic>{'question': question, 'allow_multiple': allowMultiple, 'options': encodedOptions, 'created_at': poll['created_at'] ?? DateTime.now().toIso8601String(), 'updated_at': DateTime.now().toIso8601String()})}';
+    try {
+      await chatApi.editMessage(message.id, editedBody);
+      if (!mounted) return;
+      setState(() {
+        final index = _messages.indexOf(message);
+        if (index >= 0) {
+          _messages[index] = message.copyWith(text: editedBody, isEdited: true);
+        }
+      });
+    } on ApiException catch (error) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(error.message)));
+    } catch (error) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('Could not edit poll: $error')));
+    }
+  }
+  Future<void> _votePoll(ChatMessage message, int optionIndex) async {
+    try {
+      await chatApi.votePollOption(message.id, optionIndex);
+      await _loadHistory(silent: true);
+    } on ApiException catch (error) {
+      if (mounted) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text(error.message)));
+      }
     }
   }
 
@@ -3596,6 +4158,10 @@ class _ChatScreenState extends State<ChatScreen> {
   Future<void> _editMessage(ChatMessage message) async {
     if (decodeLiveChecklist(message.text) != null) {
       await _editChecklistMessage(message);
+      return;
+    }
+    if (decodeLivePoll(message.text) != null) {
+      await _editPollMessage(message);
       return;
     }
     final controller = TextEditingController(text: message.text);
@@ -3803,16 +4369,81 @@ class _ChatScreenState extends State<ChatScreen> {
     }
   }
 
-  void _scrollToBottom() {
+  bool get _isTextSelectionActive {
+    final selectionUntil = _textSelectionActiveUntil;
+    return browserHasActiveTextSelection() ||
+        (selectionUntil != null && DateTime.now().isBefore(selectionUntil));
+  }
+
+  void _scrollToBottom({bool force = false, bool instant = false}) {
+    if (!force && _isTextSelectionActive) return;
+    if (force) _textSelectionActiveUntil = null;
+    _scrollToBottomWhenReady(force: force, instant: instant, attemptsLeft: 10);
+  }
+
+  void _scrollToBottomWhenReady({
+    required bool force,
+    required bool instant,
+    required int attemptsLeft,
+  }) {
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (!_itemScrollController.isAttached || _messages.isEmpty) return;
-      _itemScrollController.scrollTo(
-        index: _messages.length - 1,
-        duration: const Duration(milliseconds: 280),
-        curve: Curves.easeOut,
-        alignment: 0.9,
-      );
+      if (!mounted) return;
+      if (!force && _isTextSelectionActive) return;
+      if (_itemScrollController.isAttached && _messages.isNotEmpty) {
+        _itemScrollController.scrollTo(
+          index: _messages.length - 1,
+          duration: instant ? Duration.zero : const Duration(milliseconds: 280),
+          curve: Curves.easeOut,
+          alignment: 0.9,
+        );
+        if (_showJumpToLatest || _newMessageCount != 0) {
+          setState(() {
+            _showJumpToLatest = false;
+            _newMessageCount = 0;
+          });
+        }
+        return;
+      }
+      if (attemptsLeft <= 0) return;
+      Future<void>.delayed(const Duration(milliseconds: 80), () {
+        if (!mounted) return;
+        _scrollToBottomWhenReady(
+          force: force,
+          instant: instant,
+          attemptsLeft: attemptsLeft - 1,
+        );
+      });
     });
+  }
+
+  void _markTextSelectionActive() {
+    _textSelectionActiveUntil = DateTime.now().add(const Duration(seconds: 12));
+    final positions = _itemPositionsListener.itemPositions.value;
+    if (positions.isEmpty) return;
+    final visible = positions
+        .where((position) => position.itemTrailingEdge > 0 && position.itemLeadingEdge < 1)
+        .toList()
+      ..sort((a, b) => a.itemLeadingEdge.compareTo(b.itemLeadingEdge));
+    if (visible.isEmpty) return;
+    final anchor = visible.first;
+    _selectionAnchorIndex = anchor.index;
+    _selectionAnchorAlignment = anchor.itemLeadingEdge.clamp(0.0, 1.0).toDouble();
+    WidgetsBinding.instance.addPostFrameCallback((_) => _restoreSelectionAnchor());
+  }
+
+  void _restoreSelectionAnchor({int attemptsLeft = 4}) {
+    if (!mounted || !_isTextSelectionActive) return;
+    final index = _selectionAnchorIndex;
+    if (index == null || index < 0 || index >= _messages.length) return;
+    _itemScrollController.jumpTo(
+      index: index,
+      alignment: _selectionAnchorAlignment,
+    );
+    if (attemptsLeft > 0) {
+      Future<void>.delayed(const Duration(milliseconds: 32), () {
+        _restoreSelectionAnchor(attemptsLeft: attemptsLeft - 1);
+      });
+    }
   }
 
   void _jumpToMessage(int messageId) {
@@ -3928,11 +4559,60 @@ class _ChatScreenState extends State<ChatScreen> {
       subtitle: Text(value),
     );
   }
+  bool _looksLikeCoordinates(String value) {
+    final text = value.trim();
+    if (text.isEmpty) return false;
+    return RegExp(r'^-?\d{1,3}(?:\.\d+)?\s*,\s*-?\d{1,3}(?:\.\d+)?$').hasMatch(text);
+  }
 
-  List<Widget> _messageReaderInfoRows(
+  double? _infoDouble(Map<String, dynamic> data, List<String> keys) {
+    for (final key in keys) {
+      final raw = data[key];
+      if (raw == null) continue;
+      final value = double.tryParse('$raw'.trim());
+      if (value != null) return value;
+    }
+    return null;
+  }
+
+  Future<String> _resolvedInfoAddress(
+    Map<String, dynamic> data, {
+    required List<String> addressKeys,
+    required List<String> latitudeKeys,
+    required List<String> longitudeKeys,
+    String fallbackAddress = '',
+    double? fallbackLatitude,
+    double? fallbackLongitude,
+  }) async {
+    final rawAddress = _infoText(data, addressKeys).trim();
+    final latitude = _infoDouble(data, latitudeKeys) ?? fallbackLatitude;
+    final longitude = _infoDouble(data, longitudeKeys) ?? fallbackLongitude;
+    if (rawAddress.isNotEmpty && !_looksLikeCoordinates(rawAddress)) {
+      return cleanMojibakeText(rawAddress);
+    }
+    final fallback = fallbackAddress.trim();
+    if (fallback.isNotEmpty && !_looksLikeCoordinates(fallback)) {
+      return cleanMojibakeText(fallback);
+    }
+    if (latitude != null && longitude != null) {
+      try {
+        final address = await chatApi.reverseGeocode(latitude, longitude);
+        if (address.trim().isNotEmpty &&
+            address.trim().toLowerCase() != 'location unavailable') {
+          return cleanMojibakeText(address.trim());
+        }
+      } catch (_) {
+        // Keep the message info usable if reverse geocoding is temporarily down.
+      }
+    }
+    if (rawAddress.isNotEmpty) return rawAddress;
+    return fallback;
+  }
+
+  Future<List<Widget>> _messageReaderInfoRows(
     Map<String, dynamic> data,
     bool canViewLocations,
-  ) {
+  ) async {
     final rawReaders = data['readers'];
     if (rawReaders is! List || rawReaders.isEmpty) return const [];
     final rows = <Widget>[];
@@ -3946,7 +4626,12 @@ class _ChatScreenState extends State<ChatScreen> {
         'read_source_device',
         'read_source_name',
       );
-      final address = _infoText(reader, ['read_location_address']);
+      final address = await _resolvedInfoAddress(
+        reader,
+        addressKeys: ['read_location_address'],
+        latitudeKeys: ['read_latitude'],
+        longitudeKeys: ['read_longitude'],
+      );
       final readLines = <String>[
         if (name.isNotEmpty) name,
         if (readAt.isNotEmpty) readAt,
@@ -4031,10 +4716,20 @@ class _ChatScreenState extends State<ChatScreen> {
           ? Map<String, dynamic>.from(data['message'] as Map)
           : <String, dynamic>{};
       final canViewLocations = _canViewMessageLocations;
-      final sentLocation = _infoText(info, ['location_address']).isNotEmpty
-          ? _infoText(info, ['location_address'])
-          : message.locationAddress;
-      final readLocation = _infoText(info, ['read_location_address']);
+      final sentLocation = await _resolvedInfoAddress(
+        info,
+        addressKeys: ['location_address'],
+        latitudeKeys: ['latitude'],
+        longitudeKeys: ['longitude'],
+        fallbackAddress: message.locationAddress,
+      );
+      final readLocation = await _resolvedInfoAddress(
+        info,
+        addressKeys: ['read_location_address'],
+        latitudeKeys: ['read_latitude'],
+        longitudeKeys: ['read_longitude'],
+      );
+      final readerRows = await _messageReaderInfoRows(data, canViewLocations);
       await showDialog<void>(
         context: context,
         builder: (_) => AlertDialog(
@@ -4090,7 +4785,7 @@ class _ChatScreenState extends State<ChatScreen> {
                     'Read address',
                     readLocation,
                   ),
-                ..._messageReaderInfoRows(data, canViewLocations),
+                ...readerRows,
               ],
             ),
           ),
@@ -4115,6 +4810,7 @@ class _ChatScreenState extends State<ChatScreen> {
       chatApi.searchUsers(),
     ]);
     final byJid = <String, ChatContact>{};
+    byJid[_savedMessagesForwardTarget.jid.toLowerCase()] = _savedMessagesForwardTarget;
     for (final chat in [...values[0], ...values[1]]) {
       byJid[chat.jid.toLowerCase()] = chat;
     }
@@ -4126,22 +4822,10 @@ class _ChatScreenState extends State<ChatScreen> {
       builder: (_) => _ForwardTargetSheet(chats: chats),
     );
     if (target == null) return;
-    final body = message.attachment?.encode() ?? message.text;
-    await chatApi.sendMessage(
-      to: target.jid,
-      message: body,
-      clientMessageId:
-          'forward-${message.id}-${DateTime.now().microsecondsSinceEpoch}',
-      forwardedFromMessageId: message.id,
-      originalSenderJid: message.originalSenderJid.isNotEmpty
-          ? message.originalSenderJid
-          : (message.isMe ? chatApi.currentJid : widget.chat.jid),
-      originalSenderName: message.originalSenderName.isNotEmpty
-          ? message.originalSenderName
-          : (message.isMe ? 'You' : (message.sender ?? widget.chat.name)),
-      originalSourceName: message.originalSourceName.isNotEmpty
-          ? message.originalSourceName
-          : message.sourceName,
+    await _forwardMessageToTarget(
+      message,
+      target,
+      clientMessagePrefix: 'forward',
     );
     if (mounted) {
       ScaffoldMessenger.of(
@@ -4435,6 +5119,11 @@ class _ChatScreenState extends State<ChatScreen> {
                               ),
                             )
                           : ScrollablePositionedList.builder(
+                              key: ValueKey('chat-list-' + widget.chat.jid),
+                              initialScrollIndex: _messages.isEmpty
+                                  ? 0
+                                  : _messages.length - 1,
+                              initialAlignment: 1.0,
                               itemScrollController: _itemScrollController,
                               itemPositionsListener: _itemPositionsListener,
                               padding: const EdgeInsets.fromLTRB(
@@ -4463,6 +5152,8 @@ class _ChatScreenState extends State<ChatScreen> {
                                   message: message,
                                   showSender: widget.chat.isGroup,
                                   showLocationAddress: _canViewMessageLocations,
+                                  participantNames: _participantNamesForMessage(message),
+                                  showChecklistPollDetails: message.isMe,
                                   replyMessage: _messageById(message.replyToId),
                                   dateLabel: showDate
                                       ? _messageDateLabel(message.createdAt)
@@ -4506,9 +5197,13 @@ class _ChatScreenState extends State<ChatScreen> {
                                           }
                                           Navigator.maybePop(context);
                                         },
+                                  onTextSelectionChanged:
+                                      _markTextSelectionActive,
                                   onMentionTap: _openMentionProfile,
                                   onChecklistToggle: (itemIndex) =>
                                       _toggleChecklist(message, itemIndex),
+                                  onPollVote: (optionIndex) =>
+                                      _votePoll(message, optionIndex),
                                 );
                               },
                             ),
@@ -4634,7 +5329,9 @@ class _ChatScreenState extends State<ChatScreen> {
             _MessageComposer(
               controller: _messageController,
               onSend: () => _sendMessage(),
-              onSendLongPress: widget.chat.isGroup ? _showSendTargetOptions : null,
+              onSendLongPress: widget.chat.isGroup
+                  ? _showSendTargetOptions
+                  : null,
               onSendLater: _scheduleDraftMessage,
               onVoiceRecord: _toggleVoiceRecording,
               isRecordingVoice: _isRecordingVoice,
@@ -4674,7 +5371,7 @@ class _ChatScreenState extends State<ChatScreen> {
                     : 'Jump to latest',
                 onPressed: () {
                   setState(() => _newMessageCount = 0);
-                  _scrollToBottom();
+                  _scrollToBottom(force: true);
                 },
                 child: const Icon(Icons.keyboard_arrow_down_rounded),
               ),
@@ -4829,7 +5526,12 @@ class _ChatScreenState extends State<ChatScreen> {
                   SwitchListTile(
                     contentPadding: EdgeInsets.zero,
                     title: const Text('Enable wake-up notification'),
-                    subtitle: const Text('Weekends are skipped.'),
+                    subtitle: Text(
+                      enabled &&
+                              '${config['next_wakeup_label'] ?? ''}'.isNotEmpty
+                          ? 'Next wake-up: ${config['next_wakeup_label']}'
+                          : 'Weekends are skipped.',
+                    ),
                     value: enabled,
                     onChanged: (value) => setDialogState(() => enabled = value),
                   ),
@@ -5015,21 +5717,23 @@ class _ChatScreenState extends State<ChatScreen> {
                       : 'last active ${_memberLastSeen(member.lastSeen!)}',
                 ),
                 trailing:
-                    const {'owner', 'admin'}.contains(_groupRole) &&
+                    (_groupRole == 'owner' ||
+                            (_groupRole == 'admin' && member.role == 'member')) &&
                         member.role != 'owner'
                     ? PopupMenuButton<String>(
                         onSelected: (action) => _memberAction(member, action),
                         itemBuilder: (_) => [
-                          PopupMenuItem(
-                            value: member.role == 'admin'
-                                ? 'demote'
-                                : 'promote',
-                            child: Text(
-                              member.role == 'admin'
-                                  ? 'Change to member'
-                                  : 'Promote to admin',
+                          if (_groupRole == 'owner')
+                            PopupMenuItem(
+                              value: member.role == 'admin'
+                                  ? 'demote'
+                                  : 'promote',
+                              child: Text(
+                                member.role == 'admin'
+                                    ? 'Change to member'
+                                    : 'Promote to admin',
+                              ),
                             ),
-                          ),
                           const PopupMenuItem(
                             value: 'remove',
                             child: Text('Remove member'),
@@ -5162,6 +5866,135 @@ class _DateChip extends StatelessWidget {
   }
 }
 
+class _TaskPeoplePicker extends StatelessWidget {
+  const _TaskPeoplePicker({
+    required this.title,
+    required this.directory,
+    required this.selected,
+    required this.onChanged,
+  });
+
+  final String title;
+  final List<Map<String, dynamic>> directory;
+  final Set<int> selected;
+  final ValueChanged<Set<int>> onChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    final selectedPeople = directory.where((item) {
+      final id = int.tryParse('${item['emp_id'] ?? item['id'] ?? ''}') ?? 0;
+      return selected.contains(id);
+    }).toList();
+    return InputDecorator(
+      decoration: InputDecoration(labelText: title),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Wrap(
+            spacing: 6,
+            runSpacing: 6,
+            children: [
+              ...selectedPeople.map((person) {
+                final id =
+                    int.tryParse('${person['emp_id'] ?? person['id'] ?? ''}') ??
+                    0;
+                return Chip(
+                  label: Text('${person['name'] ?? id}'),
+                  onDeleted: () => onChanged({...selected}..remove(id)),
+                );
+              }),
+              ActionChip(
+                avatar: const Icon(Icons.person_add_alt_rounded, size: 18),
+                label: const Text('Add'),
+                onPressed: () async {
+                  final picked = await showModalBottomSheet<Set<int>>(
+                    context: context,
+                    showDragHandle: true,
+                    builder: (sheetContext) {
+                      final draft = {...selected};
+                      var query = '';
+                      return StatefulBuilder(
+                        builder: (context, setSheetState) {
+                          final needle = query.trim().toLowerCase();
+                          final visiblePeople = directory.where((person) {
+                            final idText = '${person['emp_id'] ?? person['id'] ?? ''}';
+                            if (needle.isEmpty) return true;
+                            return idText.toLowerCase().contains(needle) ||
+                                '${person['name'] ?? ''}'.toLowerCase().contains(needle) ||
+                                '${person['designation'] ?? ''}'.toLowerCase().contains(needle);
+                          }).toList();
+                          return SafeArea(
+                          child: Column(
+                            children: [
+                              ListTile(title: Text(title)),
+                              Padding(
+                                padding: const EdgeInsets.fromLTRB(16, 0, 16, 10),
+                                child: TextField(
+                                  decoration: const InputDecoration(
+                                    hintText: 'Search people',
+                                    prefixIcon: Icon(Icons.search_rounded),
+                                  ),
+                                  onChanged: (value) =>
+                                      setSheetState(() => query = value),
+                                ),
+                              ),
+                              Expanded(
+                                child: visiblePeople.isEmpty
+                                    ? const Center(child: Text('No users found.'))
+                                    : ListView.builder(
+                                  itemCount: visiblePeople.length,
+                                  itemBuilder: (context, index) {
+                                    final person = visiblePeople[index];
+                                    final id =
+                                        int.tryParse(
+                                          '${person['emp_id'] ?? person['id'] ?? ''}',
+                                        ) ??
+                                        0;
+                                    if (id <= 0) return const SizedBox.shrink();
+                                    return CheckboxListTile(
+                                      value: draft.contains(id),
+                                      title: Text('${person['name'] ?? id}'),
+                                      subtitle: Text(
+                                        '${person['designation'] ?? ''}',
+                                      ),
+                                      onChanged: (value) => setSheetState(() {
+                                        if (value ?? false) {
+                                          draft.add(id);
+                                        } else {
+                                          draft.remove(id);
+                                        }
+                                      }),
+                                    );
+                                  },
+                                ),
+                              ),
+                              Padding(
+                                padding: const EdgeInsets.all(12),
+                                child: FilledButton(
+                                  onPressed: () =>
+                                      Navigator.pop(sheetContext, draft),
+                                  child: const Text('Done'),
+                                ),
+                              ),
+                            ],
+                          ),
+                        );
+                        },
+                      );
+                    },
+                  );
+                  if (picked != null) onChanged(picked);
+                },
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+}
+
 class _MessageBubble extends StatelessWidget {
   const _MessageBubble({
     super.key,
@@ -5179,6 +6012,10 @@ class _MessageBubble extends StatelessWidget {
     this.onSwipeReply,
     this.onSwipeBack,
     this.onChecklistToggle,
+    this.onPollVote,
+    this.onTextSelectionChanged,
+    this.participantNames = const {},
+    this.showChecklistPollDetails = false,
   });
 
   final ChatMessage message;
@@ -5195,17 +6032,29 @@ class _MessageBubble extends StatelessWidget {
   final VoidCallback? onSwipeReply;
   final VoidCallback? onSwipeBack;
   final ValueChanged<int>? onChecklistToggle;
+  final ValueChanged<int>? onPollVote;
+  final VoidCallback? onTextSelectionChanged;
+  final Map<int, String> participantNames;
+  final bool showChecklistPollDetails;
 
   @override
   Widget build(BuildContext context) {
     final attachment = message.attachment;
-    final dark = Theme.of(context).brightness == Brightness.dark;
+    final theme = Theme.of(context);
+    final colors = theme.colorScheme;
+    final dark = theme.brightness == Brightness.dark;
     final contactCard = decodeContactCard(message.text);
     final checklist = decodeLiveChecklist(message.text);
+    final poll = decodeLivePoll(message.text);
     final isTaggedOrReplied =
         message.replyToId > 0 ||
         message.originalSenderName.isNotEmpty ||
         message.mentions.isNotEmpty;
+    final screenWidth = MediaQuery.sizeOf(context).width;
+    final bubbleMaxWidth = min(
+      screenWidth * (screenWidth >= 900 ? 0.62 : 0.82),
+      screenWidth >= 900 ? 560.0 : screenWidth * 0.82,
+    );
     if (message.isSystem) {
       return Column(
         children: [
@@ -5252,7 +6101,8 @@ class _MessageBubble extends StatelessWidget {
             } else if (velocity < -450 &&
                 attachment == null &&
                 contactCard == null &&
-                checklist == null) {
+                checklist == null &&
+                poll == null) {
               onSwipeBack?.call();
             }
           },
@@ -5260,10 +6110,10 @@ class _MessageBubble extends StatelessWidget {
             alignment: message.isMe
                 ? Alignment.centerRight
                 : Alignment.centerLeft,
-            child: Container(
-              constraints: BoxConstraints(
-                maxWidth: MediaQuery.sizeOf(context).width * 0.78,
-              ),
+            child: ConstrainedBox(
+              constraints: BoxConstraints(maxWidth: bubbleMaxWidth),
+              child: IntrinsicWidth(
+                child: Container(
               margin: EdgeInsets.only(bottom: 8 * appChatDensity.value),
               padding: EdgeInsets.fromLTRB(
                 13,
@@ -5273,16 +6123,18 @@ class _MessageBubble extends StatelessWidget {
               ),
               decoration: BoxDecoration(
                 color: selected
-                    ? AppColors.primary.withValues(alpha: 0.24)
+                    ? colors.primary.withValues(alpha: dark ? 0.36 : 0.24)
                     : isTaggedOrReplied
-                    ? (message.isMe
+                    ? (dark
+                          ? colors.secondaryContainer.withValues(alpha: 0.55)
+                          : message.isMe
                           ? const Color(0xFFC7E0FF)
                           : const Color(0xFFFFF0C8))
                     : message.isMe
                     ? dark
-                          ? const Color(0xFF173B63)
+                          ? colors.primaryContainer.withValues(alpha: 0.55)
                           : AppColors.outgoing
-                    : Theme.of(context).colorScheme.surface,
+                    : colors.surface,
                 borderRadius: BorderRadius.only(
                   topLeft: const Radius.circular(17),
                   topRight: const Radius.circular(17),
@@ -5290,7 +6142,10 @@ class _MessageBubble extends StatelessWidget {
                   bottomRight: Radius.circular(message.isMe ? 4 : 17),
                 ),
                 border: isTaggedOrReplied
-                    ? Border.all(color: const Color(0xFFFFB020), width: 1.2)
+                    ? Border.all(
+                        color: dark ? colors.secondary : const Color(0xFFFFB020),
+                        width: 1.2,
+                      )
                     : null,
                 boxShadow: const [
                   BoxShadow(
@@ -5302,14 +6157,15 @@ class _MessageBubble extends StatelessWidget {
               ),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min,
                 children: [
                   if (showSender && !message.isMe && message.sender != null)
                     Padding(
                       padding: const EdgeInsets.only(bottom: 3),
                       child: Text(
                         cleanMojibakeText(message.sender!),
-                        style: const TextStyle(
-                          color: AppColors.primary,
+                        style: TextStyle(
+                          color: dark ? colors.primary : AppColors.primary,
                           fontSize: 13,
                           fontWeight: FontWeight.w700,
                         ),
@@ -5404,6 +6260,15 @@ class _MessageBubble extends StatelessWidget {
                     LiveChecklistCard(
                       data: checklist,
                       onToggle: onChecklistToggle,
+                      showDetails: showChecklistPollDetails,
+                      participantNames: participantNames,
+                    )
+                  else if (poll != null)
+                    LivePollCard(
+                      data: poll,
+                      onVote: onPollVote,
+                      showDetails: showChecklistPollDetails,
+                      participantNames: participantNames,
                     )
                   else
                     Column(
@@ -5413,6 +6278,7 @@ class _MessageBubble extends StatelessWidget {
                         _CollapsibleMessageText(
                           text: cleanMojibakeText(message.text),
                           onMentionTap: onMentionTap,
+                          onSelectionChanged: onTextSelectionChanged,
                         ),
                         const SizedBox(height: 3),
                         Align(
@@ -5568,6 +6434,8 @@ class _MessageBubble extends StatelessWidget {
                     ),
                 ],
               ),
+                ),
+              ),
             ),
           ),
         ),
@@ -5577,10 +6445,15 @@ class _MessageBubble extends StatelessWidget {
 }
 
 class _CollapsibleMessageText extends StatefulWidget {
-  const _CollapsibleMessageText({required this.text, this.onMentionTap});
+  const _CollapsibleMessageText({
+    required this.text,
+    this.onMentionTap,
+    this.onSelectionChanged,
+  });
 
   final String text;
   final ValueChanged<String>? onMentionTap;
+  final VoidCallback? onSelectionChanged;
 
   @override
   State<_CollapsibleMessageText> createState() =>
@@ -5626,10 +6499,13 @@ class _CollapsibleMessageTextState extends State<_CollapsibleMessageText> {
                 ),
                 maxLines: collapsed ? _collapsedLines : null,
                 scrollPhysics: const NeverScrollableScrollPhysics(),
+                onSelectionChanged: (selection, cause) {
+                  if (!selection.isCollapsed) widget.onSelectionChanged?.call();
+                },
                 contextMenuBuilder: (context, editableTextState) =>
                     AdaptiveTextSelectionToolbar.editableText(
-                  editableTextState: editableTextState,
-                ),
+                      editableTextState: editableTextState,
+                    ),
               ),
             ),
             if (collapsible)
@@ -5662,7 +6538,7 @@ TextSpan _formattedMessageSpan(
     height: 1.35,
   );
   final pattern = RegExp(
-    r'(https?:\/\/[^\s<>()]+|www\.[^\s<>()]+|\*\*[\s\S]+?\*\*|~~[\s\S]+?~~|\*[^*\n]+?\*|_[^_\n]+?_|\[color=#[0-9A-Fa-f]{6}\][\s\S]+?\[/color\]|@[A-Za-z0-9_]+)',
+    r'(https?:\/\/[^\s<>()]+|www\.[^\s<>()]+|\*\*[\s\S]+?\*\*|~~[\s\S]+?~~|`[^`\n]+?`|__[^_\n]+?__|\*[^*\n]+?\*|_[^_\n]+?_|\[color=#[0-9A-Fa-f]{6}\][\s\S]+?\[/color\]|^> .+$|\n> .+|@[A-Za-z0-9_]+)',
   );
   final spans = <InlineSpan>[];
   var offset = 0;
@@ -5698,6 +6574,43 @@ TextSpan _formattedMessageSpan(
         TextSpan(
           text: token.substring(2, token.length - 2),
           style: const TextStyle(decoration: TextDecoration.lineThrough),
+        ),
+      );
+    } else if (token.startsWith('`')) {
+      spans.add(
+        TextSpan(
+          text: token.substring(1, token.length - 1),
+          style: TextStyle(
+            fontFamily: 'monospace',
+            backgroundColor: theme.colorScheme.surfaceContainerHighest,
+          ),
+        ),
+      );
+    } else if (token.startsWith('__')) {
+      spans.add(
+        TextSpan(
+          text: token.substring(2, token.length - 2),
+          style: const TextStyle(decoration: TextDecoration.underline),
+        ),
+      );
+    } else if (token.startsWith('> ')) {
+      spans.add(
+        TextSpan(
+          text: token,
+          style: TextStyle(
+            color: theme.colorScheme.onSurfaceVariant,
+            fontStyle: FontStyle.italic,
+          ),
+        ),
+      );
+    } else if (token.startsWith('\n> ')) {
+      spans.add(
+        TextSpan(
+          text: token,
+          style: TextStyle(
+            color: theme.colorScheme.onSurfaceVariant,
+            fontStyle: FontStyle.italic,
+          ),
         ),
       );
     } else if (token.startsWith('*') || token.startsWith('_')) {
@@ -5902,8 +6815,8 @@ class _ThreadViewScreenState extends State<_ThreadViewScreen> {
       ),
     );
   }
-
 }
+
 class _ForwardTargetSheet extends StatefulWidget {
   const _ForwardTargetSheet({required this.chats});
 
@@ -5958,7 +6871,9 @@ class _ForwardTargetSheetState extends State<_ForwardTargetSheet> {
                         return ListTile(
                           leading: CircleAvatar(
                             child: Icon(
-                              chat.type == 'chat'
+                              chat.type == 'saved'
+                                  ? Icons.bookmark_rounded
+                                  : chat.type == 'chat'
                                   ? Icons.person_rounded
                                   : Icons.groups_rounded,
                             ),
@@ -5975,6 +6890,159 @@ class _ForwardTargetSheetState extends State<_ForwardTargetSheet> {
       ),
     );
   }
+}
+
+
+void _applyComposerFormatting(
+  TextEditingController controller,
+  String prefix,
+  String suffix,
+) {
+  final value = controller.value;
+  final selection = value.selection;
+  if (!selection.isValid || selection.isCollapsed) return;
+  final start = min(selection.start, selection.end);
+  final end = max(selection.start, selection.end);
+  final selected = value.text.substring(start, end);
+  final replacement = '$prefix$selected$suffix';
+  controller.value = TextEditingValue(
+    text: value.text.replaceRange(start, end, replacement),
+    selection: TextSelection(
+      baseOffset: start + prefix.length,
+      extentOffset: start + prefix.length + selected.length,
+    ),
+  );
+}
+
+Future<void> _applyComposerColor(
+  BuildContext context,
+  TextEditingController controller,
+) async {
+  final picked = await showMenu<String>(
+    context: context,
+    position: const RelativeRect.fromLTRB(80, 520, 16, 80),
+    items: const [
+      PopupMenuItem(value: '#E11D48', child: Text('Red')),
+      PopupMenuItem(value: '#D97706', child: Text('Orange')),
+      PopupMenuItem(value: '#07865D', child: Text('Green')),
+      PopupMenuItem(value: '#2864DC', child: Text('Blue')),
+      PopupMenuItem(value: '#7C3AED', child: Text('Violet')),
+      PopupMenuItem(value: '#111827', child: Text('Black')),
+    ],
+  );
+  if (picked == null) return;
+  _applyComposerFormatting(controller, '[color=$picked]', '[/color]');
+}
+
+Future<void> _showComposerFormattingMenu(
+  BuildContext context,
+  TextEditingController controller,
+) async {
+  if (!controller.selection.isValid || controller.selection.isCollapsed) return;
+  final action = await showMenu<String>(
+    context: context,
+    position: const RelativeRect.fromLTRB(80, 520, 16, 80),
+    items: const [
+      PopupMenuItem(value: 'bold', child: Text('Bold')),
+      PopupMenuItem(value: 'italic', child: Text('Italic')),
+      PopupMenuItem(value: 'underline', child: Text('Underline')),
+      PopupMenuItem(value: 'strike', child: Text('Strikethrough')),
+      PopupMenuItem(value: 'mono', child: Text('Monospace')),
+      PopupMenuItem(value: 'quote', child: Text('Quote')),
+      PopupMenuItem(value: 'color', child: Text('Text color')),
+    ],
+  );
+  if (action == null) return;
+  switch (action) {
+    case 'bold':
+      _applyComposerFormatting(controller, '**', '**');
+      break;
+    case 'italic':
+      _applyComposerFormatting(controller, '*', '*');
+      break;
+    case 'underline':
+      _applyComposerFormatting(controller, '__', '__');
+      break;
+    case 'strike':
+      _applyComposerFormatting(controller, '~~', '~~');
+      break;
+    case 'mono':
+      _applyComposerFormatting(controller, '`', '`');
+      break;
+    case 'quote':
+      _applyComposerFormatting(controller, '> ', '');
+      break;
+    case 'color':
+      await _applyComposerColor(context, controller);
+      break;
+  }
+}
+
+Widget _composerContextMenu(
+  BuildContext context,
+  EditableTextState editableTextState,
+  TextEditingController controller,
+) {
+  final anchors = editableTextState.contextMenuAnchors;
+  final selected = controller.selection.isValid && !controller.selection.isCollapsed;
+  final items = <ContextMenuButtonItem>[
+    ...editableTextState.contextMenuButtonItems,
+    if (selected) ...[
+      ContextMenuButtonItem(
+        label: 'Bold',
+        onPressed: () {
+          ContextMenuController.removeAny();
+          _applyComposerFormatting(controller, '**', '**');
+        },
+      ),
+      ContextMenuButtonItem(
+        label: 'Italic',
+        onPressed: () {
+          ContextMenuController.removeAny();
+          _applyComposerFormatting(controller, '*', '*');
+        },
+      ),
+      ContextMenuButtonItem(
+        label: 'Underline',
+        onPressed: () {
+          ContextMenuController.removeAny();
+          _applyComposerFormatting(controller, '__', '__');
+        },
+      ),
+      ContextMenuButtonItem(
+        label: 'Strikethrough',
+        onPressed: () {
+          ContextMenuController.removeAny();
+          _applyComposerFormatting(controller, '~~', '~~');
+        },
+      ),
+      ContextMenuButtonItem(
+        label: 'Monospace',
+        onPressed: () {
+          ContextMenuController.removeAny();
+          _applyComposerFormatting(controller, '`', '`');
+        },
+      ),
+      ContextMenuButtonItem(
+        label: 'Quote',
+        onPressed: () {
+          ContextMenuController.removeAny();
+          _applyComposerFormatting(controller, '> ', '');
+        },
+      ),
+      ContextMenuButtonItem(
+        label: 'Text color',
+        onPressed: () {
+          ContextMenuController.removeAny();
+          _applyComposerColor(context, controller);
+        },
+      ),
+    ],
+  ];
+  return AdaptiveTextSelectionToolbar.buttonItems(
+    anchors: anchors,
+    buttonItems: items,
+  );
 }
 
 class _MessageComposer extends StatelessWidget {
@@ -6073,7 +7141,8 @@ class _MessageComposer extends StatelessWidget {
                                     HardwareKeyboard
                                         .instance
                                         .isControlPressed ||
-                                    HardwareKeyboard.instance.isMetaPressed;
+                                    HardwareKeyboard.instance.isMetaPressed ||
+                                    HardwareKeyboard.instance.isShiftPressed;
                                 if (insertNewLine) {
                                   final value = controller.value;
                                   final selection = value.selection.isValid
@@ -6107,6 +7176,13 @@ class _MessageComposer extends StatelessWidget {
                                 keyboardType: TextInputType.multiline,
                                 textCapitalization:
                                     TextCapitalization.sentences,
+                                contextMenuBuilder:
+                                    (context, editableTextState) =>
+                                        _composerContextMenu(
+                                          context,
+                                          editableTextState,
+                                          controller,
+                                        ),
                                 decoration: const InputDecoration(
                                   hintText: 'Message',
                                   filled: false,
@@ -6118,6 +7194,23 @@ class _MessageComposer extends StatelessWidget {
                                   focusedBorder: InputBorder.none,
                                 ),
                               ),
+                            ),
+                          ),
+                          IconButton(
+                            tooltip: 'Format selected text',
+                            onPressed: controller.selection.isValid &&
+                                    !controller.selection.isCollapsed
+                                ? () => _showComposerFormattingMenu(
+                                      context,
+                                      controller,
+                                    )
+                                : null,
+                            icon: Icon(
+                              Icons.format_bold_rounded,
+                              color: controller.selection.isValid &&
+                                      !controller.selection.isCollapsed
+                                  ? AppColors.muted
+                                  : AppColors.muted.withOpacity(0.45),
                             ),
                           ),
                           IconButton(
@@ -6324,10 +7417,4 @@ String formatFileSize(int bytes) {
   final mb = kb / 1024;
   return '${mb.toStringAsFixed(1)} MB';
 }
-
-
-
-
-
-
 

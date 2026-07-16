@@ -16,4 +16,4 @@ typedef ClipboardMediaHandler = Future<void> Function(List<PastedMediaFile> file
 
 void registerClipboardMediaHandler(ClipboardMediaHandler handler) {}
 
-void unregisterClipboardMediaHandler() {}
+void unregisterClipboardMediaHandler([ClipboardMediaHandler? handler]) {}

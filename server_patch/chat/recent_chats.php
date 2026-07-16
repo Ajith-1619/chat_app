@@ -7,6 +7,7 @@ $groups = [];
 try {
     $pdo = chat_db();
     chat_ensure_schema($pdo);
+    chat_ensure_column($pdo, 'xmpp_group_members', 'history_visible_from', 'DATETIME NULL AFTER joined_at');
     chat_ensure_column($pdo, 'xmpp_messages', 'visibility_mode', 'VARCHAR(16) NOT NULL DEFAULT \'all\' AFTER source_name');
     $pdo->exec(
         'CREATE TABLE IF NOT EXISTS xmpp_message_recipients (
@@ -37,7 +38,7 @@ try {
                   WHERE unread.from_jid = latest.peer_jid
                     AND unread.to_jid = :me_unread
                     AND unread.read_at IS NULL
-                    AND unread.deleted_at IS NULL
+                    AND (unread.deleted_at IS NULL OR unread.deleted_at = \'0000-00-00 00:00:00\')
                 ) AS unread_count
          FROM xmpp_messages m
          INNER JOIN (
@@ -46,7 +47,7 @@ try {
                 MAX(id) AS max_id
             FROM xmpp_messages
             WHERE (from_jid = :me_where_from OR to_jid = :me_where_to)
-              AND deleted_at IS NULL
+              AND (deleted_at IS NULL OR deleted_at = \'0000-00-00 00:00:00\')
             GROUP BY peer_jid
          ) latest ON latest.max_id = m.id
          LEFT JOIN xmpp_conversation_preferences pref
@@ -111,7 +112,7 @@ try {
         ];
     }
     $stmt = $pdo->prepare(
-        'SELECT g.id, g.room_name, g.room_jid, g.avatar_url, g.group_type, g.created_at,
+        'SELECT g.id, g.room_name, g.room_jid, g.avatar_url, g.group_type, g.channel_kind, g.created_at,
                 COALESCE(pref.is_pinned, 0) AS is_pinned,
                 COALESCE(pref.is_starred, 0) AS is_starred,
                 COALESCE(gr.last_read_message_id, 0) AS last_read_message_id,
@@ -125,26 +126,9 @@ try {
                   WHERE unread.to_jid = g.room_jid
                     AND unread.from_jid <> :me_unread_group
                     AND unread.id > COALESCE(gr.last_read_message_id, 0)
-                    AND unread.message_type IN (\'groupchat\', \'file\')
-                    AND unread.deleted_at IS NULL
-                    AND (COALESCE(unread.visibility_mode, \'all\') <> \'selected\' OR unread.from_jid = :visibility_me_jid_unread OR EXISTS (SELECT 1 FROM xmpp_message_recipients vmr WHERE vmr.message_id = unread.id AND vmr.emp_id = :visibility_emp_id_unread))
+                    AND (unread.deleted_at IS NULL OR unread.deleted_at = \'0000-00-00 00:00:00\')
                 ) AS unread_count,
-                (
-                  SELECT COALESCE(MAX(
-                    CASE
-                      WHEN mention.mentions_json IS NOT NULL
-                       AND JSON_CONTAINS(mention.mentions_json, :mention_emp)
-                      THEN 1 ELSE 0
-                    END
-                  ), 0)
-                  FROM xmpp_messages mention
-                  WHERE mention.to_jid = g.room_jid
-                    AND mention.from_jid <> :me_mention_group
-                    AND mention.id > COALESCE(gr.last_read_message_id, 0)
-                    AND mention.message_type IN (\'groupchat\', \'file\')
-                    AND mention.deleted_at IS NULL
-                    AND (COALESCE(mention.visibility_mode, \'all\') <> \'selected\' OR mention.from_jid = :visibility_me_jid_mention OR EXISTS (SELECT 1 FROM xmpp_message_recipients vmr WHERE vmr.message_id = mention.id AND vmr.emp_id = :visibility_emp_id_mention))
-                ) AS mentioned
+                0 AS mentioned
          FROM xmpp_groups g
          INNER JOIN xmpp_group_members gm ON gm.group_id = g.id
          LEFT JOIN xmpp_group_reads gr
@@ -156,9 +140,7 @@ try {
              SELECT m2.id
              FROM xmpp_messages m2
              WHERE m2.to_jid = g.room_jid
-               AND m2.message_type IN (\'groupchat\', \'file\')
-               AND m2.deleted_at IS NULL
-               AND (COALESCE(m2.visibility_mode, \'all\') <> \'selected\' OR m2.from_jid = :visibility_me_jid_last OR EXISTS (SELECT 1 FROM xmpp_message_recipients vmr WHERE vmr.message_id = m2.id AND vmr.emp_id = :visibility_emp_id_last))
+               AND (m2.deleted_at IS NULL OR m2.deleted_at = \'0000-00-00 00:00:00\')
              ORDER BY m2.id DESC
              LIMIT 1
            )
@@ -168,15 +150,7 @@ try {
     );
     $stmt->execute([
         ':emp_id' => (int)$session['emp_id'],
-        ':mention_emp' => json_encode((int)$session['emp_id']),
         ':me_unread_group' => $me,
-        ':me_mention_group' => $me,
-        ':visibility_me_jid_unread' => $me,
-        ':visibility_emp_id_unread' => (int)$session['emp_id'],
-        ':visibility_me_jid_mention' => $me,
-        ':visibility_emp_id_mention' => (int)$session['emp_id'],
-        ':visibility_me_jid_last' => $me,
-        ':visibility_emp_id_last' => (int)$session['emp_id'],
     ]);
     foreach (($stmt->fetchAll(PDO::FETCH_ASSOC) ?: []) as $row) {
         $groups[] = [
@@ -185,6 +159,8 @@ try {
             'name' => (($row['group_type'] ?? 'group') === 'channel' ? '#' : '') . (string)$row['room_name'],
             'jid' => (string)$row['room_jid'],
             'avatar_url' => chat_public_upload_url((string)($row['avatar_url'] ?? '')),
+            'designation' => (($row['group_type'] ?? 'group') === 'channel') ? ucfirst(str_replace('_', ' ', (string)($row['channel_kind'] ?? 'operational'))) . ' channel' : 'Group conversation',
+            'channel_kind' => (string)($row['channel_kind'] ?? ''),
             'last' => chat_push_preview(
                 (string)($row['last_body'] ?? 'Group chat'),
                 (string)($row['last_file_name'] ?? '')
@@ -205,3 +181,5 @@ usort($groups, static function(array $a, array $b): int {
     return strtotime((string)($b['time'] ?? '')) <=> strtotime((string)($a['time'] ?? ''));
 });
 chat_json(['status' => true, 'chats' => $groups]);
+
+

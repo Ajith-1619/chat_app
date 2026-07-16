@@ -353,6 +353,7 @@ class ChatAttachment {
     this.liveMinutes = 0,
     this.shareId = '',
     this.messageId = 0,
+    this.isRestricted = false,
   });
 
   static const _filePrefix = 'SKYLINK_FILE:';
@@ -372,6 +373,7 @@ class ChatAttachment {
           ? (json['waveform'] as List).map((value) => _jsonInt(value)).toList()
           : const [],
       durationMs: _jsonInt(json['duration_ms']),
+      isRestricted: _jsonBool(json['restricted'] ?? json['is_restricted'] ?? json['file_restricted']),
     );
   }
 
@@ -439,6 +441,7 @@ class ChatAttachment {
   final int liveMinutes;
   final String shareId;
   final int messageId;
+  final bool isRestricted;
 
   bool get isAudio {
     if (mimeType.toLowerCase().startsWith('audio/')) return true;
@@ -464,7 +467,7 @@ class ChatAttachment {
     if (isLocation) {
       return '$_locationPrefix${jsonEncode({'latitude': latitude, 'longitude': longitude, 'location_address': locationAddress, 'is_live': isLiveLocation, if (liveMinutes > 0) 'live_minutes': liveMinutes, if (shareId.isNotEmpty) 'share_id': shareId})}';
     }
-    return '$_filePrefix${jsonEncode({'name': name, 'url': url, 'type': mimeType, 'size': size, if (caption.isNotEmpty) 'caption': caption, if (transcription.isNotEmpty) 'transcription': transcription, if (waveform.isNotEmpty) 'waveform': waveform, if (durationMs > 0) 'duration_ms': durationMs})}';
+    return '$_filePrefix${jsonEncode({'name': name, 'url': url, 'type': mimeType, 'size': size, if (caption.isNotEmpty) 'caption': caption, if (transcription.isNotEmpty) 'transcription': transcription, if (waveform.isNotEmpty) 'waveform': waveform, if (durationMs > 0) 'duration_ms': durationMs, if (isRestricted) 'restricted': true})}';
   }
 
   static ChatAttachment? tryParse(String body) {
@@ -523,6 +526,7 @@ class ApiMessage {
     this.forwardedFromMessageId = '',
     this.messageType = 'chat',
     this.visibilityMode = 'all',
+    this.fileRestricted = false,
   });
 
   factory ApiMessage.fromJson(Map<String, dynamic> json) {
@@ -548,6 +552,7 @@ class ApiMessage {
       fileName: '${json['file_name'] ?? ''}',
       fileType: '${json['file_type'] ?? ''}',
       fileSize: _jsonInt(json['file_size']),
+      fileRestricted: _jsonBool(json['file_restricted'] ?? json['restricted'] ?? json['is_restricted']),
       latitude: _jsonDouble(json['latitude']),
       longitude: _jsonDouble(json['longitude']),
       locationAddress: '${json['location_address'] ?? ''}',
@@ -580,6 +585,7 @@ class ApiMessage {
   final String fileName;
   final String fileType;
   final int fileSize;
+  final bool fileRestricted;
   final double? latitude;
   final double? longitude;
   final String locationAddress;
@@ -613,6 +619,7 @@ class ApiMessage {
     'file_name': fileName,
     'file_type': fileType,
     'file_size': fileSize,
+    'file_restricted': fileRestricted,
     'latitude': latitude,
     'longitude': longitude,
     'location_address': locationAddress,
@@ -651,6 +658,7 @@ class ApiMessage {
       mimeType: fileType.trim().isEmpty ? 'application/octet-stream' : fileType,
       size: fileSize,
       caption: body,
+      isRestricted: fileRestricted,
     );
   }
 }
@@ -753,8 +761,8 @@ class UserProfile {
     lastActivityAt: '${json['last_activity_at'] ?? ''}',
     latestLatitude: _jsonDouble(json['latest_latitude']),
     latestLongitude: _jsonDouble(json['latest_longitude']),
-    latestLocationAddress: '',
-    latestLocationAt: '',
+    latestLocationAddress: '${json['latest_location_address'] ?? ''}'.trim(),
+    latestLocationAt: '${json['latest_location_at'] ?? ''}'.trim(),
   );
 
   final String empId;
@@ -1870,6 +1878,20 @@ class ChatApi {
     }
   }
 
+  Future<Map<String, dynamic>> votePollOption(
+    int messageId,
+    int optionIndex,
+  ) async {
+    if (messageId <= 0) {
+      throw const ApiException('Poll is not synced yet.');
+    }
+    final body = await _postJson('chat/poll_vote.php', {
+      'message_id': messageId,
+      'option_index': optionIndex,
+    });
+    return body;
+  }
+
   Future<Map<String, dynamic>> toggleChecklistItem(
     int messageId,
     int itemIndex,
@@ -2120,6 +2142,9 @@ class ChatApi {
     if (attachment.isLocation) {
       throw const ApiException('Location messages cannot be downloaded.');
     }
+    if (attachment.isRestricted) {
+      throw const ApiException('This file is restricted and can only be viewed inside Flow.');
+    }
     final safeName = attachment.name
         .replaceAll(RegExp(r'[<>:"/\\|?*]'), '_')
         .trim();
@@ -2321,6 +2346,20 @@ class ChatApi {
     return users;
   }
 
+  Future<List<Map<String, dynamic>>> getMyHubVerticals() async {
+    final body = await _getJson(
+      'chat/myhub.php',
+      query: {'section': 'verticals'},
+    );
+    final values = body['verticals'];
+    return values is List
+        ? values
+              .whereType<Map>()
+              .map((item) => Map<String, dynamic>.from(item))
+              .toList()
+        : <Map<String, dynamic>>[];
+  }
+
   Future<Map<String, dynamic>> getMyHubTasks({
     bool forceRefresh = false,
   }) async {
@@ -2359,6 +2398,7 @@ class ChatApi {
     String deadline = '',
     List<int> followers = const [],
     int groupId = 0,
+    String vertical = '',
   }) async {
     final payload = <String, dynamic>{
       'title': title,
@@ -2367,6 +2407,7 @@ class ChatApi {
       'deadline': deadline,
       'assignees': assignees,
       'followers': followers,
+      if (vertical.trim().isNotEmpty) 'vertical': vertical.trim(),
     };
     if (groupId > 0) {
       payload['group_id'] = groupId;
@@ -2729,11 +2770,13 @@ class ChatApi {
     required int groupId,
     required String empId,
     required bool add,
+    bool showHistory = false,
   }) async {
     final payload = {
       'group_id': groupId,
       'emp_id': empId,
       'action': add ? 'add' : 'remove',
+      if (add) 'show_history': showHistory,
     };
     if (_useDirectWebXmpp) {
       await _webHelperPost('/group/member', payload);
@@ -2747,11 +2790,16 @@ class ChatApi {
     required String empId,
     required String action,
   }) async {
-    await _postJson('chat/manage_group.php', {
+    final payload = {
       'group_id': groupId,
       'emp_id': empId,
       'action': action,
-    });
+    };
+    if (_useDirectWebXmpp) {
+      await _webHelperPost('/group/member', payload);
+    } else {
+      await _postJson('chat/manage_group.php', payload);
+    }
   }
 
   Future<ChatAttachment> sendAttachment({
@@ -2772,6 +2820,7 @@ class ChatApi {
     String originalSenderName = '',
     String originalSourceName = '',
     void Function(double progress)? onProgress,
+    bool restricted = false,
   }) async {
     _validateJid(to);
     if (bytes.isEmpty) throw const ApiException('The selected file is empty.');
@@ -2794,6 +2843,7 @@ class ChatApi {
         originalSenderName: originalSenderName,
         originalSourceName: originalSourceName,
         onProgress: onProgress,
+        restricted: restricted,
       );
     }
     onProgress?.call(0.05);
@@ -2824,6 +2874,7 @@ class ChatApi {
         mimeType: mimeType,
         size: bytes.length,
         caption: caption.trim(),
+        isRestricted: restricted,
       );
       await _xmpp.sendAttachment(
         jid: to,
@@ -2839,6 +2890,7 @@ class ChatApi {
         size: attachment.size,
         caption: attachment.caption,
         messageId: 0,
+        isRestricted: restricted,
       );
     } on ApiException {
       rethrow;
@@ -2866,6 +2918,7 @@ class ChatApi {
     String originalSenderName = '',
     String originalSourceName = '',
     void Function(double progress)? onProgress,
+    bool restricted = false,
   }) async {
     var uploadBytes = Uint8List.fromList(bytes);
     var uploadName = name;
@@ -2945,6 +2998,7 @@ class ChatApi {
       'file_name': uploadName,
       'file_type': uploadType,
       'file_size': uploadBytes.length,
+      if (restricted) 'file_restricted': true,
       if (replyToId.isNotEmpty) 'reply_to_id': replyToId,
       if (mentions.isNotEmpty) 'mentions': mentions,
       if (threadRootId.isNotEmpty) 'thread_root_id': threadRootId,
@@ -2971,6 +3025,7 @@ class ChatApi {
       mimeType: uploadType,
       size: uploadBytes.length,
       caption: caption.trim(),
+      isRestricted: restricted,
       messageId: _jsonInt(sent['message_id']),
     );
   }

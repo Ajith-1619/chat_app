@@ -115,6 +115,70 @@ function myhub_parse_emp_ids(string $value): array
     $parts = preg_split('/\s*,\s*/', trim($value)) ?: [];
     return array_values(array_unique(array_filter(array_map('intval', $parts), static fn(int $id): bool => $id > 0)));
 }
+function myhub_people_label(array $people): string
+{
+    if (!$people) return 'None';
+    $labels = [];
+    foreach ($people as $person) {
+        $name = trim((string)($person['name'] ?? ''));
+        $id = (int)($person['emp_id'] ?? 0);
+        $labels[] = $name !== '' && $id > 0 ? "{$name} ({$id})" : ($name !== '' ? $name : (string)$id);
+    }
+    return implode(', ', array_values(array_filter($labels)));
+}
+
+function myhub_task_notification_body(
+    string $heading,
+    int $taskId,
+    string $title,
+    string $description,
+    array $creator,
+    array $assignees,
+    array $followers,
+    string $priority,
+    string $vertical,
+    string $updateText = '',
+    array $updatedBy = []
+): string {
+    $lines = [
+        $heading,
+        'Task ID: ' . $taskId,
+        'Title: ' . $title,
+        'Description: ' . ($description !== '' ? $description : '-'),
+        'Created by: ' . myhub_people_label($creator ? [$creator] : []),
+        'Assignees: ' . myhub_people_label($assignees),
+        'Followers: ' . myhub_people_label($followers),
+        'Vertical: ' . ($vertical !== '' ? $vertical : '-'),
+        'Priority: ' . ($priority !== '' ? ucfirst($priority) : '-'),
+    ];
+    if ($updatedBy) $lines[] = 'Updated by: ' . myhub_people_label([$updatedBy]);
+    if ($updateText !== '') $lines[] = 'Update: ' . $updateText;
+    return mb_substr(implode("\n", $lines), 0, 3900);
+}
+
+function myhub_notify_task_participants(
+    int $taskId,
+    string $eventType,
+    string $body,
+    int $creatorId,
+    array $assigneeIds,
+    array $followerIds,
+    string $referenceSuffix
+): void {
+    $recipients = array_values(array_unique(array_filter(array_merge([$creatorId], $assigneeIds, $followerIds), static fn(int $id): bool => $id > 0)));
+    foreach ($recipients as $recipientId) {
+        try {
+            chat_send_system_notification(
+                $recipientId,
+                $body,
+                $eventType,
+                $eventType . '-' . $taskId . '-' . $recipientId . '-' . $referenceSuffix
+            );
+        } catch (Throwable $e) {
+            error_log('Task system notification skipped: ' . $e->getMessage());
+        }
+    }
+}
 
 function myhub_directory(PDO $pdo): never
 {
@@ -157,6 +221,18 @@ function myhub_directory(PDO $pdo): never
     chat_json(['status' => true, 'employees' => $stmt->fetchAll(PDO::FETCH_ASSOC) ?: []]);
 }
 
+function myhub_verticals(PDO $pdo): never
+{
+    $table = myhub_first_table($pdo, ['tbl_vertical', 'vertical', 'verticals']);
+    if ($table === '') chat_json(['status' => true, 'verticals' => []]);
+    $columns = myhub_columns($pdo, $table);
+    $idCol = myhub_first_column($columns, ['id', 'vertical_id']);
+    $nameCol = myhub_first_column($columns, ['vertical_name', 'name', 'title']);
+    if ($idCol === '' || $nameCol === '') chat_json(['status' => true, 'verticals' => []]);
+    $stmt = $pdo->query("SELECT `{$idCol}` AS id, `{$nameCol}` AS name FROM `{$table}` ORDER BY `{$nameCol}` ASC LIMIT 500");
+    chat_json(['status' => true, 'verticals' => $stmt->fetchAll(PDO::FETCH_ASSOC) ?: []]);
+}
+
 function myhub_tasks(int $empId): never
 {
     $limit = max(20, min(100, (int)($_GET['limit'] ?? 50)));
@@ -166,67 +242,105 @@ function myhub_tasks(int $empId): never
     if (empty($columns['title'])) {
         chat_json(['status' => false, 'error' => 'Task table is unavailable.'], 500);
     }
-    $empExpr = "REPLACE(COALESCE(emp_id, ''), ' ', '')";
-    $followerCol = isset($columns['task_followers']) ? 'task_followers' : (isset($columns['followed_by']) ? 'followed_by' : '');
-    $related = ["{$empExpr} = :emp_text", "FIND_IN_SET(:emp_csv_assignee, {$empExpr})"];
-    $hasCreatedBy = isset($columns['created_by']);
-    if ($hasCreatedBy) {
-        $related[] = 'created_by = :emp_id';
-    }
-    if ($followerCol !== '') {
-        $related[] = "FIND_IN_SET(:emp_csv_follower, REPLACE(COALESCE(`{$followerCol}`, ''), ' ', ''))";
-    }
-    $where = '(' . implode(' OR ', $related) . ')';
-    $params = [':emp_text' => (string)$empId, ':emp_csv_assignee' => (string)$empId];
-    if ($followerCol !== '') $params[':emp_csv_follower'] = (string)$empId;
-    if ($hasCreatedBy) $params[':emp_id'] = $empId;
-    $statusExpr = isset($columns['status']) ? 'COALESCE(status, 0)' : '0';
-    // Legacy task_master uses status 2 for active/open tasks. Treat only 3+ as closed.
-    $closedStatusSql = "{$statusExpr} IN (3, 4, 5)";
-    $priorityExpr = isset($columns['priority']) ? 'priority' : "'' AS priority";
-    $metricSql = "SELECT
-        SUM(CASE WHEN {$statusExpr} <> 1 AND NOT ({$closedStatusSql}) THEN 1 ELSE 0 END) AS open_count,
-        SUM(CASE WHEN {$statusExpr} = 1 THEN 1 ELSE 0 END) AS request_close_count,
-        SUM(CASE WHEN {$closedStatusSql} THEN 1 ELSE 0 END) AS closed_count";
-    if (isset($columns['deadline'])) {
-        $metricSql .= ",
-        SUM(CASE WHEN NOT ({$closedStatusSql}) AND DATE(deadline) = CURDATE() THEN 1 ELSE 0 END) AS due_today,
-        SUM(CASE WHEN NOT ({$closedStatusSql}) AND deadline IS NOT NULL AND deadline < NOW() THEN 1 ELSE 0 END) AS overdue";
-    } else {
-        $metricSql .= ', 0 AS due_today, 0 AS overdue';
-    }
-    $metricSql .= " FROM task_master WHERE {$where}";
-    $metricStmt = $taskPdo->prepare($metricSql);
-    $metricStmt->execute($params);
-    $metrics = $metricStmt->fetch(PDO::FETCH_ASSOC) ?: [];
 
-    $deadlineCol = isset($columns['deadline']) ? 'deadline' : (isset($columns['due_date']) ? 'due_date' : "NULL");
-    $descCol = isset($columns['description']) ? 'description' : (isset($columns['task_description']) ? 'task_description' : "''");
-    $listAssigneeSql = isset($columns['emp_id']) ? 'emp_id' : "'' AS emp_id";
-    $listFollowerSql = $followerCol !== '' ? "`{$followerCol}` AS follower_ids" : "'' AS follower_ids";
-    $stmt = $taskPdo->prepare(
-        "SELECT id, title, {$priorityExpr}, {$statusExpr} AS status, {$deadlineCol} AS deadline, {$descCol} AS description, " .
-        (isset($columns['created_by']) ? 'created_by' : '0 AS created_by') . ', ' .
-        $listAssigneeSql . ', ' . $listFollowerSql . "
-         FROM task_master
-         WHERE {$where}
-         ORDER BY
-           " . ($hasCreatedBy ? "CASE WHEN created_by = :emp_order_id THEN 0 ELSE 1 END," : "") . "
-           CASE WHEN NOT ({$closedStatusSql}) AND {$deadlineCol} IS NOT NULL AND {$deadlineCol} < NOW() THEN 0 ELSE 1 END,
-           CASE WHEN {$statusExpr} = 1 THEN 0 ELSE 1 END,
-           CASE WHEN {$deadlineCol} IS NULL THEN 1 ELSE 0 END,
-           COALESCE({$deadlineCol}, '2999-12-31') ASC,
-           id DESC
-         LIMIT {$limit} OFFSET {$offset}"
-    );
-    if ($hasCreatedBy) {
-        $params[':emp_order_id'] = $empId;
+    $followerCol = isset($columns['task_followers']) ? 'task_followers' : (isset($columns['followed_by']) ? 'followed_by' : '');
+    $deadlineCol = isset($columns['deadline']) ? 'deadline' : (isset($columns['due_date']) ? 'due_date' : '');
+    $descCol = isset($columns['description']) ? 'description' : (isset($columns['task_description']) ? 'task_description' : '');
+
+    $select = ['id', 'title'];
+    foreach (['priority', 'status', 'emp_id', 'created_by'] as $column) {
+        if (isset($columns[$column])) $select[] = $column;
     }
-    $stmt->execute($params);
+    if ($followerCol !== '') $select[] = "`{$followerCol}` AS follower_ids";
+    if ($deadlineCol !== '') $select[] = "`{$deadlineCol}` AS deadline";
+    if ($descCol !== '') $select[] = "`{$descCol}` AS description";
+    $selectSql = implode(', ', array_unique($select));
+
+    try {
+        $stmt = $taskPdo->query("SELECT {$selectSql} FROM task_master ORDER BY id DESC LIMIT 1000");
+        $rows = $stmt ? ($stmt->fetchAll(PDO::FETCH_ASSOC) ?: []) : [];
+    } catch (Throwable $e) {
+        error_log('MyHub task safe list failed: ' . $e->getMessage());
+        chat_json(['status' => false, 'error' => 'Unable to load task list.'], 500);
+    }
+
+    $related = [];
+    foreach ($rows as $row) {
+        $assignees = myhub_parse_emp_ids((string)($row['emp_id'] ?? ''));
+        $followers = myhub_parse_emp_ids((string)($row['follower_ids'] ?? ''));
+        $createdBy = (int)($row['created_by'] ?? 0);
+        if ($createdBy === $empId || in_array($empId, $assignees, true) || in_array($empId, $followers, true)) {
+            $related[(int)$row['id']] = $row;
+        }
+    }
+    $tasks = array_values($related);
+    $employeePdo = myhub_employee_db();
+    $peopleIds = [];
+    foreach ($tasks as $task) {
+        $peopleIds = array_merge(
+            $peopleIds,
+            myhub_parse_emp_ids((string)($task['emp_id'] ?? '')),
+            myhub_parse_emp_ids((string)($task['follower_ids'] ?? '')),
+            [(int)($task['created_by'] ?? 0)]
+        );
+    }
+    $peopleMap = [];
+    foreach (myhub_people($employeePdo, $peopleIds) as $person) {
+        $peopleMap[(int)$person['emp_id']] = $person;
+    }
+    foreach ($tasks as &$task) {
+        $assigneeIds = myhub_parse_emp_ids((string)($task['emp_id'] ?? ''));
+        $followerIds = myhub_parse_emp_ids((string)($task['follower_ids'] ?? ''));
+        $task['assignees'] = array_values(array_map(static fn(int $id): array => $peopleMap[$id] ?? ['emp_id' => $id, 'name' => (string)$id, 'designation' => ''], $assigneeIds));
+        $task['followers'] = array_values(array_map(static fn(int $id): array => $peopleMap[$id] ?? ['emp_id' => $id, 'name' => (string)$id, 'designation' => ''], $followerIds));
+        $creatorId = (int)($task['created_by'] ?? 0);
+        $task['creator'] = $creatorId > 0 ? ($peopleMap[$creatorId] ?? ['emp_id' => $creatorId, 'name' => (string)$creatorId, 'designation' => '']) : null;
+    }
+    unset($task);
+
+    usort($tasks, static function(array $a, array $b) use ($empId): int {
+        $aCreated = (int)($a['created_by'] ?? 0) === $empId ? 0 : 1;
+        $bCreated = (int)($b['created_by'] ?? 0) === $empId ? 0 : 1;
+        if ($aCreated !== $bCreated) return $aCreated <=> $bCreated;
+        $aDeadline = trim((string)($a['deadline'] ?? ''));
+        $bDeadline = trim((string)($b['deadline'] ?? ''));
+        $aTime = $aDeadline === '' ? PHP_INT_MAX : strtotime($aDeadline);
+        $bTime = $bDeadline === '' ? PHP_INT_MAX : strtotime($bDeadline);
+        if ($aTime !== $bTime) return $aTime <=> $bTime;
+        return ((int)($b['id'] ?? 0)) <=> ((int)($a['id'] ?? 0));
+    });
+
+    $now = time();
+    $today = date('Y-m-d');
+    $metrics = [
+        'open_count' => 0,
+        'request_close_count' => 0,
+        'closed_count' => 0,
+        'due_today' => 0,
+        'overdue' => 0,
+    ];
+    foreach ($tasks as $task) {
+        $status = (int)($task['status'] ?? 0);
+        $closed = in_array($status, [3, 4, 5], true);
+        if ($status === 1) $metrics['request_close_count']++;
+        if ($closed) {
+            $metrics['closed_count']++;
+        } else {
+            if ($status !== 1) $metrics['open_count']++;
+            $deadline = trim((string)($task['deadline'] ?? ''));
+            if ($deadline !== '') {
+                if (substr($deadline, 0, 10) === $today) $metrics['due_today']++;
+                $deadlineTime = strtotime($deadline);
+                if ($deadlineTime !== false && $deadlineTime < $now) $metrics['overdue']++;
+            }
+        }
+    }
+
+    $page = array_slice($tasks, $offset, $limit);
     chat_json([
         'status' => true,
         'metrics' => $metrics,
-        'tasks' => $stmt->fetchAll(PDO::FETCH_ASSOC) ?: [],
+        'tasks' => $page,
         'limit' => $limit,
         'offset' => $offset,
     ]);
@@ -308,6 +422,22 @@ function myhub_create_task(int $empId): never
     } catch (Throwable $e) {
         error_log('Task created without task_explained audit row: ' . $e->getMessage());
     }
+    $employeePdo = myhub_employee_db();
+    $creatorPeople = myhub_people($employeePdo, [$empId]);
+    $assigneePeople = myhub_people($employeePdo, $assignees);
+    $followerPeople = myhub_people($employeePdo, $followers);
+    $body = myhub_task_notification_body(
+        'Task created',
+        $taskId,
+        $title,
+        $description,
+        $creatorPeople[0] ?? ['emp_id' => $empId, 'name' => (string)$empId, 'designation' => ''],
+        $assigneePeople,
+        $followerPeople,
+        $priority,
+        trim((string)($insert['vertical'] ?? $input['vertical'] ?? ''))
+    );
+    myhub_notify_task_participants($taskId, 'task_created', $body, $empId, $assignees, $followers, 'created');
     chat_json(['status' => true, 'task' => ['id' => $taskId, 'title' => $title]]);
 }
 
@@ -684,6 +814,7 @@ try {
     }
     match ($section) {
         'directory' => myhub_directory(myhub_employee_db()),
+        'verticals' => myhub_verticals(myhub_employee_db()),
         'tasks' => myhub_tasks($empId),
         'task_detail' => myhub_task_detail($empId),
         'leave' => myhub_leave(myhub_employee_db(), $empId),
@@ -693,3 +824,4 @@ try {
     error_log('MyHub failed: ' . $e->getMessage());
     chat_json(['status' => false, 'error' => 'Unable to load MyHub data.'], 500);
 }
+

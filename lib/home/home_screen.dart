@@ -306,7 +306,7 @@ class _HomeScreenState extends State<HomeScreen> {
   String? _loadError;
   ChatPreview? _selectedDesktopChat;
   int _selectedDesktopInitialMessageId = 0;
-  bool _showDesktopProfile = true;
+  bool _showDesktopProfile = false;
   bool _attendanceActive = false;
   bool _offlineBannerVisible = false;
   bool _inlineSearchLoading = false;
@@ -1027,7 +1027,7 @@ class _HomeScreenState extends State<HomeScreen> {
       setState(() {
         _selectedDesktopChat = chat;
         _selectedDesktopInitialMessageId = initialMessageId;
-        _showDesktopProfile = true;
+        _showDesktopProfile = false;
       });
       return;
     }
@@ -1451,7 +1451,6 @@ class _HomeScreenState extends State<HomeScreen> {
                           onLongPress: () => _showChatActions(chat),
                         ),
                       );
-                      setState(() => _showDesktopProfile = true);
                     },
                   ),
           ),
@@ -1978,34 +1977,18 @@ class _DesktopConversationProfileState
     final users = await chatApi.searchUsers();
     if (!mounted) return;
     final existing = currentMembers.map((member) => member.empId).toSet();
-    final selected = await showDialog<ChatContact>(
-      context: context,
-      builder: (dialogContext) => AlertDialog(
-        title: const Text('Add member'),
-        content: SizedBox(
-          width: 420,
-          height: 420,
-          child: ListView(
-            children: users
-                .where((user) => !existing.contains(user.empId))
-                .map(
-                  (user) => ListTile(
-                    title: Text(user.name),
-                    subtitle: Text(user.designation),
-                    onTap: () => Navigator.pop(dialogContext, user),
-                  ),
-                )
-                .toList(),
-          ),
-        ),
-      ),
+    final selected = await _pickMemberToAdd(
+      context,
+      users: users,
+      existing: existing,
     );
     if (selected == null) return;
     try {
       await chatApi.manageGroupMember(
         groupId: groupId,
-        empId: selected.empId,
+        empId: selected.user.empId,
         add: true,
+        showHistory: selected.showHistory,
       );
       if (!mounted) return;
       ScaffoldMessenger.of(
@@ -2047,22 +2030,28 @@ class _DesktopConversationProfileState
       ),
     );
     if (ok != true) return;
+    await _memberAction(member, 'remove', success: 'Member removed.');
+  }
+
+  Future<void> _memberAction(
+    GroupMember member,
+    String action, {
+    String success = 'Member updated.',
+  }) async {
+    final groupId = int.tryParse(chat.empId) ?? 0;
+    if (groupId <= 0) return;
     try {
-      await chatApi.manageGroupMember(
+      await chatApi.groupMemberAction(
         groupId: groupId,
         empId: member.empId,
-        add: false,
+        action: action,
       );
       if (!mounted) return;
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(const SnackBar(content: Text('Member removed.')));
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(success)));
       _reloadPanel();
     } on ApiException catch (error) {
       if (!mounted) return;
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text(error.message)));
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(error.message)));
     }
   }
 
@@ -2205,10 +2194,30 @@ class _DesktopConversationProfileState
                   contentPadding: EdgeInsets.zero,
                   leading: const Icon(Icons.notifications_active_outlined),
                   title: const Text('Wake-up notification'),
-                  subtitle: Text(
-                    canManageGroup
-                        ? 'Configure from this right panel'
-                        : 'Only owner/admin can edit',
+                  subtitle: FutureBuilder<Map<String, dynamic>>(
+                    future: chat.isGroup
+                        ? chatApi.getWakeupConfig(
+                            groupId: int.tryParse(chat.empId) ?? 0,
+                            jid: chat.jid,
+                          )
+                        : null,
+                    builder: (context, wakeSnapshot) {
+                      final wake =
+                          wakeSnapshot.data ?? const <String, dynamic>{};
+                      final enabled =
+                          wake['enabled'] == true ||
+                          '${wake['enabled'] ?? ''}' == '1' ||
+                          '${wake['enabled'] ?? ''}'.toLowerCase() == 'true';
+                      final next = '${wake['next_wakeup_label'] ?? ''}'.trim();
+                      if (enabled && next.isNotEmpty) {
+                        return Text('Next wake-up: $next');
+                      }
+                      return Text(
+                        canManageGroup
+                            ? 'Configure from this right panel'
+                            : 'Only owner/admin can edit',
+                      );
+                    },
                   ),
                   trailing: canManageGroup
                       ? const Icon(Icons.chevron_right_rounded)
@@ -2257,10 +2266,15 @@ class _DesktopConversationProfileState
                       : member.isOnline
                       ? 'online'
                       : member.designation;
+                  final selfEmpId = chatApi.currentJid.split('@').first;
                   final canRemove =
                       canManageGroup &&
                       member.role != 'owner' &&
-                      member.empId != chatApi.currentJid.split('@').first;
+                      member.empId != selfEmpId;
+                  final canChangeAdminRole =
+                      groupRole == 'owner' &&
+                      member.role != 'owner' &&
+                      member.empId != selfEmpId;
                   return ListTile(
                     contentPadding: EdgeInsets.zero,
                     leading: CircleAvatar(
@@ -2268,11 +2282,40 @@ class _DesktopConversationProfileState
                     ),
                     title: Text(name),
                     subtitle: Text(subtitle),
-                    trailing: canRemove
-                        ? IconButton(
-                            tooltip: 'Remove member',
-                            onPressed: () => _removeMember(member),
-                            icon: const Icon(Icons.person_remove_outlined),
+                    trailing: canRemove || canChangeAdminRole
+                        ? PopupMenuButton<String>(
+                            tooltip: 'Member actions',
+                            onSelected: (action) {
+                              if (action == 'remove') {
+                                _removeMember(member);
+                                return;
+                              }
+                              _memberAction(
+                                member,
+                                action,
+                                success: action == 'promote'
+                                    ? 'Member promoted to admin.'
+                                    : 'Admin changed to member.',
+                              );
+                            },
+                            itemBuilder: (_) => [
+                              if (canChangeAdminRole)
+                                PopupMenuItem(
+                                  value: member.role == 'admin'
+                                      ? 'demote'
+                                      : 'promote',
+                                  child: Text(
+                                    member.role == 'admin'
+                                        ? 'Change to member'
+                                        : 'Promote to admin',
+                                  ),
+                                ),
+                              if (canRemove)
+                                const PopupMenuItem(
+                                  value: 'remove',
+                                  child: Text('Remove member'),
+                                ),
+                            ],
                           )
                         : member.role == 'owner'
                         ? const Chip(label: Text('Owner'))
@@ -3370,6 +3413,100 @@ class ArchivedChannelsScreen extends StatelessWidget {
   }
 }
 
+class _MemberAddChoice {
+  const _MemberAddChoice({required this.user, required this.showHistory});
+
+  final ChatContact user;
+  final bool showHistory;
+}
+
+Future<_MemberAddChoice?> _pickMemberToAdd(
+  BuildContext context, {
+  required List<ChatContact> users,
+  required Set<String> existing,
+}) async {
+  var showHistory = false;
+  var query = '';
+  return showDialog<_MemberAddChoice>(
+    context: context,
+    builder: (dialogContext) => StatefulBuilder(
+      builder: (context, setDialogState) {
+        final filtered = users.where((user) {
+          if (existing.contains(user.empId)) return false;
+          final needle = query.trim().toLowerCase();
+          if (needle.isEmpty) return true;
+          return user.name.toLowerCase().contains(needle) ||
+              user.empId.toLowerCase().contains(needle) ||
+              user.designation.toLowerCase().contains(needle) ||
+              user.jid.toLowerCase().contains(needle);
+        }).toList();
+        return AlertDialog(
+          title: const Text('Add member'),
+          content: SizedBox(
+            width: 420,
+            height: 520,
+            child: Column(
+              children: [
+                TextField(
+                  autofocus: true,
+                  decoration: const InputDecoration(
+                    hintText: 'Search people',
+                    prefixIcon: Icon(Icons.search_rounded),
+                  ),
+                  onChanged: (value) => setDialogState(() => query = value),
+                ),
+                const SizedBox(height: 8),
+                CheckboxListTile(
+                  value: showHistory,
+                  contentPadding: EdgeInsets.zero,
+                  title: const Text('Show old messages'),
+                  subtitle: const Text(
+                    'Allow this user to view previous group/channel messages.',
+                  ),
+                  onChanged: (value) =>
+                      setDialogState(() => showHistory = value ?? false),
+                ),
+                const Divider(height: 1),
+                Expanded(
+                  child: filtered.isEmpty
+                      ? const Center(child: Text('No users found.'))
+                      : ListView.builder(
+                          itemCount: filtered.length,
+                          itemBuilder: (context, index) {
+                            final user = filtered[index];
+                            return ListTile(
+                              title: Text(user.name),
+                              subtitle: Text(
+                                user.designation.isEmpty
+                                    ? 'Employee ${user.empId}'
+                                    : user.designation,
+                              ),
+                              onTap: () => Navigator.pop(
+                                dialogContext,
+                                _MemberAddChoice(
+                                  user: user,
+                                  showHistory: showHistory,
+                                ),
+                              ),
+                            );
+                          },
+                        ),
+                ),
+              ],
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(dialogContext),
+              child: const Text('Cancel'),
+            ),
+          ],
+        );
+      },
+    ),
+  );
+}
+
 class ChatFoldersScreen extends StatefulWidget {
   const ChatFoldersScreen({super.key, required this.chats});
 
@@ -3569,6 +3706,10 @@ class _ChatFoldersScreenState extends State<ChatFoldersScreen> {
   }
 }
 
+class _SavedPasteIntent extends Intent {
+  const _SavedPasteIntent();
+}
+
 class SavedMessagesScreen extends StatefulWidget {
   const SavedMessagesScreen({super.key});
 
@@ -3582,11 +3723,15 @@ class _SavedMessagesScreenState extends State<SavedMessagesScreen> {
   List<SavedMessage> _messages = const [];
   bool _loading = true;
   bool _saving = false;
+  bool _isDragOver = false;
   String _error = '';
+  String _lastClipboardPasteKey = '';
+  DateTime? _lastClipboardPasteAt;
 
   @override
   void initState() {
     super.initState();
+    registerClipboardMediaHandler(_handleClipboardMediaPaste);
     _loadCached();
   }
 
@@ -3645,35 +3790,139 @@ class _SavedMessagesScreenState extends State<SavedMessagesScreen> {
       if (mounted) setState(() => _saving = false);
     }
   }
+  Future<void> _showSavedAttachmentOptions() async {
+    if (_saving) return;
+    final selected = await showModalBottomSheet<String>(
+      context: context,
+      builder: (sheetContext) => SafeArea(
+        child: Wrap(
+          children: [
+            ListTile(
+              leading: const Icon(Icons.image_rounded),
+              title: const Text('Image or video'),
+              subtitle: const Text('Save media to Saved Messages'),
+              onTap: () => Navigator.pop(sheetContext, 'file'),
+            ),
+            ListTile(
+              leading: const Icon(Icons.insert_drive_file_rounded),
+              title: const Text('Document'),
+              subtitle: const Text('Save PDF, sheet, text, APK, HTML, PHP or any file'),
+              onTap: () => Navigator.pop(sheetContext, 'file'),
+            ),
+            ListTile(
+              leading: const Icon(Icons.checklist_rounded),
+              title: const Text('Checklist'),
+              subtitle: const Text('Create a saved checklist note'),
+              onTap: () => Navigator.pop(sheetContext, 'checklist'),
+            ),
+            ListTile(
+              leading: const Icon(Icons.poll_rounded),
+              title: const Text('Poll'),
+              subtitle: const Text('Create a saved poll note'),
+              onTap: () => Navigator.pop(sheetContext, 'poll'),
+            ),
+          ],
+        ),
+      ),
+    );
+    if (!mounted || selected == null) return;
+    if (selected == 'file') {
+      await _pickAndSaveAttachment();
+      return;
+    }
+    final body = selected == 'checklist'
+        ? 'SKYLINK_CHECKLIST:{"title":"Checklist","items":[{"text":"New item","done":false}],"created_at":"${DateTime.now().toIso8601String()}"}'
+        : 'SKYLINK_POLL:{"question":"Poll","allow_multiple":false,"options":[{"text":"Yes","votes":[]},{"text":"No","votes":[]}],"created_at":"${DateTime.now().toIso8601String()}"}';
+    setState(() => _saving = true);
+    try {
+      await chatApi.saveMessage(body);
+      await _load();
+    } on ApiException catch (error) {
+      if (mounted) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text(error.message)));
+      }
+    } catch (_) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Could not save this item.')),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _saving = false);
+    }
+  }
 
   Future<void> _pickAndSaveAttachment() async {
     if (_saving) return;
     final result = await FilePicker.pickFiles(
-      allowMultiple: false,
+      allowMultiple: true,
       withData: kIsWeb,
     );
     if (result == null || result.files.isEmpty) return;
-    final file = result.files.single;
-    Uint8List? bytes = file.bytes;
-    if (bytes == null && file.path != null) {
-      bytes = await File(file.path!).readAsBytes();
+    await _savePlatformFiles(result.files);
+  }
+
+  Future<void> _handleDroppedFiles(List<XFile> files) async {
+    if (_saving || files.isEmpty) return;
+    final platformFiles = <PlatformFile>[];
+    for (final file in files) {
+      final bytes = await file.readAsBytes();
+      if (bytes.isEmpty) continue;
+      platformFiles.add(
+        PlatformFile(name: file.name, size: bytes.length, bytes: bytes),
+      );
     }
-    if (bytes == null || bytes.isEmpty) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Unable to read this file.')),
-        );
-      }
+    await _savePlatformFiles(platformFiles);
+  }
+
+  Future<void> _handleClipboardMediaPaste(List<PastedMediaFile> files) async {
+    if (_saving || files.isEmpty) return;
+    final now = DateTime.now();
+    final pasteKey = files
+        .map((file) => '${file.name}|${file.mimeType}|${file.bytes.length}')
+        .join(';');
+    final previousAt = _lastClipboardPasteAt;
+    if (pasteKey == _lastClipboardPasteKey &&
+        previousAt != null &&
+        now.difference(previousAt) < const Duration(seconds: 2)) {
       return;
     }
+    _lastClipboardPasteKey = pasteKey;
+    _lastClipboardPasteAt = now;
+    await _savePlatformFiles(
+      files
+          .map(
+            (file) => PlatformFile(
+              name: file.name,
+              size: file.bytes.length,
+              bytes: file.bytes,
+            ),
+          )
+          .toList(),
+    );
+  }
+
+  Future<void> _savePlatformFiles(List<PlatformFile> files) async {
+    final validFiles = files.where((file) => file.size > 0).toList();
+    if (validFiles.isEmpty || _saving) return;
     setState(() => _saving = true);
+    final caption = _controller.text.trim();
     try {
-      await chatApi.saveAttachmentMessage(
-        name: file.name,
-        mimeType: mimeTypeForFile(file.name),
-        bytes: bytes,
-        message: _controller.text.trim(),
-      );
+      for (final file in validFiles) {
+        Uint8List? bytes = file.bytes;
+        if (bytes == null && file.path != null) {
+          bytes = await File(file.path!).readAsBytes();
+        }
+        if (bytes == null || bytes.isEmpty) continue;
+        await chatApi.saveAttachmentMessage(
+          name: file.name,
+          mimeType: mimeTypeForFile(file.name),
+          bytes: bytes,
+          message: caption,
+        );
+      }
       _controller.clear();
       _focusNode.requestFocus();
       await _load();
@@ -3692,6 +3941,24 @@ class _SavedMessagesScreenState extends State<SavedMessagesScreen> {
     } finally {
       if (mounted) setState(() => _saving = false);
     }
+  }
+
+  Future<void> _pasteTextFromClipboard() async {
+    if (!_focusNode.hasFocus) return;
+    final data = await Clipboard.getData(Clipboard.kTextPlain);
+    final text = data?.text ?? '';
+    if (text.isEmpty) return;
+    final value = _controller.value;
+    final selection = value.selection.isValid
+        ? value.selection
+        : TextSelection.collapsed(offset: value.text.length);
+    final start = min(selection.start, selection.end);
+    final end = max(selection.start, selection.end);
+    final nextText = value.text.replaceRange(start, end, text);
+    _controller.value = TextEditingValue(
+      text: nextText,
+      selection: TextSelection.collapsed(offset: start + text.length),
+    );
   }
 
   Future<void> _copy(SavedMessage item) async {
@@ -3721,6 +3988,7 @@ class _SavedMessagesScreenState extends State<SavedMessagesScreen> {
 
   @override
   void dispose() {
+    unregisterClipboardMediaHandler(_handleClipboardMediaPaste);
     _controller.dispose();
     _focusNode.dispose();
     super.dispose();
@@ -3750,62 +4018,111 @@ class _SavedMessagesScreenState extends State<SavedMessagesScreen> {
           ),
         ],
       ),
-      body: Column(
-        children: [
-          Expanded(child: _buildMessageList(theme)),
-          SafeArea(
-            top: false,
-            child: Padding(
-              padding: const EdgeInsets.fromLTRB(12, 8, 12, 12),
-              child: Row(
-                crossAxisAlignment: CrossAxisAlignment.end,
-                children: [
-                  Expanded(
+      body: Shortcuts(
+        shortcuts: const {
+          SingleActivator(LogicalKeyboardKey.keyV, control: true):
+              _SavedPasteIntent(),
+          SingleActivator(LogicalKeyboardKey.keyV, meta: true):
+              _SavedPasteIntent(),
+        },
+        child: Actions(
+          actions: {
+            _SavedPasteIntent: CallbackAction<_SavedPasteIntent>(
+              onInvoke: (_) {
+                unawaited(_pasteTextFromClipboard());
+                return null;
+              },
+            ),
+          },
+          child: DropTarget(
+            onDragEntered: (_) {
+              if (mounted) setState(() => _isDragOver = true);
+            },
+            onDragExited: (_) {
+              if (mounted) setState(() => _isDragOver = false);
+            },
+            onDragDone: (details) => _handleDroppedFiles(details.files),
+            child: Stack(
+              children: [
+                Column(
+                  children: [
+                    Expanded(child: _buildMessageList(theme)),
+                    SafeArea(
+                      top: false,
+                      child: Padding(
+                        padding: const EdgeInsets.fromLTRB(12, 8, 12, 12),
+                        child: Row(
+                          crossAxisAlignment: CrossAxisAlignment.end,
+                          children: [
+                            Expanded(
+                              child: DecoratedBox(
+                                decoration: BoxDecoration(
+                                  color: theme.colorScheme.surfaceContainerHighest,
+                                  borderRadius: BorderRadius.circular(24),
+                                ),
+                                child: TextField(
+                                  controller: _controller,
+                                  focusNode: _focusNode,
+                                  minLines: 1,
+                                  maxLines: 5,
+                                  textInputAction: TextInputAction.send,
+                                  onSubmitted: (_) => _save(),
+                                  decoration: const InputDecoration(
+                                    hintText: 'Message',
+                                    border: InputBorder.none,
+                                    contentPadding: EdgeInsets.symmetric(
+                                      horizontal: 18,
+                                      vertical: 13,
+                                    ),
+                                  ),
+                                ),
+                              ),
+                            ),
+                            const SizedBox(width: 10),
+                            IconButton(
+                              tooltip: 'Attach file',
+                              onPressed: _saving ? null : _showSavedAttachmentOptions,
+                              icon: const Icon(Icons.attach_file_rounded),
+                            ),
+                            const SizedBox(width: 4),
+                            IconButton.filled(
+                              tooltip: 'Save',
+                              onPressed: _saving ? null : _save,
+                              icon: _saving
+                                  ? const SizedBox.square(
+                                      dimension: 18,
+                                      child: CircularProgressIndicator(strokeWidth: 2),
+                                    )
+                                  : const Icon(Icons.send_rounded),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+                if (_isDragOver)
+                  Positioned.fill(
                     child: DecoratedBox(
                       decoration: BoxDecoration(
-                        color: theme.colorScheme.surfaceContainerHighest,
-                        borderRadius: BorderRadius.circular(24),
+                        color: AppColors.primary.withValues(alpha: 0.10),
+                        border: Border.all(color: AppColors.primary, width: 2),
                       ),
-                      child: TextField(
-                        controller: _controller,
-                        focusNode: _focusNode,
-                        minLines: 1,
-                        maxLines: 5,
-                        textInputAction: TextInputAction.send,
-                        onSubmitted: (_) => _save(),
-                        decoration: const InputDecoration(
-                          hintText: 'Message',
-                          border: InputBorder.none,
-                          contentPadding: EdgeInsets.symmetric(
-                            horizontal: 18,
-                            vertical: 13,
+                      child: const Center(
+                        child: Text(
+                          'Drop files to save',
+                          style: TextStyle(
+                            color: AppColors.primary,
+                            fontWeight: FontWeight.w800,
                           ),
                         ),
                       ),
                     ),
                   ),
-                  const SizedBox(width: 10),
-                  IconButton(
-                    tooltip: 'Attach file',
-                    onPressed: _saving ? null : _pickAndSaveAttachment,
-                    icon: const Icon(Icons.attach_file_rounded),
-                  ),
-                  const SizedBox(width: 4),
-                  IconButton.filled(
-                    tooltip: 'Save',
-                    onPressed: _saving ? null : _save,
-                    icon: _saving
-                        ? const SizedBox.square(
-                            dimension: 18,
-                            child: CircularProgressIndicator(strokeWidth: 2),
-                          )
-                        : const Icon(Icons.send_rounded),
-                  ),
-                ],
-              ),
+              ],
             ),
           ),
-        ],
+        ),
       ),
     );
   }
@@ -3891,13 +4208,16 @@ class _SavedMessageBubble extends StatelessWidget {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final createdAt = _formatSavedMessageTime(item.createdAt);
+    final bubbleColor = theme.brightness == Brightness.dark
+        ? theme.colorScheme.surfaceContainerHighest
+        : AppColors.outgoing;
     return Align(
       alignment: Alignment.centerRight,
       child: ConstrainedBox(
         constraints: const BoxConstraints(maxWidth: 560),
         child: Card(
           margin: const EdgeInsets.only(bottom: 8),
-          color: AppColors.outgoing,
+          color: bubbleColor,
           elevation: 0,
           shape: RoundedRectangleBorder(
             borderRadius: BorderRadius.circular(14),
@@ -4232,39 +4552,44 @@ class ManageGroupSheetState extends State<ManageGroupSheet> {
     }
   }
 
+
+  Future<void> _memberAction(GroupMember member, String action) async {
+    setState(() => _busy = true);
+    try {
+      await chatApi.groupMemberAction(
+        groupId: widget.groupId,
+        empId: member.empId,
+        action: action,
+      );
+      final refreshed = await chatApi.getGroupMembers(widget.groupId);
+      if (mounted) setState(() => _members = refreshed.members);
+    } on ApiException catch (error) {
+      if (mounted) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text(error.message)));
+      }
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
   Future<void> _addMember() async {
     final users = await chatApi.searchUsers();
     if (!mounted) return;
     final existing = _members.map((member) => member.empId).toSet();
-    final selected = await showDialog<ChatContact>(
-      context: context,
-      builder: (dialogContext) => AlertDialog(
-        title: const Text('Add member'),
-        content: SizedBox(
-          width: 420,
-          height: 420,
-          child: ListView(
-            children: users
-                .where((user) => !existing.contains(user.empId))
-                .map(
-                  (user) => ListTile(
-                    title: Text(user.name),
-                    subtitle: Text(user.designation),
-                    onTap: () => Navigator.pop(dialogContext, user),
-                  ),
-                )
-                .toList(),
-          ),
-        ),
-      ),
+    final selected = await _pickMemberToAdd(
+      context,
+      users: users,
+      existing: existing,
     );
     if (selected == null || !mounted) return;
     setState(() => _busy = true);
     try {
       await chatApi.manageGroupMember(
         groupId: widget.groupId,
-        empId: selected.empId,
+        empId: selected.user.empId,
         add: true,
+        showHistory: selected.showHistory,
       );
       if (!mounted) return;
       final refreshed = await chatApi.getGroupMembers(widget.groupId);
@@ -4284,9 +4609,9 @@ class ManageGroupSheetState extends State<ManageGroupSheet> {
   Widget build(BuildContext context) {
     return Container(
       height: MediaQuery.sizeOf(context).height * 0.75,
-      decoration: const BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
+      decoration: BoxDecoration(
+        color: Theme.of(context).colorScheme.surface,
+        borderRadius: const BorderRadius.vertical(top: Radius.circular(28)),
       ),
       child: Column(
         children: [
@@ -4320,6 +4645,15 @@ class ManageGroupSheetState extends State<ManageGroupSheet> {
               itemCount: _members.length,
               itemBuilder: (_, index) {
                 final member = _members[index];
+                final selfEmpId = chatApi.currentJid.split('@').first;
+                final canRemove =
+                    widget.isOwner &&
+                    member.role != 'owner' &&
+                    member.empId != selfEmpId;
+                final canChangeAdminRole =
+                    widget.currentRole == 'owner' &&
+                    member.role != 'owner' &&
+                    member.empId != selfEmpId;
                 return ListTile(
                   leading: CircleAvatar(
                     child: Text(
@@ -4336,15 +4670,38 @@ class ManageGroupSheetState extends State<ManageGroupSheet> {
                         ? 'Admin'
                         : member.designation,
                   ),
-                  trailing: widget.isOwner && member.role != 'owner'
-                      ? IconButton(
-                          tooltip: 'Remove member',
-                          onPressed: _busy ? null : () => _remove(member),
-                          icon: const Icon(
-                            Icons.person_remove_outlined,
-                            color: Color(0xFFB3261E),
-                          ),
+                  trailing: canRemove || canChangeAdminRole
+                      ? PopupMenuButton<String>(
+                          tooltip: 'Member actions',
+                          enabled: !_busy,
+                          onSelected: (action) {
+                            if (action == 'remove') {
+                              _remove(member);
+                              return;
+                            }
+                            _memberAction(member, action);
+                          },
+                          itemBuilder: (_) => [
+                            if (canChangeAdminRole)
+                              PopupMenuItem(
+                                value: member.role == 'admin'
+                                    ? 'demote'
+                                    : 'promote',
+                                child: Text(
+                                  member.role == 'admin'
+                                      ? 'Change to member'
+                                      : 'Promote to admin',
+                                ),
+                              ),
+                            if (canRemove)
+                              const PopupMenuItem(
+                                value: 'remove',
+                                child: Text('Remove member'),
+                              ),
+                          ],
                         )
+                      : member.role == 'owner'
+                      ? const Chip(label: Text('Owner'))
                       : null,
                 );
               },
@@ -4499,9 +4856,9 @@ class NewGroupSheetState extends State<NewGroupSheet> {
     return Container(
       height: MediaQuery.sizeOf(context).height * 0.88,
       padding: EdgeInsets.only(bottom: MediaQuery.viewInsetsOf(context).bottom),
-      decoration: const BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
+      decoration: BoxDecoration(
+        color: Theme.of(context).colorScheme.surface,
+        borderRadius: const BorderRadius.vertical(top: Radius.circular(28)),
       ),
       child: Column(
         children: [
@@ -4521,8 +4878,8 @@ class NewGroupSheetState extends State<NewGroupSheet> {
                 Expanded(
                   child: Text(
                     widget.isChannel ? 'New channel' : 'New group',
-                    style: const TextStyle(
-                      color: AppColors.text,
+                    style: TextStyle(
+                      color: Theme.of(context).colorScheme.onSurface,
                       fontSize: 21,
                       fontWeight: FontWeight.w800,
                     ),
@@ -4856,14 +5213,14 @@ class NewMessageSheetState extends State<NewMessageSheet> {
               borderRadius: BorderRadius.circular(4),
             ),
           ),
-          const Padding(
-            padding: EdgeInsets.fromLTRB(20, 18, 20, 14),
+          Padding(
+            padding: const EdgeInsets.fromLTRB(20, 18, 20, 14),
             child: Row(
               children: [
                 Text(
                   'New message',
                   style: TextStyle(
-                    color: AppColors.text,
+                    color: Theme.of(context).colorScheme.onSurface,
                     fontSize: 21,
                     fontWeight: FontWeight.w800,
                   ),
@@ -4921,3 +5278,4 @@ class NewMessageSheetState extends State<NewMessageSheet> {
     );
   }
 }
+

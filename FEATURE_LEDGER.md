@@ -19,3 +19,10 @@
 - Saved forward uses saved message storage instead of normal chat send.
 - Saved Messages supports clipboard media paste through existing web bridge, explicit text paste shortcut, multi-file attach, and desktop drag/drop save.
 - Fixed duplicate saved checklist/poll creation.
+
+
+## FEATURE-20260716-FLOW-MASTER-ADMIN
+- Date: 2026-07-16 15:34:05 +05:30
+- Feature: Standalone Flow Master Admin web app under admin/.
+- Capabilities: Super-admin login, overview metrics, users, groups/channels, messages, files, tasks, location, notifications, releases, diagnostics, audit log, CSRF-protected audited admin actions.
+- Access: Employee IDs 302 and 116 only by default.

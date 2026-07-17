@@ -67,3 +67,16 @@
 - Decision: Reuse version 2.0.4+27 already present in pubspec.yaml and refresh all three platform artifacts from current workspace state.
 - Decision: Register all three platforms as Development/Draft with rollout_percent 0 and force_update 0, preserving 302 approval gate.
 - Decision: Upload web ZIP to downloads as draft artifact only; live web app folder was not replaced.
+
+
+## DEC-20260716-STANDALONE-FLOW-MASTER-ADMIN
+- Date: 2026-07-16 15:34:05 +05:30
+- Decision: Keep all admin app code inside admin/ and use local deploy-owned admin_config.php instead of requiring chat/bootstrap.php.
+- Reason: User requires /admin to be a separate PHP web application outside the chat folder, with no calls to outside pages.
+- Tradeoff: Credentials must be configured separately on the server; admin_config.php is gitignored and sample config is committed.
+
+## DEC-20260716-ADMIN-COUNTS-LIVE-CHAT
+- Time: 2026-07-16 18:15:28
+- Decision: Use xmpp_users for Overview Users because admin Users screen is for live chat accounts, while employee table can contain broader HR records.
+- Decision: Split Groups and Channels as separate admin views rather than a combined table to match operational admin workflows.
+

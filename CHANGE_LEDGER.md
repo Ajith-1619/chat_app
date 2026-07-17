@@ -82,3 +82,74 @@
 - Date: 2026-07-16 13:20:24
 - Files: server_patch/register_draft_2_0_4.php, tool/package_windows_installer.ps1, tool/deploy_2_0_4.ps1, tool/deploy_2_0_4.psftp, tool/verify_2_0_4_upload.ps1, BUILD_REPORT_2026-07-16_v2.0.4.md
 - Change: Generated v2.0.4 web/APK/Windows artifacts, updated draft registration to cover android/windows/web, added deployment/verification scripts, and hardened Windows installer packaging wait logic.
+
+
+## CHG-20260716-STANDALONE-FLOW-MASTER-ADMIN
+- Date: 2026-07-16 15:34:05 +05:30
+- Files: admin/_bootstrap.php, admin/index.php, admin/api.php, admin/app.js, admin/app.css, admin/health.php, admin/logout.php, admin/admin_config.sample.php, .gitignore
+- Change: Removed dependency on chat/bootstrap.php, added local admin config/auth/session/DB helpers, Ejabberd check_password login, secure sessions, CSRF, login rate limiting, audit log schema, dashboard APIs, and audited full-control actions.
+- Validation: PHP syntax lint passed for admin PHP files. No web/APK/Windows build run.
+
+
+## CHG-20260716-ADMIN-LOGIN-CONFIG-FALLBACK
+- Date: 2026-07-16 16:00:54 +05:30
+- Files: admin/_bootstrap.php, admin/bootstrap.php
+- Change: Admin login now auto-loads existing /router_login/config.php and /router_login/db.php when admin_config.php is absent, uses legacy DB helpers when available, and shows a clear missing Ejabberd credential error instead of a generic invalid login. Added bootstrap.php compatibility wrapper for deployments that uploaded that filename.
+- Validation: PHP lint passed for admin bootstrap/index/api/health and compatibility wrapper.
+
+
+## CHG-20260716-ADMIN-STRICT-STANDALONE-CONFIG
+- Date: 2026-07-16 16:12:53 +05:30
+- Files: admin/_bootstrap.php, admin/admin_config.php, admin/admin_config.sample.php
+- Change: Removed all fallback/loading from /router_login, DOCUMENT_ROOT, environment constants, and external DB helpers. Admin now reads only admin/admin_config.php and admin-folder files. Added local admin_config.php placeholder file for live server values.
+- Validation: rg found no router_login/getDB/SKYCHAT external helper references in admin PHP files; PHP lint passed for all admin PHP files.
+
+
+## CHG-20260716-ADMIN-AUTH-DB-FALLBACK
+- Date: 2026-07-16 16:26:58 +05:30
+- Files: admin/_bootstrap.php
+- Change: Standalone admin login now reports detailed auth failure reasons and falls back to local chat DB xmpp_users.xmpp_password for super-admin authentication when Ejabberd admin API credentials are missing/placeholder or check_password rejects. No external router_login files are used.
+- Validation: PHP lint passed for all admin PHP files.
+
+
+## CHG-20260716-ADMIN-REAL-CONFIG-UPLOAD
+- Date: 2026-07-16 17:19:02 +05:30
+- Files: admin/admin_config.php and admin/* deployed to /var/www/html/admin
+- Change: Generated standalone admin_config.php from the existing live chat config without printing secrets. Created /var/www/html/admin on live server and uploaded the full standalone admin app folder.
+- Validation: Local PHP lint passed for admin_config.php. SFTP upload succeeded. HTTP health check from local machine could not connect to chat.skylinkonline.net.
+
+
+## CHG-20260716-ADMIN-USERS-OVERVIEW-CLEANUP
+- Date: 2026-07-16 17:33:01 +05:30
+- Files: admin/api.php, admin/app.js
+- Change: Admin Users view now discovers employee table and columns adaptively instead of assuming employee.name/status. Overview no longer renders Recent Messages section.
+- Validation: PHP lint passed for admin/api.php before upload. Uploaded api.php and app.js to /var/www/html/admin.
+
+
+## CHG-20260716-ADMIN-LIVE-USERS-PASSWORDS
+- Date: 2026-07-16 17:45:16 +05:30
+- Files: admin/api.php, admin/app.js
+- Change: Users tab now lists live chat users from xmpp_users instead of employee/autodetected user tables, includes username/JID and stored password, joins employee profile details when available, and adds an audited Edit Password action that updates xmpp_users and attempts Ejabberd password sync.
+- Validation: PHP lint passed for admin/api.php. Uploaded api.php and app.js to /var/www/html/admin.
+
+
+## CHG-20260716-ADMIN-LIVE-DB-DETECTION-FIX
+- Date: 2026-07-16 17:54:41 +05:30
+- Files: admin/admin_config.php, admin/_bootstrap.php, admin/api.php, admin/app.js
+- Change: Pointed standalone admin chat database to the live radius schema, changed table existence detection from SHOW TABLES LIKE parameter binding to INFORMATION_SCHEMA, and verified live counts: 73 users and 11422 messages. Users tab lists xmpp_users with edit-password action.
+- Validation: PHP lint passed for admin/_bootstrap.php and admin/api.php. Live server temp verification returned table=yes, 73 users, 11422 messages.
+
+## CHG-20260716-ADMIN-GROUP-CHANNEL-USERS
+- Time: 2026-07-16 18:15:28
+- Admin Users: removed Department from displayed/API payload and kept live chat username/password edit flow.
+- Admin Overview: changed Users metric to live xmpp_users count and kept Groups/Channels split counts.
+- Admin Navigation: split Groups and Channels into separate side-nav views.
+- Admin Controls: added View/Edit action for group/channel name, channel kind, wake-up state, and archive state.
+- Deployment: uploaded index.php, api.php, and app.js to /var/www/html/admin.
+
+
+## CHG-20260716-ADMIN-GROUP-CHANNEL-FUNCTION-FIX
+- Time: 2026-07-16 18:20:59
+- Fixed undefined admin_groups_or_channels() route error by renaming the list function and applying group/channel type filtering.
+- Uploaded corrected admin/api.php to /var/www/html/admin.
+

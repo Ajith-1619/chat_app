@@ -89,3 +89,21 @@
 - Regression Scope: Release packaging, draft registration, artifact upload reachability.
 - Verification: PHP lint passed. flutter analyze completed with existing warnings/infos. Web/APK/Windows builds succeeded. Live artifact HEAD checks returned HTTP 200.
 - Residual Risk: Manual app smoke testing on target devices still recommended before employee 302 production approval.
+
+
+## REG-20260716-STANDALONE-FLOW-MASTER-ADMIN
+- Date: 2026-07-16 15:34:05 +05:30
+- Risk: Local admin_config.php must be deployed with correct DB/XMPP credentials or /admin will show configuration error.
+- Risk: Full-control admin actions are powerful; mitigated with super-admin allowlist, CSRF, confirmation UI, and audit logging.
+- Regression check: Admin no longer requires /chat/bootstrap.php; PHP lint passed; chat app files were not modified.
+
+## REG-20260716-ADMIN-SPLIT-GROUPS-CHANNELS
+- Time: 2026-07-16 18:15:28
+- Risk: Admin UI cache may keep old app.js; user should hard refresh.
+- Checked: PHP syntax valid locally and on live server; admin app remains standalone under /admin.
+
+
+## REG-20260716-ADMIN-GROUP-CHANNEL-FUNCTION
+- Time: 2026-07-16 18:20:59
+- Checked: Admin API route now has matching function for Groups and Channels views; overview counts unchanged.
+

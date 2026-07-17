@@ -71,3 +71,9 @@
 - Date: 2026-07-16 13:20:24
 - Request: Build Web, APK, and Windows installer, upload all to live server, and keep them as Draft for approval.
 - Status: Completed.
+
+
+## REQ-20260716-STANDALONE-FLOW-MASTER-ADMIN
+- Date: 2026-07-16 15:34:05 +05:30
+- Request: Rework admin/ as standalone PHP master admin web app at /admin, outside /chat, with local frontend/backend/config helpers, same employee login, and super-admin-only full control for 302 and 116.
+- Status: Implemented; no build/release requested.

@@ -92,3 +92,16 @@ build/
 .flutter-plugins
 .flutter-plugins-dependencies
 .pub/
+
+# Flow admin local secrets
+admin/admin_config.php
+
+# Local database credentials
+config.php
+db.php
+admin/legacy_standalone/admin_config.php
+
+# Environment secrets
+.env
+.env.*
+!.env.example

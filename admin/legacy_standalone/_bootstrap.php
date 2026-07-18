@@ -69,6 +69,60 @@ function flow_admin_array_replace_recursive(array $base, array $override): array
     return $base;
 }
 
+function flow_admin_cookie_path(): string
+{
+    $scriptDir = rtrim(str_replace('\\', '/', dirname((string)($_SERVER['SCRIPT_NAME'] ?? '/admin/index.php'))), '/');
+    if ($scriptDir === '' || $scriptDir === '.') return '/';
+    if (str_ends_with($scriptDir, '/public')) {
+        $scriptDir = substr($scriptDir, 0, -7) ?: '/';
+    }
+    return rtrim($scriptDir, '/') . '/';
+}
+function flow_admin_laravel_session_available(): bool
+{
+    try {
+        return function_exists('app') && app()->bound('session') && app('session')->isStarted();
+    } catch (Throwable) {
+        return false;
+    }
+}
+
+function flow_admin_session_get(string $key, mixed $default = null): mixed
+{
+    if (flow_admin_laravel_session_available()) return session()->get($key, $default);
+    flow_admin_start();
+    return $_SESSION[$key] ?? $default;
+}
+
+function flow_admin_session_set(string $key, mixed $value): void
+{
+    if (flow_admin_laravel_session_available()) {
+        session()->put($key, $value);
+        session()->save();
+        $_SESSION[$key] = $value;
+        return;
+    }
+    flow_admin_start();
+    $_SESSION[$key] = $value;
+}
+
+function flow_admin_session_forget(array $keys): void
+{
+    if (flow_admin_laravel_session_available()) {
+        session()->forget($keys);
+        session()->save();
+    }
+    foreach ($keys as $key) unset($_SESSION[$key]);
+}
+
+function flow_admin_session_flush(): void
+{
+    if (flow_admin_laravel_session_available()) {
+        session()->forget(['flow_admin_emp_id', 'flow_admin_login_at', 'flow_admin_csrf', 'flow_admin_failed_attempts', 'flow_admin_blocked_until']);
+        session()->save();
+    }
+    $_SESSION = [];
+}
 function flow_admin_config(string $key, mixed $default = null): mixed
 {
     $config = flow_admin_load_config();
@@ -90,7 +144,7 @@ function flow_admin_start(): void
     $secure = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off') || (($_SERVER['SERVER_PORT'] ?? '') === '443');
     session_set_cookie_params([
         'lifetime' => 0,
-        'path' => rtrim(dirname((string)($_SERVER['SCRIPT_NAME'] ?? '/admin/index.php')), '/') . '/',
+        'path' => flow_admin_cookie_path(),
         'domain' => '',
         'secure' => $secure,
         'httponly' => true,
@@ -113,8 +167,7 @@ function flow_admin_jid(int $empId): string
 
 function flow_admin_current_emp_id(): int
 {
-    flow_admin_start();
-    $empId = (int)($_SESSION['flow_admin_emp_id'] ?? 0);
+    $empId = (int)flow_admin_session_get('flow_admin_emp_id', 0);
     return flow_admin_is_allowed($empId) ? $empId : 0;
 }
 
@@ -133,9 +186,8 @@ function flow_admin_require(): array
 
 function flow_admin_check_login_rate_limit(): void
 {
-    flow_admin_start();
     $now = time();
-    $blockedUntil = (int)($_SESSION['flow_admin_blocked_until'] ?? 0);
+    $blockedUntil = (int)flow_admin_session_get('flow_admin_blocked_until', 0);
     if ($blockedUntil > $now) {
         throw new RuntimeException('Too many failed attempts. Try again in ' . ($blockedUntil - $now) . ' seconds.');
     }
@@ -143,15 +195,14 @@ function flow_admin_check_login_rate_limit(): void
 
 function flow_admin_record_login_failure(): void
 {
-    flow_admin_start();
-    $attempts = (int)($_SESSION['flow_admin_failed_attempts'] ?? 0) + 1;
-    $_SESSION['flow_admin_failed_attempts'] = $attempts;
-    if ($attempts >= 5) $_SESSION['flow_admin_blocked_until'] = time() + 300;
+    $attempts = (int)flow_admin_session_get('flow_admin_failed_attempts', 0) + 1;
+    flow_admin_session_set('flow_admin_failed_attempts', $attempts);
+    if ($attempts >= 5) flow_admin_session_set('flow_admin_blocked_until', time() + 300);
 }
 
 function flow_admin_clear_login_failures(): void
 {
-    unset($_SESSION['flow_admin_failed_attempts'], $_SESSION['flow_admin_blocked_until']);
+    flow_admin_session_forget(['flow_admin_failed_attempts', 'flow_admin_blocked_until']);
 }
 
 function flow_admin_login(string $username, string $password): array
@@ -191,10 +242,12 @@ function flow_admin_login(string $username, string $password): array
         throw new RuntimeException('Admin login could not verify your same chat username/password because service configuration is incomplete or rejected it. Details: ' . implode('; ', array_unique($authErrors)) . '.');
     }
 
-    flow_admin_start();
-    session_regenerate_id(true);
-    $_SESSION['flow_admin_emp_id'] = $empId;
-    $_SESSION['flow_admin_login_at'] = date('Y-m-d H:i:s');
+    if (!flow_admin_laravel_session_available()) {
+        flow_admin_start();
+        session_regenerate_id(true);
+    }
+    flow_admin_session_set('flow_admin_emp_id', $empId);
+    flow_admin_session_set('flow_admin_login_at', date('Y-m-d H:i:s'));
     flow_admin_clear_login_failures();
     flow_admin_db();
     flow_admin_audit($empId, 'login', 'admin_session', (string)$empId, ['result' => 'success']);
@@ -203,22 +256,24 @@ function flow_admin_login(string $username, string $password): array
 
 function flow_admin_logout(): void
 {
-    flow_admin_start();
-    $empId = (int)($_SESSION['flow_admin_emp_id'] ?? 0);
+    $empId = (int)flow_admin_session_get('flow_admin_emp_id', 0);
     if ($empId > 0) flow_admin_audit($empId, 'logout', 'admin_session', (string)$empId, []);
-    $_SESSION = [];
-    if (ini_get('session.use_cookies')) {
+    flow_admin_session_flush();
+    if (!flow_admin_laravel_session_available() && ini_get('session.use_cookies')) {
         $params = session_get_cookie_params();
         setcookie(session_name(), '', time() - 42000, $params['path'], $params['domain'], (bool)$params['secure'], (bool)$params['httponly']);
+        session_destroy();
     }
-    session_destroy();
 }
 
 function flow_admin_csrf_token(): string
 {
-    flow_admin_start();
-    if (empty($_SESSION['flow_admin_csrf'])) $_SESSION['flow_admin_csrf'] = bin2hex(random_bytes(32));
-    return (string)$_SESSION['flow_admin_csrf'];
+    $token = (string)flow_admin_session_get('flow_admin_csrf', '');
+    if ($token === '') {
+        $token = bin2hex(random_bytes(32));
+        flow_admin_session_set('flow_admin_csrf', $token);
+    }
+    return $token;
 }
 
 function flow_admin_require_csrf(): void

@@ -2,7 +2,7 @@
 
 @section('content')
 <meta name="flow-admin-csrf" content="{{ $legacyCsrf }}">
-<div class="app-shell" data-admin-name="{{ $admin['name'] ?? 'Admin' }}">
+<div class="app-shell" data-admin-name="{{ $admin['name'] ?? 'Admin' }}" data-initial-view="{{ $activeView }}" data-api-url="{{ route('admin.dashboard', ['ajax' => 'api']) }}">
   <aside class="sidebar">
     <div class="brand">
       <div class="brand-mark">F</div>
@@ -12,16 +12,9 @@
       </div>
     </div>
     <nav aria-label="Admin modules">
-      <button class="nav-item active" data-view="overview" type="button">Overview</button>
-      <button class="nav-item" data-view="users" type="button">Users</button>
-      <button class="nav-item" data-view="groups" type="button">Groups</button>
-      <button class="nav-item" data-view="channels" type="button">Channels</button>
-      <button class="nav-item" data-view="tasks" type="button">Tasks</button>
-      <button class="nav-item" data-view="location" type="button">Location</button>
-      <button class="nav-item" data-view="notifications" type="button">Notifications</button>
-      <button class="nav-item" data-view="releases" type="button">Releases</button>
-      <button class="nav-item" data-view="diagnostics" type="button">Diagnostics</button>
-      <button class="nav-item" data-view="audit" type="button">Audit Log</button>
+      @foreach($modules as $view => $meta)
+        <a class="nav-item {{ $activeView === $view ? 'active' : '' }}" href="{{ route('admin.dashboard', $view === 'overview' ? [] : ['module' => $view]) }}" data-view="{{ $view }}">{{ $meta['title'] }}</a>
+      @endforeach
     </nav>
     <footer class="side-footer">
       <span>{{ $admin['name'] ?? 'Admin' }}</span>
@@ -33,13 +26,13 @@
     <header class="topbar">
       <div>
         <span class="eyebrow">Operations</span>
-        <h1 id="pageTitle">Overview</h1>
-        <p id="pageSubtitle">Chat application control center</p>
+        <h1 id="pageTitle">{{ $pageTitle }}</h1>
+        <p id="pageSubtitle">{{ $pageSubtitle }}</p>
       </div>
       <div class="top-actions">
         <input id="globalSearch" placeholder="Search users, channels, messages">
         <button id="refreshBtn" type="button">Refresh</button>
-        <a class="logout" href="{{ route('admin.logout') }}">Logout</a>
+        <a class="logout" href="{{ route('admin.dashboard', ['logout' => 1]) }}">Logout</a>
       </div>
     </header>
 
@@ -70,5 +63,5 @@
   </form>
 </div>
 
-<script src="{{ asset('admin/app.js') }}"></script>
+<script src="{{ asset('admin/app.js') }}?v={{ filemtime(public_path('admin/app.js')) }}"></script>
 @endsection

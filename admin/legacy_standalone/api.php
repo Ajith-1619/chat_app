@@ -93,16 +93,9 @@ function admin_overview(PDO $pdo): array
 function admin_users(PDO $pdo, string $search): array
 {
     if (!flow_admin_table_exists($pdo, 'xmpp_users')) return ['status' => true, 'rows' => []];
-    $where = '1=1';
-    $params = [];
-    if ($search !== '') {
-        $where .= ' AND (CAST(emp_id AS CHAR) LIKE :q OR jid LIKE :q OR xmpp_password LIKE :q)';
-        $params[':q'] = '%' . $search . '%';
-    }
     $rows = flow_admin_rows($pdo,
-        "SELECT emp_id, jid AS username, xmpp_password AS password, status, avatar_url, created_at, updated_at, 'update_user_password' AS admin_action
-         FROM xmpp_users WHERE {$where} ORDER BY emp_id ASC LIMIT 300", $params);
-
+        "SELECT emp_id, jid AS username, xmpp_password AS password, status, avatar_url, created_at, updated_at, 'view_user' AS admin_action
+         FROM xmpp_users ORDER BY emp_id ASC LIMIT 2000");
     $profiles = [];
     try {
         $employeePdo = flow_admin_employee_db();
@@ -140,32 +133,307 @@ function admin_users(PDO $pdo, string $search): array
             'password' => (string)($row['password'] ?? ''),
             'status' => (string)($row['status'] ?? ''),
             'last_seen_at' => $presence[$empId] ?? '',
-            'admin_action' => 'update_user_password',
+            'admin_action' => 'view_user',
         ];
     }
     unset($row);
-    return ['status' => true, 'rows' => $rows];
+    if ($search !== '') {
+        $needle = mb_strtolower($search);
+        $rows = array_values(array_filter($rows, static function (array $row) use ($needle): bool {
+            foreach (['emp_id', 'name', 'designation', 'username', 'password', 'status', 'last_seen_at'] as $key) {
+                if (str_contains(mb_strtolower((string)($row[$key] ?? '')), $needle)) return true;
+            }
+            return false;
+        }));
+    }
+    return ['status' => true, 'rows' => array_slice($rows, 0, 300)];
 }
 
+function admin_user_detail(PDO $pdo): array
+{
+    $empId = (int)($_GET['id'] ?? $_POST['id'] ?? 0);
+    if ($empId <= 0) return ['status' => false, 'error' => 'Valid employee id is required.'];
+
+    $user = flow_admin_rows($pdo,
+        'SELECT emp_id, jid AS username, xmpp_password AS password, status, avatar_url, created_at, updated_at FROM xmpp_users WHERE emp_id = :emp_id LIMIT 1',
+        [':emp_id' => $empId]
+    )[0] ?? ['emp_id' => $empId, 'username' => flow_admin_jid($empId)];
+
+    $profile = [];
+    try {
+        $employeePdo = flow_admin_employee_db();
+        $source = admin_employee_source($employeePdo);
+        if ($source) {
+            $table = $source['table'];
+            $idCol = $source['id'];
+            $columns = flow_admin_rows($employeePdo, 'SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = :table_name', [':table_name' => $table]);
+            $select = [];
+            foreach ($columns as $column) {
+                $name = (string)($column['COLUMN_NAME'] ?? '');
+                if ($name !== '') $select[] = '`' . $name . '`';
+            }
+            if ($select) {
+                $profile = flow_admin_rows($employeePdo, 'SELECT ' . implode(', ', $select) . " FROM `{$table}` WHERE `{$idCol}` = :emp_id LIMIT 1", [':emp_id' => $empId])[0] ?? [];
+            }
+        }
+    } catch (Throwable $e) {
+        error_log('admin user detail profile failed: ' . $e->getMessage());
+    }
+
+    $jid = (string)($user['username'] ?? flow_admin_jid($empId));
+    $messageWhere = '(from_jid = :jid OR to_jid = :jid OR from_jid LIKE :emp_like OR to_jid LIKE :emp_like)';
+    $messageParams = [':jid' => $jid, ':emp_like' => (string)$empId . '@%'];
+    $messages = [
+        'total' => flow_admin_count($pdo, 'xmpp_messages', $messageWhere . ' AND deleted_at IS NULL', $messageParams),
+        'sent' => flow_admin_count($pdo, 'xmpp_messages', '(from_jid = :jid OR from_jid LIKE :emp_like) AND deleted_at IS NULL', $messageParams),
+        'received' => flow_admin_count($pdo, 'xmpp_messages', '(to_jid = :jid OR to_jid LIKE :emp_like) AND deleted_at IS NULL', $messageParams),
+    ];
+
+    $files = [
+        'count' => flow_admin_count($pdo, 'xmpp_messages', $messageWhere . " AND file_url IS NOT NULL AND file_url <> '' AND deleted_at IS NULL", $messageParams),
+        'storage_bytes' => 0,
+        'storage_label' => '0 B',
+    ];
+    try {
+        if (flow_admin_table_exists($pdo, 'xmpp_messages') && flow_admin_column_exists($pdo, 'xmpp_messages', 'file_size')) {
+            $stmt = $pdo->prepare("SELECT COALESCE(SUM(CAST(file_size AS UNSIGNED)), 0) FROM xmpp_messages WHERE {$messageWhere} AND file_url IS NOT NULL AND file_url <> '' AND deleted_at IS NULL");
+            $stmt->execute($messageParams);
+            $files['storage_bytes'] = (int)$stmt->fetchColumn();
+            $files['storage_label'] = admin_format_bytes($files['storage_bytes']);
+        }
+    } catch (Throwable $e) {
+        error_log('admin user detail storage failed: ' . $e->getMessage());
+    }
+
+    $presence = flow_admin_rows($pdo, 'SELECT * FROM xmpp_user_presence WHERE emp_id = :emp_id LIMIT 1', [':emp_id' => $empId])[0] ?? [];
+    $memberships = admin_user_group_memberships($pdo, $empId);
+
+    return [
+        'status' => true,
+        'user' => $user,
+        'profile' => $profile,
+        'messages' => $messages,
+        'files' => $files,
+        'presence' => $presence,
+        'location' => admin_user_last_location($pdo, $empId),
+        'systems' => admin_user_active_systems($pdo, $empId),
+        'memberships' => $memberships,
+    ];
+}
+
+function admin_user_group_memberships(PDO $pdo, int $empId): array
+{
+    if (!flow_admin_table_exists($pdo, 'xmpp_group_members') || !flow_admin_table_exists($pdo, 'xmpp_groups')) {
+        return ['groups' => 0, 'channels' => 0, 'total' => 0, 'rows' => []];
+    }
+
+    $memberGroupCol = admin_first_existing_column($pdo, 'xmpp_group_members', ['group_id', 'room_id', 'xmpp_group_id']);
+    $memberEmpCol = admin_first_existing_column($pdo, 'xmpp_group_members', ['emp_id', 'employee_id', 'user_id', 'member_emp_id']);
+    $memberRoleCol = admin_first_existing_column($pdo, 'xmpp_group_members', ['role', 'member_role', 'access_role']);
+    $joinedCol = admin_first_existing_column($pdo, 'xmpp_group_members', ['joined_at', 'created_at', 'added_at']);
+    if ($memberGroupCol === '' || $memberEmpCol === '') {
+        return ['groups' => 0, 'channels' => 0, 'total' => 0, 'rows' => []];
+    }
+
+    $rows = flow_admin_rows($pdo, 'SELECT ' . implode(', ', [
+        'g.id AS id',
+        'g.room_name AS room_name',
+        'g.group_type AS group_type',
+        'g.channel_kind AS channel_kind',
+        'g.is_archived AS is_archived',
+        admin_sql_expr($memberRoleCol, 'role'),
+        admin_sql_expr($joinedCol, 'joined_at'),
+    ]) . " FROM xmpp_group_members gm INNER JOIN xmpp_groups g ON g.id = gm.`{$memberGroupCol}` WHERE gm.`{$memberEmpCol}` = :emp_id ORDER BY g.is_archived ASC, g.room_name ASC LIMIT 500", [':emp_id' => $empId]);
+
+    $groups = 0;
+    $channels = 0;
+    foreach ($rows as &$row) {
+        $isChannel = strtolower((string)($row['group_type'] ?? '')) === 'channel';
+        $row['kind'] = $isChannel ? 'channel' : 'group';
+        if ($isChannel) $channels++; else $groups++;
+    }
+    unset($row);
+
+    return ['groups' => $groups, 'channels' => $channels, 'total' => count($rows), 'rows' => $rows];
+}
+
+function admin_format_bytes(int $bytes): string
+{
+    $units = ['B', 'KB', 'MB', 'GB', 'TB'];
+    $size = max(0, $bytes);
+    $index = 0;
+    while ($size >= 1024 && $index < count($units) - 1) {
+        $size /= 1024;
+        $index++;
+    }
+    return ($index === 0 ? (string)(int)$size : number_format($size, 2)) . ' ' . $units[$index];
+}
+
+function admin_user_last_location(PDO $pdo, int $empId): array
+{
+    foreach (['xmpp_user_locations', 'xmpp_location_history', 'user_locations', 'employee_locations', 'location_history'] as $table) {
+        if (!flow_admin_table_exists($pdo, $table)) continue;
+        $id = admin_first_existing_column($pdo, $table, ['emp_id', 'employee_id', 'user_id']);
+        $lat = admin_first_existing_column($pdo, $table, ['latitude', 'lat']);
+        $lng = admin_first_existing_column($pdo, $table, ['longitude', 'lng', 'lon']);
+        if ($id === '' || $lat === '' || $lng === '') continue;
+        $address = admin_first_existing_column($pdo, $table, ['address', 'formatted_address', 'location_address', 'place_name']);
+        $updated = admin_first_existing_column($pdo, $table, ['updated_at', 'created_at', 'captured_at', 'last_seen_at']);
+        $order = $updated !== '' ? "`{$updated}` DESC" : "`{$id}` DESC";
+        $rows = flow_admin_rows($pdo, 'SELECT ' . implode(', ', [admin_sql_expr($lat, 'lat'), admin_sql_expr($lng, 'lng'), admin_sql_expr($address, 'address'), admin_sql_expr($updated, 'updated_at')]) . " FROM `{$table}` WHERE `{$id}` = :emp_id ORDER BY {$order} LIMIT 1", [':emp_id' => $empId]);
+        if ($rows) return $rows[0] + ['source' => $table];
+    }
+    return [];
+}
+
+function admin_user_active_systems(PDO $pdo, int $empId): array
+{
+    foreach (['xmpp_user_devices', 'xmpp_devices', 'user_devices', 'device_sessions', 'xmpp_sessions'] as $table) {
+        if (!flow_admin_table_exists($pdo, $table)) continue;
+        $id = admin_first_existing_column($pdo, $table, ['emp_id', 'employee_id', 'user_id']);
+        if ($id === '') continue;
+        $device = admin_first_existing_column($pdo, $table, ['device_name', 'device', 'platform', 'system_name', 'os']);
+        $app = admin_first_existing_column($pdo, $table, ['app_version', 'version', 'build_number']);
+        $ip = admin_first_existing_column($pdo, $table, ['ip_address', 'ip', 'last_ip']);
+        $updated = admin_first_existing_column($pdo, $table, ['last_seen_at', 'updated_at', 'created_at']);
+        $active = admin_first_existing_column($pdo, $table, ['is_active', 'active', 'online']);
+        $where = "`{$id}` = :emp_id";
+        if ($active !== '') $where .= " AND COALESCE(`{$active}`, 0) IN (1, '1', 'true', 'online')";
+        $order = $updated !== '' ? "`{$updated}` DESC" : "`{$id}` DESC";
+        return flow_admin_rows($pdo, 'SELECT ' . implode(', ', [admin_sql_expr($device, 'device'), admin_sql_expr($app, 'app_version'), admin_sql_expr($ip, 'ip_address'), admin_sql_expr($updated, 'last_seen_at')]) . " FROM `{$table}` WHERE {$where} ORDER BY {$order} LIMIT 10", [':emp_id' => $empId]);
+    }
+    return [];
+}
 function admin_groups_or_channels(PDO $pdo, string $search, string $kind): array
 {
     $where = admin_group_type_condition($kind);
-    $params = [];
-    if ($search !== '') {
-        $where .= ' AND (g.room_name LIKE :q OR g.room_jid LIKE :q OR g.channel_kind LIKE :q OR g.group_type LIKE :q)';
-        $params[':q'] = '%' . $search . '%';
-    }
-    return ['status' => true, 'rows' => flow_admin_rows($pdo,
-        "SELECT g.id, g.room_name, g.room_jid, g.group_type, g.channel_kind, g.priority, g.is_archived,
-                g.wakeup_enabled, g.created_at, COUNT(gm.emp_id) AS members,
+    $rows = flow_admin_rows($pdo,
+        "SELECT g.id, g.room_name, g.group_type, g.channel_kind, g.is_archived,
+                COUNT(gm.emp_id) AS members, g.created_at,
                 'update_group' AS admin_action
          FROM xmpp_groups g
          LEFT JOIN xmpp_group_members gm ON gm.group_id = g.id
          WHERE {$where}
          GROUP BY g.id
-         ORDER BY g.is_archived ASC, g.created_at DESC LIMIT 120", $params)];
-}
+         ORDER BY g.is_archived ASC, g.created_at DESC LIMIT 500");
 
+    if ($search !== '') {
+        $needle = mb_strtolower($search);
+        $rows = array_values(array_filter($rows, static function (array $row) use ($needle): bool {
+            foreach (['id', 'room_name', 'group_type', 'channel_kind', 'is_archived', 'members', 'created_at'] as $key) {
+                if (str_contains(mb_strtolower((string)($row[$key] ?? '')), $needle)) return true;
+            }
+            return false;
+        }));
+    }
+
+    return ['status' => true, 'rows' => array_slice($rows, 0, 120)];
+}
+function admin_group_detail(PDO $pdo): array
+{
+    $groupId = (int)($_GET['id'] ?? $_POST['id'] ?? 0);
+    if ($groupId <= 0) return ['status' => false, 'error' => 'Valid group id is required.'];
+
+    $group = flow_admin_rows($pdo, 'SELECT * FROM xmpp_groups WHERE id = :id LIMIT 1', [':id' => $groupId])[0] ?? [];
+    if (!$group) return ['status' => false, 'error' => 'Group/channel not found.'];
+
+    $roomJid = (string)($group['room_jid'] ?? '');
+    $messageWhere = '1=0';
+    $messageParams = [];
+    if ($roomJid !== '') {
+        $messageWhere = '(to_jid = :room_jid OR from_jid = :room_jid)';
+        $messageParams[':room_jid'] = $roomJid;
+    }
+
+    $memberGroupCol = admin_first_existing_column($pdo, 'xmpp_group_members', ['group_id', 'room_id', 'xmpp_group_id']);
+    $memberEmpCol = admin_first_existing_column($pdo, 'xmpp_group_members', ['emp_id', 'employee_id', 'user_id', 'member_emp_id']);
+    $memberRoleCol = admin_first_existing_column($pdo, 'xmpp_group_members', ['role', 'member_role', 'access_role']);
+    $memberWhere = $memberGroupCol !== '' ? "`{$memberGroupCol}` = :group_id" : '1=0';
+    $memberParams = [':group_id' => $groupId];
+    $roleExpr = $memberRoleCol !== '' ? "LOWER(COALESCE(`{$memberRoleCol}`, 'member'))" : "'member'";
+
+    $stats = [
+        'members' => flow_admin_count($pdo, 'xmpp_group_members', $memberWhere, $memberParams),
+        'owners' => flow_admin_count($pdo, 'xmpp_group_members', $memberWhere . " AND {$roleExpr} = 'owner'", $memberParams),
+        'admins' => flow_admin_count($pdo, 'xmpp_group_members', $memberWhere . " AND {$roleExpr} = 'admin'", $memberParams),
+        'messages' => flow_admin_count($pdo, 'xmpp_messages', $messageWhere . ' AND deleted_at IS NULL', $messageParams),
+        'files' => flow_admin_count($pdo, 'xmpp_messages', $messageWhere . " AND file_url IS NOT NULL AND file_url <> '' AND deleted_at IS NULL", $messageParams),
+        'images' => flow_admin_count($pdo, 'xmpp_messages', $messageWhere . " AND file_url IS NOT NULL AND file_url <> '' AND deleted_at IS NULL AND (LOWER(COALESCE(file_type, '')) LIKE 'image%' OR LOWER(COALESCE(file_name, '')) REGEXP '\\.(jpg|jpeg|png|gif|webp)$')", $messageParams),
+        'storage_bytes' => 0,
+        'storage_label' => '0 B',
+    ];
+
+    try {
+        if (flow_admin_table_exists($pdo, 'xmpp_messages') && flow_admin_column_exists($pdo, 'xmpp_messages', 'file_size')) {
+            $stmt = $pdo->prepare("SELECT COALESCE(SUM(CAST(file_size AS UNSIGNED)), 0) FROM xmpp_messages WHERE {$messageWhere} AND file_url IS NOT NULL AND file_url <> '' AND deleted_at IS NULL");
+            $stmt->execute($messageParams);
+            $stats['storage_bytes'] = (int)$stmt->fetchColumn();
+            $stats['storage_label'] = admin_format_bytes($stats['storage_bytes']);
+        }
+    } catch (Throwable $e) {
+        error_log('admin group detail storage failed: ' . $e->getMessage());
+    }
+
+    $members = [];
+    if ($memberGroupCol !== '' && $memberEmpCol !== '') {
+        $joinedCol = admin_first_existing_column($pdo, 'xmpp_group_members', ['joined_at', 'created_at', 'added_at']);
+        $mutedCol = admin_first_existing_column($pdo, 'xmpp_group_members', ['muted_until', 'mute_until']);
+        $readCol = admin_first_existing_column($pdo, 'xmpp_group_members', ['last_read_message_id', 'last_read_id']);
+        $order = "FIELD({$roleExpr}, 'owner', 'admin', 'member'), `{$memberEmpCol}` ASC";
+        $members = flow_admin_rows($pdo,
+            'SELECT ' . implode(', ', [
+                admin_sql_expr($memberGroupCol, 'group_id'),
+                admin_sql_expr($memberEmpCol, 'emp_id'),
+                admin_sql_expr($memberRoleCol, 'role'),
+                admin_sql_expr($joinedCol, 'joined_at'),
+                admin_sql_expr($mutedCol, 'muted_until'),
+                admin_sql_expr($readCol, 'last_read_message_id'),
+            ]) . " FROM xmpp_group_members WHERE {$memberWhere} ORDER BY {$order} LIMIT 500",
+            $memberParams
+        );
+    }
+
+    $profiles = [];
+    try {
+        $employeePdo = flow_admin_employee_db();
+        $source = admin_employee_source($employeePdo);
+        if ($source && $members) {
+            $ids = array_values(array_unique(array_map(static fn($row) => (int)($row['emp_id'] ?? 0), $members)));
+            $ids = array_filter($ids, static fn($id) => $id > 0);
+            if ($ids) {
+                $placeholders = implode(',', array_fill(0, count($ids), '?'));
+                $table = $source['table'];
+                $idCol = $source['id'];
+                $nameCol = $source['name'];
+                $designationCol = admin_first_existing_column($employeePdo, $table, ['designation', 'desig', 'role', 'job_title', 'position']);
+                $profileRows = flow_admin_rows($employeePdo, 'SELECT ' . implode(', ', [
+                    admin_sql_expr($idCol, 'emp_id'),
+                    admin_sql_expr($nameCol, 'name'),
+                    admin_sql_expr($designationCol, 'designation'),
+                ]) . " FROM `{$table}` WHERE `{$idCol}` IN ({$placeholders})", $ids);
+                foreach ($profileRows as $profile) $profiles[(int)($profile['emp_id'] ?? 0)] = $profile;
+            }
+        }
+    } catch (Throwable $e) {
+        error_log('admin group detail profile failed: ' . $e->getMessage());
+    }
+
+    foreach ($members as &$member) {
+        $empId = (int)($member['emp_id'] ?? 0);
+        $profile = $profiles[$empId] ?? [];
+        $member['name'] = (string)($profile['name'] ?? 'Employee ' . $empId);
+        $member['designation'] = (string)($profile['designation'] ?? '');
+        $member['jid'] = flow_admin_jid($empId);
+    }
+    unset($member);
+
+    return [
+        'status' => true,
+        'group' => $group,
+        'stats' => $stats,
+        'members' => $members,
+    ];
+}
 function admin_messages(PDO $pdo, string $search): array
 {
     $where = '1=1';
@@ -383,7 +651,9 @@ try {
     $payload = match ($action) {
         'overview' => admin_overview($pdo),
         'users' => admin_users($pdo, $search),
+        'user_detail' => admin_user_detail($pdo),
         'groups' => admin_groups_or_channels($pdo, $search, 'group'),
+        'group_detail' => admin_group_detail($pdo),
         'channels' => admin_groups_or_channels($pdo, $search, 'channel'),
         'messages' => admin_messages($pdo, $search),
         'attachments' => admin_attachments($pdo, $search),

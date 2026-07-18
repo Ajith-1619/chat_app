@@ -13,3 +13,7 @@ Route::match(['GET', 'POST'], '/api', function () {
 Route::get('/health', function () {
     require base_path('legacy_standalone/health.php');
 });
+
+Route::get('/{module}', [AdminController::class, 'module'])
+    ->where('module', 'overview|users|groups|channels|tasks|location|notifications|releases|diagnostics|audit')
+    ->name('admin.module');

@@ -1,0 +1,15 @@
+Options -Indexes
+DirectoryIndex index.php
+
+<IfModule mod_rewrite.c>
+    RewriteEngine On
+    RewriteBase /admin/
+
+    # Serve Laravel public assets such as /admin/admin/app.css from /admin/public/admin/app.css.
+    RewriteCond %{DOCUMENT_ROOT}/admin/public/$1 -f [OR]
+    RewriteCond %{DOCUMENT_ROOT}/admin/public/$1 -d
+    RewriteRule ^(.+)$ public/$1 [L]
+
+    # Send every page route to the Laravel front controller.
+    RewriteRule ^ index.php [L]
+</IfModule>

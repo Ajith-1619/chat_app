@@ -2,7 +2,7 @@
 
 @section('content')
 <main class="login-shell">
-  <form class="login-card" method="post" autocomplete="on" action="{{ route('admin.dashboard') }}">
+  <form class="login-card" method="post" autocomplete="on" action="">
     @csrf
     <div class="login-brand">
       <div class="brand-mark">F</div>

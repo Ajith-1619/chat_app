@@ -1,0 +1,5 @@
+cd /var/www/html/admin
+put admin/legacy_standalone/api.php api.php
+put admin/public/admin/app.js app.js
+put admin/public/admin/app.css app.css
+quit

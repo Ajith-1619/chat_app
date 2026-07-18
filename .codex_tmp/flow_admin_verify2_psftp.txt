@@ -1,0 +1,3 @@
+put .codex_tmp/admin_user_detail_verify.php /tmp/flow_admin_user_detail_verify.php
+put .codex_tmp/admin_user_detail_parse.php /tmp/flow_admin_user_detail_parse.php
+quit

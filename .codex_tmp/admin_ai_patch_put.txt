@@ -1,0 +1,2 @@
+put .codex_tmp/admin_ai_patch_index.sh /tmp/admin_ai_patch_index.sh
+quit

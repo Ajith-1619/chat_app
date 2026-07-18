@@ -29,3 +29,23 @@
 - Requirement: REQ-2026-07-17-007
 - Status: Implemented
 - Summary: Added left-side basic list and right-side inline detail/edit panels for users, groups, and channels.
+
+## FEAT-ADMIN-USER-LOCATION-001 - Robust latest user location lookup
+- Requirement: REQ-2026-07-18-001
+- Status: Implemented
+- Summary: User detail API now scans known and discovered location/GPS/geo/track tables across chat, employee, and task databases using flexible column matching.
+
+## FEAT-ADMIN-USER-LOCATION-002 - Location card refresh controls
+- Requirement: REQ-2026-07-18-002
+- Status: Implemented
+- Summary: Added Last Location card refresh action and five-minute auto-refresh for selected user details, plus broader address/timestamp detection for login tracking style tables.
+
+## FEAT-ADMIN-USER-ATTENDANCE-001 - User punch and leave summary
+- Requirement: REQ-2026-07-18-003
+- Status: Implemented
+- Summary: Added dynamic attendance lookup across employee/task/chat databases and a Punch & Leave Status panel with live HH:MM:SS timer for open punch sessions.
+
+## FEAT-2026-07-18-ADMIN-AI-ACCESS
+- Requirement: REQ-2026-07-18-004
+- Status: Implemented
+- Summary: Added standalone admin AI Access module with provider/API key storage, A/B/C1/C2 type rules, daily token/search limits, and user-detail AI access summary.

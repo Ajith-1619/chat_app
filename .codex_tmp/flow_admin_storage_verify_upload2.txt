@@ -1,0 +1,3 @@
+put .codex_tmp/admin_storage_verify.php /tmp/flow_admin_storage_verify.php
+put .codex_tmp/admin_storage_parse.php /tmp/flow_admin_storage_parse.php
+quit

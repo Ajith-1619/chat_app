@@ -1,4 +1,4 @@
-﻿const state = { view: 'overview', q: '', modal: null };
+const state = { view: 'overview', q: '', modal: null };
 const csrf = document.querySelector('meta[name="flow-admin-csrf"]')?.content || '';
 const titles = {
   overview: ['Overview', 'Chat application control center'],

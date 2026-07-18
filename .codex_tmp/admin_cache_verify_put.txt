@@ -1,0 +1,2 @@
+put .codex_tmp/admin_cache_verify.sh /tmp/admin_cache_verify.sh
+quit

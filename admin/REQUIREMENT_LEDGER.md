@@ -24,3 +24,23 @@
 ## REQ-2026-07-17-007 - Master-detail Users/Groups/Channels pages
 - Status: Implemented
 - Summary: Users, Groups, and Channels now use a two-column page layout with left list and right inline view/edit pane instead of modal-first detail viewing.
+
+## REQ-2026-07-18-001 - Show latest user location in detail pane
+- Date: 2026-07-18
+- Status: Implemented
+- Summary: User detail must show the latest available address, latitude, longitude, updated time, and source instead of blanks when location data exists in any configured admin database.
+
+## REQ-2026-07-18-002 - User location address, timestamp, and refresh
+- Date: 2026-07-18
+- Status: Implemented
+- Summary: User detail Last Location must include address and updated time where available, refresh automatically every five minutes, and provide a manual Refresh button.
+
+## REQ-2026-07-18-003 - User punch and leave status in detail pane
+- Date: 2026-07-18
+- Status: Implemented
+- Summary: User detail must show today punch in/out status, running login duration when punch out is missing, current month punch days/login hours, and current month leave/week off date details below Identity and Last Location.
+
+## REQ-2026-07-18-004 - AI API access by employee type
+- Date: 2026-07-18
+- Status: Implemented
+- Summary: Admin must configure AI API providers/API keys and assign access rules by employee type, where Type A can have multiple AI APIs, Type B can have one AI API, and limits can be set per day by tokens and searches.

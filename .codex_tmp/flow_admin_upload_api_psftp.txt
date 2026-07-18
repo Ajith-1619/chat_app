@@ -1,0 +1,3 @@
+cd /var/www/html/admin
+put admin/legacy_standalone/api.php api.php
+quit

@@ -1,0 +1,2 @@
+put .codex_tmp/admin_final_post_verify.php /tmp/admin_final_post_verify.php
+quit

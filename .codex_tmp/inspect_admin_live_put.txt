@@ -1,0 +1,2 @@
+put .codex_tmp/inspect_admin_live.sh /tmp/inspect_admin_live.sh
+quit

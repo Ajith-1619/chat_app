@@ -822,6 +822,9 @@ function admin_user_active_systems(PDO $pdo, int $empId): array
 }function admin_groups_or_channels(PDO $pdo, string $search, string $kind): array
 {
     $where = admin_group_type_condition($kind);
+    if (flow_admin_column_exists($pdo, 'xmpp_groups', 'deleted_at')) {
+        $where .= ' AND deleted_at IS NULL';
+    }
     $rows = flow_admin_rows($pdo,
         "SELECT g.id, g.room_name, g.group_type, g.channel_kind, g.is_archived,
                 COUNT(gm.emp_id) AS members, g.created_at,
@@ -844,6 +847,114 @@ function admin_user_active_systems(PDO $pdo, int $empId): array
 
     return ['status' => true, 'rows' => array_slice($rows, 0, 120)];
 }
+function admin_wakeup_interval_options(): array
+{
+    return [
+        ['minutes' => 60, 'label' => '1 hour'],
+        ['minutes' => 180, 'label' => '3 hours'],
+        ['minutes' => 360, 'label' => '6 hours'],
+        ['minutes' => 720, 'label' => '12 hours'],
+        ['minutes' => 1440, 'label' => '1 day'],
+        ['minutes' => 4320, 'label' => '3 days'],
+        ['minutes' => 10080, 'label' => '7 days'],
+        ['minutes' => 20160, 'label' => '14 days'],
+        ['minutes' => 43200, 'label' => '30 days'],
+    ];
+}
+
+function admin_wakeup_interval_label(int $minutes): string
+{
+    foreach (admin_wakeup_interval_options() as $option) {
+        if ((int)$option['minutes'] === $minutes) return (string)$option['label'];
+    }
+    if ($minutes >= 1440 && $minutes % 1440 === 0) return (int)($minutes / 1440) . ' days';
+    if ($minutes >= 60 && $minutes % 60 === 0) return (int)($minutes / 60) . ' hours';
+    return $minutes . ' minutes';
+}
+
+function admin_channel_type_options(PDO $pdo): array
+{
+    $fallback = [
+        ['key' => 'incident', 'name' => 'Incident'],
+        ['key' => 'action', 'name' => 'Action'],
+        ['key' => 'operational', 'name' => 'Operational'],
+        ['key' => 'project', 'name' => 'Project'],
+        ['key' => 'announcement', 'name' => 'Announcement'],
+    ];
+    if (!flow_admin_table_exists($pdo, 'xmpp_channel_definitions')) return $fallback;
+    $rows = flow_admin_rows($pdo, 'SELECT type_key AS `key`, name FROM xmpp_channel_definitions ORDER BY FIELD(type_key, \'incident\', \'action\', \'operational\', \'project\', \'announcement\'), name ASC');
+    return $rows ?: $fallback;
+}
+
+function admin_group_wakeup_summary(PDO $pdo, array $group, string $roomJid): array
+{
+    $enabled = (int)($group['wakeup_enabled'] ?? 0) === 1;
+    $interval = max(60, (int)($group['wakeup_interval_minutes'] ?? 1440));
+    $lastActivity = (string)($group['created_at'] ?? '');
+    if ($roomJid !== '' && flow_admin_table_exists($pdo, 'xmpp_messages')) {
+        $rows = flow_admin_rows($pdo, 'SELECT MAX(created_at) AS last_activity_at FROM xmpp_messages WHERE to_jid = :room_jid AND deleted_at IS NULL', [':room_jid' => $roomJid]);
+        $lastActivity = (string)($rows[0]['last_activity_at'] ?? $lastActivity);
+    }
+    $lastSent = (string)($group['wakeup_last_sent_at'] ?? '');
+    $nextAt = '';
+    if ($enabled) {
+        $candidates = [];
+        if ($lastActivity !== '') $candidates[] = strtotime($lastActivity) + ($interval * 60);
+        if ($lastSent !== '') $candidates[] = strtotime($lastSent) + (max(15, (int)floor($interval / 4)) * 60);
+        $nextTs = $candidates ? max($candidates) : time() + ($interval * 60);
+        $nextAt = date('Y-m-d H:i:s', $nextTs);
+    }
+    return [
+        'enabled' => $enabled,
+        'interval_minutes' => $interval,
+        'interval_label' => admin_wakeup_interval_label($interval),
+        'last_activity_at' => $lastActivity,
+        'last_sent_at' => $lastSent,
+        'next_wakeup_at' => $nextAt,
+        'next_wakeup_label' => $nextAt !== '' ? date('d/m/Y h:i A', strtotime($nextAt)) : '',
+        'updated_at' => (string)($group['wakeup_updated_at'] ?? ''),
+        'updated_by_emp_id' => (string)($group['wakeup_updated_by_emp_id'] ?? ''),
+        'options' => admin_wakeup_interval_options(),
+    ];
+}
+
+function admin_employee_picker(PDO $pdo, string $search): array
+{
+    try {
+        $employeePdo = flow_admin_employee_db();
+        $source = admin_employee_source($employeePdo);
+        if (!$source) return ['status' => true, 'rows' => []];
+        $table = $source['table'];
+        $idCol = $source['id'];
+        $nameCol = $source['name'];
+        $designationCol = admin_first_existing_column($employeePdo, $table, ['designation', 'desig', 'role', 'job_title', 'position']);
+        $mobileCol = admin_first_existing_column($employeePdo, $table, ['mobile_no', 'mobile', 'phone', 'contact_no']);
+        $where = '1=1';
+        $params = [];
+        if ($search !== '') {
+            $where = "CAST(`{$idCol}` AS CHAR) LIKE :q OR `{$nameCol}` LIKE :q";
+            if ($designationCol !== '') $where .= " OR `{$designationCol}` LIKE :q";
+            if ($mobileCol !== '') $where .= " OR `{$mobileCol}` LIKE :q";
+            $params[':q'] = '%' . $search . '%';
+        }
+        $rows = flow_admin_rows($employeePdo, 'SELECT ' . implode(', ', [
+            admin_sql_expr($idCol, 'emp_id'),
+            admin_sql_expr($nameCol, 'name'),
+            admin_sql_expr($designationCol, 'designation'),
+            admin_sql_expr($mobileCol, 'mobile'),
+        ]) . " FROM `{$table}` WHERE {$where} ORDER BY `{$nameCol}` ASC LIMIT 80", $params);
+        foreach ($rows as &$row) {
+            $empId = (int)($row['emp_id'] ?? 0);
+            $row['jid'] = $empId > 0 ? flow_admin_jid($empId) : '';
+        }
+        unset($row);
+        return ['status' => true, 'rows' => $rows];
+    } catch (Throwable $e) {
+        error_log('admin employee picker failed: ' . $e->getMessage());
+        return ['status' => false, 'error' => 'Unable to load employee list.'];
+    }
+}
+
 function admin_group_detail(PDO $pdo): array
 {
     $groupId = (int)($_GET['id'] ?? $_POST['id'] ?? 0);
@@ -947,8 +1058,21 @@ function admin_group_detail(PDO $pdo): array
         'group' => $group,
         'stats' => $stats,
         'members' => $members,
+        'external_members' => admin_group_external_members($pdo, $groupId),
+        'wakeup' => admin_group_wakeup_summary($pdo, $group, $roomJid),
+        'channel_types' => admin_channel_type_options($pdo),
     ];
 }
+function admin_ensure_column_safe(PDO $pdo, string $table, string $column, string $definition): void
+{
+    if (flow_admin_column_exists($pdo, $table, $column)) return;
+    try {
+        $pdo->exec("ALTER TABLE `{$table}` ADD COLUMN `{$column}` {$definition}");
+    } catch (Throwable $e) {
+        error_log("admin ensure column {$table}.{$column} failed: " . $e->getMessage());
+    }
+}
+
 function admin_ensure_ai_tables(PDO $pdo): void
 {
     $pdo->exec("CREATE TABLE IF NOT EXISTS flow_admin_ai_providers (
@@ -965,15 +1089,34 @@ function admin_ensure_ai_tables(PDO $pdo): void
         created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
         updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
+    admin_ensure_column_safe($pdo, 'flow_admin_ai_providers', 'provider_name', 'VARCHAR(120) NOT NULL DEFAULT \'\'');
+    admin_ensure_column_safe($pdo, 'flow_admin_ai_providers', 'api_type', 'VARCHAR(80) NOT NULL DEFAULT \'custom\'');
+    admin_ensure_column_safe($pdo, 'flow_admin_ai_providers', 'model_name', 'VARCHAR(160) NULL');
+    admin_ensure_column_safe($pdo, 'flow_admin_ai_providers', 'api_endpoint', 'VARCHAR(500) NULL');
+    admin_ensure_column_safe($pdo, 'flow_admin_ai_providers', 'api_key', 'TEXT NULL');
+    admin_ensure_column_safe($pdo, 'flow_admin_ai_providers', 'status', 'TINYINT NOT NULL DEFAULT 1');
+    admin_ensure_column_safe($pdo, 'flow_admin_ai_providers', 'notes', 'TEXT NULL');
+    admin_ensure_column_safe($pdo, 'flow_admin_ai_providers', 'created_by_emp_id', 'INT NULL');
+    admin_ensure_column_safe($pdo, 'flow_admin_ai_providers', 'updated_by_emp_id', 'INT NULL');
+    admin_ensure_column_safe($pdo, 'flow_admin_ai_providers', 'created_at', 'DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP');
+    admin_ensure_column_safe($pdo, 'flow_admin_ai_providers', 'updated_at', 'DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP');
+
     $pdo->exec("CREATE TABLE IF NOT EXISTS flow_admin_ai_type_rules (
         employee_type VARCHAR(8) NOT NULL PRIMARY KEY,
-        access_mode ENUM('none','single','multiple') NOT NULL DEFAULT 'none',
+        access_mode VARCHAR(20) NOT NULL DEFAULT 'none',
         provider_ids TEXT NULL,
         daily_token_limit INT NOT NULL DEFAULT 0,
         daily_search_limit INT NOT NULL DEFAULT 0,
         updated_by_emp_id INT NULL,
         updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
+    admin_ensure_column_safe($pdo, 'flow_admin_ai_type_rules', 'access_mode', 'VARCHAR(20) NOT NULL DEFAULT \'none\'');
+    admin_ensure_column_safe($pdo, 'flow_admin_ai_type_rules', 'provider_ids', 'TEXT NULL');
+    admin_ensure_column_safe($pdo, 'flow_admin_ai_type_rules', 'daily_token_limit', 'INT NOT NULL DEFAULT 0');
+    admin_ensure_column_safe($pdo, 'flow_admin_ai_type_rules', 'daily_search_limit', 'INT NOT NULL DEFAULT 0');
+    admin_ensure_column_safe($pdo, 'flow_admin_ai_type_rules', 'updated_by_emp_id', 'INT NULL');
+    admin_ensure_column_safe($pdo, 'flow_admin_ai_type_rules', 'updated_at', 'DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP');
+
     $pdo->exec("CREATE TABLE IF NOT EXISTS flow_admin_ai_user_access (
         emp_id INT NOT NULL PRIMARY KEY,
         employee_type_override VARCHAR(8) NULL,
@@ -984,6 +1127,13 @@ function admin_ensure_ai_tables(PDO $pdo): void
         updated_by_emp_id INT NULL,
         updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
+    admin_ensure_column_safe($pdo, 'flow_admin_ai_user_access', 'employee_type_override', 'VARCHAR(8) NULL');
+    admin_ensure_column_safe($pdo, 'flow_admin_ai_user_access', 'provider_ids', 'TEXT NULL');
+    admin_ensure_column_safe($pdo, 'flow_admin_ai_user_access', 'daily_token_limit', 'INT NULL');
+    admin_ensure_column_safe($pdo, 'flow_admin_ai_user_access', 'daily_search_limit', 'INT NULL');
+    admin_ensure_column_safe($pdo, 'flow_admin_ai_user_access', 'enabled', 'TINYINT NOT NULL DEFAULT 1');
+    admin_ensure_column_safe($pdo, 'flow_admin_ai_user_access', 'updated_by_emp_id', 'INT NULL');
+    admin_ensure_column_safe($pdo, 'flow_admin_ai_user_access', 'updated_at', 'DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP');
 }
 
 function admin_mask_secret(?string $value): string
@@ -1051,6 +1201,7 @@ function admin_ai_access_summary(PDO $pdo, int $empId, string $employeeType): ar
         'employee_type' => $effectiveType,
         'access_mode' => $rule['access_mode'] ?? 'none',
         'providers' => $assigned,
+        'available_providers' => array_values($providers),
         'provider_ids' => implode(',', $providerIds),
         'daily_token_limit' => ($user['daily_token_limit'] ?? null) !== null && $user['daily_token_limit'] !== '' ? (int)$user['daily_token_limit'] : (int)($rule['daily_token_limit'] ?? 0),
         'daily_search_limit' => ($user['daily_search_limit'] ?? null) !== null && $user['daily_search_limit'] !== '' ? (int)$user['daily_search_limit'] : (int)($rule['daily_search_limit'] ?? 0),
@@ -1059,14 +1210,68 @@ function admin_ai_access_summary(PDO $pdo, int $empId, string $employeeType): ar
     ];
 }
 
-function admin_ai_access(PDO $pdo): array
+function admin_ai_access(PDO $pdo, string $search = ''): array
 {
     admin_ensure_ai_tables($pdo);
-    $providers = flow_admin_rows($pdo, 'SELECT id, provider_name, api_type, model_name, api_endpoint, CASE WHEN api_key IS NULL OR api_key = \'\' THEN \'\' ELSE CONCAT(LEFT(api_key, 4), \'••••\', RIGHT(api_key, 4)) END AS api_key_masked, status, notes, updated_at FROM flow_admin_ai_providers ORDER BY status DESC, provider_name ASC, id ASC');
+    $providers = flow_admin_rows($pdo, 'SELECT id, provider_name, api_type, model_name, api_endpoint, api_key, status, notes, updated_at FROM flow_admin_ai_providers ORDER BY status DESC, provider_name ASC, id ASC');
+    foreach ($providers as &$provider) {
+        $provider['api_key_masked'] = admin_mask_secret((string)($provider['api_key'] ?? ''));
+        unset($provider['api_key']);
+    }
+    unset($provider);
     $rules = array_values(admin_ai_type_rules($pdo));
-    return ['status' => true, 'providers' => $providers, 'rules' => $rules];
+    return ['status' => true, 'providers' => $providers, 'rules' => $rules, 'users' => admin_ai_users($pdo, $search ?? '')];
 }
 
+
+function admin_ai_users(PDO $pdo, string $search = ''): array
+{
+    admin_ensure_ai_tables($pdo);
+    $assignedRows = flow_admin_rows($pdo, "SELECT emp_id, employee_type_override, provider_ids, daily_token_limit, daily_search_limit, enabled, updated_at FROM flow_admin_ai_user_access WHERE provider_ids IS NOT NULL AND provider_ids <> '' ORDER BY updated_at DESC, emp_id ASC LIMIT 500");
+    if (!$assignedRows) return [];
+
+    $providers = admin_ai_provider_map($pdo);
+    $users = admin_users($pdo, '')['rows'] ?? [];
+    $userMap = [];
+    foreach ($users as $user) {
+        $userMap[(int)($user['emp_id'] ?? 0)] = $user;
+    }
+
+    $needle = $search !== '' ? mb_strtolower($search) : '';
+    $rows = [];
+    foreach ($assignedRows as $access) {
+        $empId = (int)($access['emp_id'] ?? 0);
+        if ($empId <= 0) continue;
+        $user = $userMap[$empId] ?? ['emp_id' => $empId, 'name' => '', 'designation' => '', 'employee_type' => 'C1'];
+        $providerIds = admin_csv_ids($access['provider_ids'] ?? '');
+        if (!$providerIds || (isset($access['enabled']) && (int)$access['enabled'] !== 1)) continue;
+        $providerNames = [];
+        foreach ($providerIds as $providerId) {
+            if (isset($providers[$providerId])) {
+                $providerNames[] = trim((string)($providers[$providerId]['provider_name'] ?? $providerId));
+            }
+        }
+        $row = [
+            'emp_id' => $empId,
+            'name' => (string)($user['name'] ?? ''),
+            'designation' => (string)($user['designation'] ?? ''),
+            'employee_type' => strtoupper(trim((string)($access['employee_type_override'] ?? ''))) ?: (string)($user['employee_type'] ?? 'C1'),
+            'access_mode' => count($providerIds) > 1 ? 'multiple' : 'single',
+            'ai_keys' => implode(', ', array_filter($providerNames)),
+            'provider_ids' => implode(',', $providerIds),
+            'daily_token_limit' => (int)($access['daily_token_limit'] ?? 0),
+            'daily_search_limit' => (int)($access['daily_search_limit'] ?? 0),
+            'enabled' => true,
+            'updated_at' => (string)($access['updated_at'] ?? ''),
+        ];
+        if ($needle !== '') {
+            $haystack = mb_strtolower(implode(' ', [$row['emp_id'], $row['name'], $row['designation'], $row['employee_type'], $row['ai_keys']]));
+            if (!str_contains($haystack, $needle)) continue;
+        }
+        $rows[] = $row;
+    }
+    return $rows;
+}
 function admin_save_ai_provider(PDO $pdo, int $adminEmpId): array
 {
     admin_ensure_ai_tables($pdo);
@@ -1086,8 +1291,8 @@ function admin_save_ai_provider(PDO $pdo, int $adminEmpId): array
         $stmt = $pdo->prepare('UPDATE flow_admin_ai_providers SET ' . implode(', ', $sets) . ' WHERE id = :id');
         $stmt->execute($params);
     } else {
-        $stmt = $pdo->prepare('INSERT INTO flow_admin_ai_providers (provider_name, api_type, model_name, api_endpoint, api_key, status, notes, created_by_emp_id, updated_by_emp_id) VALUES (:name, :api_type, :model, :endpoint, :api_key, :status, :notes, :admin_emp_id, :admin_emp_id)');
-        $stmt->execute([':name' => $name, ':api_type' => $apiType, ':model' => $model, ':endpoint' => $endpoint, ':api_key' => $key, ':status' => $status, ':notes' => $notes, ':admin_emp_id' => $adminEmpId]);
+        $stmt = $pdo->prepare('INSERT INTO flow_admin_ai_providers (provider_name, api_type, model_name, api_endpoint, api_key, status, notes, created_by_emp_id, updated_by_emp_id) VALUES (:name, :api_type, :model, :endpoint, :api_key, :status, :notes, :created_by_emp_id, :updated_by_emp_id)');
+        $stmt->execute([':name' => $name, ':api_type' => $apiType, ':model' => $model, ':endpoint' => $endpoint, ':api_key' => $key, ':status' => $status, ':notes' => $notes, ':created_by_emp_id' => $adminEmpId, ':updated_by_emp_id' => $adminEmpId]);
         $id = (int)$pdo->lastInsertId();
     }
     flow_admin_audit($adminEmpId, 'save_ai_provider', 'flow_admin_ai_providers', (string)$id, ['provider_name' => $name, 'api_type' => $apiType, 'api_key_saved' => $key !== '']);
@@ -1109,6 +1314,26 @@ function admin_save_ai_type_rule(PDO $pdo, int $adminEmpId): array
     $stmt->execute([':employee_type' => $type, ':access_mode' => $mode, ':provider_ids' => implode(',', $providerIds), ':token_limit' => $tokenLimit, ':search_limit' => $searchLimit, ':admin_emp_id' => $adminEmpId]);
     flow_admin_audit($adminEmpId, 'save_ai_type_rule', 'flow_admin_ai_type_rules', $type, ['access_mode' => $mode, 'provider_ids' => $providerIds, 'token_limit' => $tokenLimit, 'search_limit' => $searchLimit]);
     return ['status' => true, 'message' => 'AI access rule saved.'];
+}
+
+function admin_save_ai_user_access(PDO $pdo, int $adminEmpId): array
+{
+    admin_ensure_ai_tables($pdo);
+    $empId = (int)($_POST['emp_id'] ?? $_POST['id'] ?? 0);
+    if ($empId <= 0) return ['status' => false, 'error' => 'Valid employee ID is required.'];
+    $type = strtoupper(trim((string)($_POST['employee_type_override'] ?? '')));
+    if ($type !== '' && !in_array($type, ['A', 'B', 'C1', 'C2'], true)) return ['status' => false, 'error' => 'Employee type must be A, B, C1, or C2.'];
+    $mode = trim((string)($_POST['access_mode'] ?? ''));
+    if ($mode !== '' && !in_array($mode, ['none', 'single', 'multiple'], true)) $mode = '';
+    $providerIds = admin_csv_ids($_POST['provider_ids'] ?? '');
+    if ($mode === 'single' && count($providerIds) > 1) $providerIds = array_slice($providerIds, 0, 1);
+    $tokenLimit = ($_POST['daily_token_limit'] ?? '') === '' ? null : max(0, (int)$_POST['daily_token_limit']);
+    $searchLimit = ($_POST['daily_search_limit'] ?? '') === '' ? null : max(0, (int)$_POST['daily_search_limit']);
+    $enabled = (int)($_POST['enabled'] ?? 1) === 1 ? 1 : 0;
+    $stmt = $pdo->prepare('INSERT INTO flow_admin_ai_user_access (emp_id, employee_type_override, provider_ids, daily_token_limit, daily_search_limit, enabled, updated_by_emp_id, updated_at) VALUES (:emp_id, :employee_type, :provider_ids, :token_limit, :search_limit, :enabled, :admin_emp_id, NOW()) ON DUPLICATE KEY UPDATE employee_type_override = VALUES(employee_type_override), provider_ids = VALUES(provider_ids), daily_token_limit = VALUES(daily_token_limit), daily_search_limit = VALUES(daily_search_limit), enabled = VALUES(enabled), updated_by_emp_id = VALUES(updated_by_emp_id), updated_at = NOW()');
+    $stmt->execute([':emp_id' => $empId, ':employee_type' => $type !== '' ? $type : null, ':provider_ids' => implode(',', $providerIds), ':token_limit' => $tokenLimit, ':search_limit' => $searchLimit, ':enabled' => $enabled, ':admin_emp_id' => $adminEmpId]);
+    flow_admin_audit($adminEmpId, 'save_ai_user_access', 'flow_admin_ai_user_access', (string)$empId, ['employee_type' => $type, 'access_mode' => $mode, 'provider_ids' => $providerIds, 'token_limit' => $tokenLimit, 'search_limit' => $searchLimit, 'enabled' => $enabled]);
+    return ['status' => true, 'message' => 'User AI access saved.'];
 }
 function admin_messages(PDO $pdo, string $search): array
 {
@@ -1192,11 +1417,352 @@ function admin_simple(PDO $pdo, string $table, string $order = 'id DESC'): array
     return ['status' => true, 'rows' => flow_admin_rows($pdo, "SELECT * FROM {$table} ORDER BY {$order} LIMIT 120")];
 }
 
+function admin_ensure_external_tables(PDO $pdo): void
+{
+    $pdo->exec("CREATE TABLE IF NOT EXISTS external_contacts (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        display_name VARCHAR(160) NOT NULL,
+        email VARCHAR(190) NULL,
+        phone VARCHAR(40) NULL,
+        whatsapp_number VARCHAR(40) NULL,
+        telegram_username VARCHAR(120) NULL,
+        telegram_chat_id VARCHAR(120) NULL,
+        status TINYINT NOT NULL DEFAULT 1,
+        created_by_emp_id INT NULL,
+        updated_by_emp_id INT NULL,
+        created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+        INDEX idx_external_contacts_name (display_name),
+        INDEX idx_external_contacts_status (status)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
+    admin_ensure_column_safe($pdo, 'external_contacts', 'display_name', 'VARCHAR(160) NOT NULL DEFAULT \'\'');
+    admin_ensure_column_safe($pdo, 'external_contacts', 'email', 'VARCHAR(190) NULL');
+    admin_ensure_column_safe($pdo, 'external_contacts', 'phone', 'VARCHAR(40) NULL');
+    admin_ensure_column_safe($pdo, 'external_contacts', 'whatsapp_number', 'VARCHAR(40) NULL');
+    admin_ensure_column_safe($pdo, 'external_contacts', 'telegram_username', 'VARCHAR(120) NULL');
+    admin_ensure_column_safe($pdo, 'external_contacts', 'telegram_chat_id', 'VARCHAR(120) NULL');
+    admin_ensure_column_safe($pdo, 'external_contacts', 'status', 'TINYINT NOT NULL DEFAULT 1');
+    admin_ensure_column_safe($pdo, 'external_contacts', 'created_by_emp_id', 'INT NULL');
+    admin_ensure_column_safe($pdo, 'external_contacts', 'updated_by_emp_id', 'INT NULL');
+    admin_ensure_column_safe($pdo, 'external_contacts', 'created_at', 'DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP');
+    admin_ensure_column_safe($pdo, 'external_contacts', 'updated_at', 'DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP');
+
+    $pdo->exec("CREATE TABLE IF NOT EXISTS xmpp_group_external_members (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        group_id INT NOT NULL,
+        external_contact_id INT NOT NULL,
+        delivery_channels VARCHAR(160) NOT NULL DEFAULT '',
+        mention_token VARCHAR(180) NOT NULL DEFAULT '',
+        status TINYINT NOT NULL DEFAULT 1,
+        added_by_emp_id INT NULL,
+        added_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        removed_at DATETIME NULL,
+        UNIQUE KEY uq_group_external_contact (group_id, external_contact_id),
+        INDEX idx_group_external_group (group_id, status),
+        INDEX idx_group_external_contact (external_contact_id)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
+    admin_ensure_column_safe($pdo, 'xmpp_group_external_members', 'delivery_channels', 'VARCHAR(160) NOT NULL DEFAULT \'\'');
+    admin_ensure_column_safe($pdo, 'xmpp_group_external_members', 'mention_token', 'VARCHAR(180) NOT NULL DEFAULT \'\'');
+    admin_ensure_column_safe($pdo, 'xmpp_group_external_members', 'status', 'TINYINT NOT NULL DEFAULT 1');
+    admin_ensure_column_safe($pdo, 'xmpp_group_external_members', 'removed_at', 'DATETIME NULL');
+
+    $pdo->exec("CREATE TABLE IF NOT EXISTS external_user_requests (
+        id BIGINT AUTO_INCREMENT PRIMARY KEY,
+        group_id INT NOT NULL,
+        requested_by_emp_id INT NOT NULL,
+        display_name VARCHAR(160) NOT NULL,
+        email VARCHAR(190) NULL,
+        phone VARCHAR(40) NULL,
+        whatsapp_number VARCHAR(40) NULL,
+        telegram_username VARCHAR(120) NULL,
+        delivery_channels VARCHAR(160) NOT NULL DEFAULT '',
+        mention_token VARCHAR(180) NOT NULL DEFAULT '',
+        reason TEXT NULL,
+        status VARCHAR(24) NOT NULL DEFAULT 'pending',
+        reviewed_by_emp_id INT NULL,
+        reviewed_at DATETIME NULL,
+        review_note TEXT NULL,
+        external_contact_id INT NULL,
+        created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+        INDEX idx_external_user_requests_status (status, created_at),
+        INDEX idx_external_user_requests_group (group_id, status),
+        INDEX idx_external_user_requests_requested_by (requested_by_emp_id, created_at)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
+    admin_ensure_column_safe($pdo, 'external_user_requests', 'delivery_channels', 'VARCHAR(160) NOT NULL DEFAULT \'\'');
+    admin_ensure_column_safe($pdo, 'external_user_requests', 'mention_token', 'VARCHAR(180) NOT NULL DEFAULT \'\'');
+    admin_ensure_column_safe($pdo, 'external_user_requests', 'reason', 'TEXT NULL');
+    admin_ensure_column_safe($pdo, 'external_user_requests', 'review_note', 'TEXT NULL');
+    admin_ensure_column_safe($pdo, 'external_user_requests', 'external_contact_id', 'INT NULL');
+
+    $pdo->exec("CREATE TABLE IF NOT EXISTS xmpp_external_delivery_queue (
+        id BIGINT AUTO_INCREMENT PRIMARY KEY,
+        group_id INT NOT NULL,
+        external_contact_id INT NOT NULL,
+        message_id BIGINT NULL,
+        event_type VARCHAR(40) NOT NULL DEFAULT 'mention',
+        channel VARCHAR(24) NOT NULL,
+        destination VARCHAR(190) NOT NULL,
+        subject VARCHAR(255) NULL,
+        body TEXT NOT NULL,
+        status VARCHAR(24) NOT NULL DEFAULT 'queued',
+        attempts INT NOT NULL DEFAULT 0,
+        last_error TEXT NULL,
+        created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        sent_at DATETIME NULL,
+        INDEX idx_external_delivery_status (status, created_at),
+        INDEX idx_external_delivery_message (message_id)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
+}
+
+function admin_external_token(string $name): string
+{
+    $token = preg_replace('/[^A-Za-z0-9_]+/', '', str_replace(' ', '_', trim($name))) ?: 'external';
+    return '@' . $token;
+}
+
+function admin_group_external_members(PDO $pdo, int $groupId): array
+{
+    admin_ensure_external_tables($pdo);
+    return flow_admin_rows($pdo, "SELECT gm.id AS membership_id, gm.group_id, gm.external_contact_id, gm.delivery_channels, gm.mention_token, gm.status, gm.added_at, c.display_name, c.email, c.phone, c.whatsapp_number, c.telegram_username, c.telegram_chat_id
+        FROM xmpp_group_external_members gm
+        INNER JOIN external_contacts c ON c.id = gm.external_contact_id
+        WHERE gm.group_id = :group_id AND gm.status = 1
+        ORDER BY c.display_name ASC", [':group_id' => $groupId]);
+}
+
+function admin_external_destination(array $contact, string $channel): string
+{
+    return match ($channel) {
+        'email' => trim((string)($contact['email'] ?? '')),
+        'whatsapp' => trim((string)($contact['whatsapp_number'] ?? $contact['phone'] ?? '')),
+        'telegram' => trim((string)($contact['telegram_chat_id'] ?? $contact['telegram_username'] ?? '')),
+        'sms' => trim((string)($contact['phone'] ?? '')),
+        default => '',
+    };
+}
+
+function admin_queue_external_delivery(PDO $pdo, int $groupId, int $contactId, ?int $messageId, string $eventType, array $channels, string $subject, string $body): void
+{
+    admin_ensure_external_tables($pdo);
+    $contact = flow_admin_rows($pdo, 'SELECT * FROM external_contacts WHERE id = :id LIMIT 1', [':id' => $contactId])[0] ?? [];
+    if (!$contact) return;
+    $stmt = $pdo->prepare('INSERT INTO xmpp_external_delivery_queue (group_id, external_contact_id, message_id, event_type, channel, destination, subject, body, status) VALUES (:group_id, :contact_id, :message_id, :event_type, :channel, :destination, :subject, :body, :status)');
+    foreach ($channels as $channel) {
+        $channel = strtolower(trim((string)$channel));
+        if (!in_array($channel, ['email', 'whatsapp', 'telegram', 'sms'], true)) continue;
+        $destination = admin_external_destination($contact, $channel);
+        if ($destination === '') continue;
+        $stmt->execute([':group_id' => $groupId, ':contact_id' => $contactId, ':message_id' => $messageId, ':event_type' => $eventType, ':channel' => $channel, ':destination' => $destination, ':subject' => $subject, ':body' => $body, ':status' => 'queued']);
+    }
+}
+
+function admin_external_requests(PDO $pdo, string $search): array
+{
+    admin_ensure_external_tables($pdo);
+    $where = '1=1';
+    $params = [];
+    if ($search !== '') {
+        $where .= ' AND (r.display_name LIKE :q OR r.email LIKE :q OR r.phone LIKE :q OR r.whatsapp_number LIKE :q OR r.telegram_username LIKE :q OR g.room_name LIKE :q)';
+        $params[':q'] = '%' . $search . '%';
+    }
+    $rows = flow_admin_rows($pdo, "SELECT r.id, r.group_id, r.requested_by_emp_id, r.display_name, r.email, r.phone, r.whatsapp_number, r.telegram_username, r.delivery_channels, r.mention_token, r.reason, r.status, r.reviewed_by_emp_id, r.reviewed_at, r.review_note, r.external_contact_id, r.created_at, g.room_name, g.room_jid, g.group_type, g.channel_kind
+        FROM external_user_requests r
+        LEFT JOIN xmpp_groups g ON g.id = r.group_id
+        WHERE {$where}
+        ORDER BY CASE r.status WHEN 'pending' THEN 0 WHEN 'approved' THEN 1 ELSE 2 END, r.created_at DESC
+        LIMIT 300", $params);
+    return ['status' => true, 'rows' => $rows];
+}
+
+function admin_approve_external_request(PDO $pdo, int $adminEmpId): array
+{
+    admin_ensure_external_tables($pdo);
+    $requestId = (int)($_POST['request_id'] ?? $_POST['id'] ?? 0);
+    if ($requestId <= 0) return ['status' => false, 'error' => 'Request is required.'];
+    $request = flow_admin_rows($pdo, 'SELECT * FROM external_user_requests WHERE id = :id LIMIT 1', [':id' => $requestId])[0] ?? [];
+    if (!$request) return ['status' => false, 'error' => 'Request not found.'];
+    if ((string)($request['status'] ?? '') !== 'pending') return ['status' => false, 'error' => 'Request already reviewed.'];
+
+    $_POST['group_id'] = (string)$request['group_id'];
+    $_POST['display_name'] = (string)$request['display_name'];
+    $_POST['email'] = (string)($request['email'] ?? '');
+    $_POST['phone'] = (string)($request['phone'] ?? '');
+    $_POST['whatsapp_number'] = (string)($request['whatsapp_number'] ?? '');
+    $_POST['telegram_username'] = (string)($request['telegram_username'] ?? '');
+    $_POST['delivery_channels'] = (string)$request['delivery_channels'];
+    $added = admin_add_external_member($pdo, $adminEmpId);
+    if (($added['status'] ?? false) !== true) return $added;
+    $contactId = (int)($added['external_contact_id'] ?? 0);
+    $stmt = $pdo->prepare("UPDATE external_user_requests SET status = 'approved', reviewed_by_emp_id = :admin, reviewed_at = NOW(), review_note = :note, external_contact_id = :contact_id WHERE id = :id");
+    $stmt->execute([':admin' => $adminEmpId, ':note' => trim((string)($_POST['review_note'] ?? '')), ':contact_id' => $contactId > 0 ? $contactId : null, ':id' => $requestId]);
+    flow_admin_audit($adminEmpId, 'approve_external_request', 'external_user_requests', (string)$requestId, ['external_contact_id' => $contactId]);
+    return ['status' => true, 'request_id' => $requestId, 'external_contact_id' => $contactId];
+}
+
+function admin_reject_external_request(PDO $pdo, int $adminEmpId): array
+{
+    admin_ensure_external_tables($pdo);
+    $requestId = (int)($_POST['request_id'] ?? $_POST['id'] ?? 0);
+    if ($requestId <= 0) return ['status' => false, 'error' => 'Request is required.'];
+    $stmt = $pdo->prepare("UPDATE external_user_requests SET status = 'rejected', reviewed_by_emp_id = :admin, reviewed_at = NOW(), review_note = :note WHERE id = :id AND status = 'pending'");
+    $stmt->execute([':admin' => $adminEmpId, ':note' => trim((string)($_POST['review_note'] ?? '')), ':id' => $requestId]);
+    flow_admin_audit($adminEmpId, 'reject_external_request', 'external_user_requests', (string)$requestId, []);
+    return ['status' => true, 'request_id' => $requestId];
+}
+
+function admin_add_external_member(PDO $pdo, int $adminEmpId): array
+{
+    admin_ensure_external_tables($pdo);
+    $groupId = (int)($_POST['group_id'] ?? 0);
+    $name = trim((string)($_POST['display_name'] ?? ''));
+    $email = trim((string)($_POST['email'] ?? ''));
+    $phone = trim((string)($_POST['phone'] ?? ''));
+    $whatsapp = trim((string)($_POST['whatsapp_number'] ?? $phone));
+    $telegram = trim((string)($_POST['telegram_username'] ?? ''));
+    $channels = array_values(array_filter(array_map('trim', explode(',', strtolower((string)($_POST['delivery_channels'] ?? ''))))));
+    $channels = array_values(array_intersect($channels, ['email', 'whatsapp', 'telegram', 'sms']));
+    if ($groupId <= 0 || $name === '' || !$channels) return ['status' => false, 'error' => 'Group, external name and at least one delivery channel are required.'];
+    $group = flow_admin_rows($pdo, 'SELECT id, room_jid, room_name FROM xmpp_groups WHERE id = :id LIMIT 1', [':id' => $groupId])[0] ?? [];
+    if (!$group) return ['status' => false, 'error' => 'Group/channel not found.'];
+    $contactId = (int)($_POST['external_contact_id'] ?? 0);
+    if ($contactId > 0) {
+        $stmt = $pdo->prepare('UPDATE external_contacts SET display_name = :name, email = :email, phone = :phone, whatsapp_number = :whatsapp, telegram_username = :telegram, status = 1, updated_by_emp_id = :admin_emp_id WHERE id = :id');
+        $stmt->execute([':name' => $name, ':email' => $email ?: null, ':phone' => $phone ?: null, ':whatsapp' => $whatsapp ?: null, ':telegram' => $telegram ?: null, ':admin_emp_id' => $adminEmpId, ':id' => $contactId]);
+    } else {
+        $stmt = $pdo->prepare('INSERT INTO external_contacts (display_name, email, phone, whatsapp_number, telegram_username, status, created_by_emp_id, updated_by_emp_id) VALUES (:name, :email, :phone, :whatsapp, :telegram, 1, :created_by_emp_id, :updated_by_emp_id)');
+        $stmt->execute([':name' => $name, ':email' => $email ?: null, ':phone' => $phone ?: null, ':whatsapp' => $whatsapp ?: null, ':telegram' => $telegram ?: null, ':created_by_emp_id' => $adminEmpId, ':updated_by_emp_id' => $adminEmpId]);
+        $contactId = (int)$pdo->lastInsertId();
+    }
+    $token = admin_external_token($name);
+    $stmt = $pdo->prepare('INSERT INTO xmpp_group_external_members (group_id, external_contact_id, delivery_channels, mention_token, status, added_by_emp_id, added_at, removed_at) VALUES (:group_id, :contact_id, :channels, :token, 1, :admin_emp_id, NOW(), NULL) ON DUPLICATE KEY UPDATE delivery_channels = VALUES(delivery_channels), mention_token = VALUES(mention_token), status = 1, added_by_emp_id = VALUES(added_by_emp_id), removed_at = NULL');
+    $stmt->execute([':group_id' => $groupId, ':contact_id' => $contactId, ':channels' => implode(',', $channels), ':token' => $token, ':admin_emp_id' => $adminEmpId]);
+
+    $welcome = $name . ' was added as an external contact. Mention ' . $token . ' to send selected group/channel messages through ' . implode(', ', $channels) . '.';
+    $msg = $pdo->prepare('INSERT INTO xmpp_messages (from_jid, to_jid, body, message_type, status, source_device, source_name) VALUES (:from_jid, :to_jid, :body, :message_type, :status, :source_device, :source_name)');
+    $msg->execute([':from_jid' => 'system@chat.skylinkonline.net', ':to_jid' => (string)$group['room_jid'], ':body' => $welcome, ':message_type' => 'groupchat', ':status' => 'sent', ':source_device' => 'system', ':source_name' => 'External contact welcome']);
+    $messageId = (int)$pdo->lastInsertId();
+    admin_queue_external_delivery($pdo, $groupId, $contactId, $messageId, 'welcome', $channels, 'Welcome to ' . (string)$group['room_name'], $welcome);
+    flow_admin_audit($adminEmpId, 'add_external_member', 'xmpp_group_external_members', $groupId . ':' . $contactId, ['channels' => $channels, 'mention_token' => $token]);
+    return ['status' => true, 'message' => 'External user added. Welcome delivery queued.', 'mention_token' => $token];
+}
+
+function admin_remove_external_member(PDO $pdo, int $adminEmpId): array
+{
+    admin_ensure_external_tables($pdo);
+    $groupId = (int)($_POST['group_id'] ?? 0);
+    $contactId = (int)($_POST['external_contact_id'] ?? 0);
+    if ($groupId <= 0 || $contactId <= 0) return ['status' => false, 'error' => 'Group and external contact are required.'];
+    $stmt = $pdo->prepare('UPDATE xmpp_group_external_members SET status = 0, removed_at = NOW() WHERE group_id = :group_id AND external_contact_id = :contact_id');
+    $stmt->execute([':group_id' => $groupId, ':contact_id' => $contactId]);
+    flow_admin_audit($adminEmpId, 'remove_external_member', 'xmpp_group_external_members', $groupId . ':' . $contactId, []);
+    return ['status' => true, 'message' => 'External user removed.'];
+}
+function admin_add_group_member(PDO $pdo, int $adminEmpId): array
+{
+    $groupId = (int)($_POST['group_id'] ?? 0);
+    $empId = (int)($_POST['emp_id'] ?? 0);
+    $role = strtolower(trim((string)($_POST['role'] ?? 'member')));
+    $showHistory = (int)($_POST['show_history'] ?? 0) === 1;
+    if ($groupId <= 0 || $empId <= 0 || !in_array($role, ['owner', 'admin', 'member'], true)) {
+        return ['status' => false, 'error' => 'Group, employee and role are required.'];
+    }
+    $group = flow_admin_rows($pdo, 'SELECT id, room_jid, room_name FROM xmpp_groups WHERE id = :id LIMIT 1', [':id' => $groupId])[0] ?? [];
+    if (!$group) return ['status' => false, 'error' => 'Group/channel not found.'];
+
+    $memberGroupCol = admin_first_existing_column($pdo, 'xmpp_group_members', ['group_id', 'room_id', 'xmpp_group_id']);
+    $memberEmpCol = admin_first_existing_column($pdo, 'xmpp_group_members', ['emp_id', 'employee_id', 'user_id', 'member_emp_id']);
+    $memberRoleCol = admin_first_existing_column($pdo, 'xmpp_group_members', ['role', 'member_role', 'access_role']);
+    if ($memberGroupCol === '' || $memberEmpCol === '') return ['status' => false, 'error' => 'Group member schema is not mapped.'];
+
+    $columns = [$memberGroupCol, $memberEmpCol];
+    $values = [':group_id', ':emp_id'];
+    $params = [':group_id' => $groupId, ':emp_id' => $empId];
+    $updates = [];
+    if ($memberRoleCol !== '') {
+        $columns[] = $memberRoleCol;
+        $values[] = ':role';
+        $params[':role'] = $role;
+        $updates[] = "`{$memberRoleCol}` = VALUES(`{$memberRoleCol}`)";
+    }
+    $historyCol = admin_first_existing_column($pdo, 'xmpp_group_members', ['history_visible_from']);
+    if ($historyCol !== '') {
+        $columns[] = $historyCol;
+        $values[] = ':history_visible_from';
+        $params[':history_visible_from'] = $showHistory ? null : date('Y-m-d H:i:s');
+        $updates[] = "`{$historyCol}` = VALUES(`{$historyCol}`)";
+    }
+    $joinedCol = admin_first_existing_column($pdo, 'xmpp_group_members', ['joined_at', 'created_at', 'added_at']);
+    if ($joinedCol !== '') $updates[] = "`{$joinedCol}` = COALESCE(`{$joinedCol}`, NOW())";
+    if (!$updates) $updates[] = "`{$memberEmpCol}` = VALUES(`{$memberEmpCol}`)";
+
+    $sql = 'INSERT INTO xmpp_group_members (`' . implode('`, `', $columns) . '`) VALUES (' . implode(', ', $values) . ') ON DUPLICATE KEY UPDATE ' . implode(', ', $updates);
+    $stmt = $pdo->prepare($sql);
+    $stmt->execute($params);
+
+    if (flow_admin_table_exists($pdo, 'xmpp_group_reads') && (string)($group['room_jid'] ?? '') !== '') {
+        try {
+            $read = $pdo->prepare('INSERT INTO xmpp_group_reads (group_id, emp_id, last_read_message_id, read_at) SELECT :group_id, :emp_id, COALESCE(MAX(id), 0), NOW() FROM xmpp_messages WHERE to_jid = :room_jid ON DUPLICATE KEY UPDATE last_read_message_id = VALUES(last_read_message_id), read_at = NOW()');
+            $read->execute([':group_id' => $groupId, ':emp_id' => $empId, ':room_jid' => (string)$group['room_jid']]);
+        } catch (Throwable $e) {
+            error_log('admin add member read marker failed: ' . $e->getMessage());
+        }
+    }
+
+    $xmppStatus = 'not_synced';
+    try {
+        $room = explode('@', (string)($group['room_jid'] ?? ''), 2)[0];
+        if ($room !== '') {
+            flow_admin_ejabberd_request('set_room_affiliation', [
+                'name' => $room,
+                'service' => (string)flow_admin_config('muc_domain', FLOW_ADMIN_MUC_DOMAIN_DEFAULT),
+                'jid' => flow_admin_jid($empId),
+                'affiliation' => $role === 'owner' ? 'owner' : ($role === 'admin' ? 'admin' : 'member'),
+            ]);
+            $xmppStatus = 'synced';
+        }
+    } catch (Throwable $e) {
+        $xmppStatus = 'failed: ' . $e->getMessage();
+        error_log('admin add member xmpp sync failed: ' . $e->getMessage());
+    }
+
+    flow_admin_audit($adminEmpId, 'add_member', 'xmpp_group_members', $groupId . ':' . $empId, [
+        'role' => $role,
+        'show_history' => $showHistory,
+        'xmpp' => $xmppStatus,
+    ]);
+    return ['status' => true, 'message' => 'Member added.', 'xmpp' => $xmppStatus];
+}
+
+function admin_delete_group_channel(PDO $pdo, int $adminEmpId, int $groupId): array
+{
+    if ($groupId <= 0) return ['status' => false, 'error' => 'Valid group/channel id is required.'];
+    $group = flow_admin_rows($pdo, 'SELECT id, room_jid, room_name FROM xmpp_groups WHERE id = :id LIMIT 1', [':id' => $groupId])[0] ?? [];
+    if (!$group) return ['status' => false, 'error' => 'Group/channel not found.'];
+
+    if (!flow_admin_column_exists($pdo, 'xmpp_groups', 'deleted_at')) {
+        try { $pdo->exec('ALTER TABLE xmpp_groups ADD COLUMN deleted_at DATETIME NULL'); } catch (Throwable $e) { error_log('admin add deleted_at failed: ' . $e->getMessage()); }
+    }
+    $sets = [];
+    if (flow_admin_column_exists($pdo, 'xmpp_groups', 'deleted_at')) $sets[] = 'deleted_at = NOW()';
+    if (flow_admin_column_exists($pdo, 'xmpp_groups', 'is_archived')) $sets[] = 'is_archived = 1';
+    if (flow_admin_column_exists($pdo, 'xmpp_groups', 'archived_at')) $sets[] = 'archived_at = NOW()';
+    if (!$sets) return ['status' => false, 'error' => 'Group delete fields are not available.'];
+    $stmt = $pdo->prepare('UPDATE xmpp_groups SET ' . implode(', ', $sets) . ' WHERE id = :id');
+    $stmt->execute([':id' => $groupId]);
+
+    flow_admin_audit($adminEmpId, 'delete_group_channel', 'xmpp_groups', (string)$groupId, [
+        'room_name' => (string)($group['room_name'] ?? ''),
+        'room_jid' => (string)($group['room_jid'] ?? ''),
+        'mode' => 'soft_delete_archive',
+    ]);
+    return ['status' => true, 'message' => 'Group/channel deleted from active lists.'];
+}
 function admin_post_action(PDO $pdo, int $adminEmpId, string $action): array
 {
     flow_admin_require_csrf();
     $id = (int)($_POST['id'] ?? 0);
-    if ($id <= 0 && !in_array($action, ['set_member_role', 'remove_member', 'save_ai_provider', 'save_ai_type_rule'], true)) {
+    if ($id <= 0 && !in_array($action, ['set_member_role', 'add_member', 'remove_member', 'add_external_member', 'remove_external_member', 'approve_external_request', 'reject_external_request', 'save_ai_provider', 'save_ai_type_rule', 'save_ai_user_access'], true)) {
         return ['status' => false, 'error' => 'Valid id is required.'];
     }
 
@@ -1270,10 +1836,34 @@ function admin_post_action(PDO $pdo, int $adminEmpId, string $action): array
         case 'save_ai_type_rule':
             return admin_save_ai_type_rule($pdo, $adminEmpId);
 
+        case 'save_ai_user_access':
+            return admin_save_ai_user_access($pdo, $adminEmpId);
+
+        case 'add_member':
+            return admin_add_group_member($pdo, $adminEmpId);
+
+        case 'add_external_member':
+            return admin_add_external_member($pdo, $adminEmpId);
+
+        case 'remove_external_member':
+            return admin_remove_external_member($pdo, $adminEmpId);
+
+        case 'approve_external_request':
+            return admin_approve_external_request($pdo, $adminEmpId);
+
+        case 'reject_external_request':
+            return admin_reject_external_request($pdo, $adminEmpId);
+
+        case 'delete_group_channel':
+            return admin_delete_group_channel($pdo, $adminEmpId, $id);
+
         case 'update_group':
             $roomName = trim((string)($_POST['room_name'] ?? ''));
             $channelKind = trim((string)($_POST['channel_kind'] ?? ''));
             $wakeupEnabled = (int)($_POST['wakeup_enabled'] ?? 0) === 1 ? 1 : 0;
+            $wakeupInterval = max(60, (int)($_POST['wakeup_interval_minutes'] ?? 1440));
+            $allowedWakeupIntervals = array_map(static fn($row) => (int)$row['minutes'], admin_wakeup_interval_options());
+            if (!in_array($wakeupInterval, $allowedWakeupIntervals, true)) $wakeupInterval = 1440;
             $isArchived = (int)($_POST['is_archived'] ?? 0) === 1 ? 1 : 0;
             if ($roomName === '') return ['status' => false, 'error' => 'Group/channel name is required.'];
             $sets = ['room_name = :room_name'];
@@ -1286,6 +1876,17 @@ function admin_post_action(PDO $pdo, int $adminEmpId, string $action): array
                 $sets[] = 'wakeup_enabled = :wakeup_enabled';
                 $params[':wakeup_enabled'] = $wakeupEnabled;
             }
+            if (flow_admin_column_exists($pdo, 'xmpp_groups', 'wakeup_interval_minutes')) {
+                $sets[] = 'wakeup_interval_minutes = :wakeup_interval_minutes';
+                $params[':wakeup_interval_minutes'] = $wakeupInterval;
+            }
+            if (flow_admin_column_exists($pdo, 'xmpp_groups', 'wakeup_updated_by_emp_id')) {
+                $sets[] = 'wakeup_updated_by_emp_id = :wakeup_updated_by_emp_id';
+                $params[':wakeup_updated_by_emp_id'] = $adminEmpId;
+            }
+            if (flow_admin_column_exists($pdo, 'xmpp_groups', 'wakeup_updated_at')) {
+                $sets[] = 'wakeup_updated_at = NOW()';
+            }
             if (flow_admin_column_exists($pdo, 'xmpp_groups', 'is_archived')) {
                 $sets[] = 'is_archived = :is_archived';
                 $params[':is_archived'] = $isArchived;
@@ -1296,6 +1897,7 @@ function admin_post_action(PDO $pdo, int $adminEmpId, string $action): array
                 'room_name' => $roomName,
                 'channel_kind' => $channelKind,
                 'wakeup_enabled' => $wakeupEnabled,
+                'wakeup_interval_minutes' => $wakeupInterval,
                 'is_archived' => $isArchived,
             ]);
             return ['status' => true, 'message' => 'Group/channel updated.'];
@@ -1343,11 +1945,13 @@ try {
         'user_detail' => admin_user_detail($pdo),
         'groups' => admin_groups_or_channels($pdo, $search, 'group'),
         'group_detail' => admin_group_detail($pdo),
+        'employee_picker' => admin_employee_picker($pdo, $search),
         'channels' => admin_groups_or_channels($pdo, $search, 'channel'),
+        'external_requests' => admin_external_requests($pdo, $search),
         'messages' => admin_messages($pdo, $search),
         'attachments' => admin_attachments($pdo, $search),
         'location' => admin_location($pdo),
-        'ai_access' => admin_ai_access($pdo),
+        'ai_access' => admin_ai_access($pdo, $search),
         'notifications' => admin_notifications($pdo, $search),
         'releases' => admin_releases($pdo),
         'diagnostics' => admin_simple($pdo, 'xmpp_diagnostics', 'created_at DESC'),

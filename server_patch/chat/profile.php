@@ -29,7 +29,7 @@ $detailsStmt->execute([':emp_id' => $empId]);
 $details = $detailsStmt->fetch(PDO::FETCH_ASSOC) ?: [];
 $employee['email'] = (string)($details['email'] ?? '');
 $employee['mobile'] = (string)($details['mobile_no'] ?? '');
-$employee['employee_type'] = (string)($details['emp_type'] ?? '');
+$employee['employee_type'] = chat_employee_type($pdo, getEmployeeDB(), $empId);
 $employee['work_location'] = (string)($details['work_location'] ?? '');
 $employee['shift_id'] = (string)($details['emp_shift'] ?? '');
 $stmt = $pdo->prepare('SELECT avatar_url FROM xmpp_users WHERE emp_id = :emp_id LIMIT 1');

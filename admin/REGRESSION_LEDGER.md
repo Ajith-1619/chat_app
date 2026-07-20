@@ -103,3 +103,80 @@
 - Passed: Yes
 - Checks: AI Access module loads through admin side nav; API keys are masked on read; A/B/C1/C2 defaults are returned; existing admin API PHP syntax remains valid.
 - Remaining Risk: Actual AI usage enforcement must be wired into future AI chat/API execution paths to consume these admin rules and decrement token/search limits.
+
+## REG-20260720-ADMIN-AI-API
+- Time: 2026-07-20 17:30 IST
+- Passed: Yes
+- Checks: Existing admin modules remain routed; AI API endpoint returns JSON; API keys remain masked on read; Type A/B/C1/C2 default rules remain intact.
+- Remaining Risk: Chat runtime AI usage enforcement still needs to consume these admin rules when AI features are connected.
+
+## REG-20260720-ADMIN-AI-USERS-LIST
+- Time: 2026-07-20 12:45 IST
+- Passed: Yes
+- Checks: AI API page still renders provider form and type rules; assigned users list only includes users with assigned AI keys; API keys remain masked.
+- Remaining Risk: Token usage consumed/remaining counters require runtime AI usage logging in a later integration.
+
+## REG-20260720-ADMIN-HIDE-AI-TYPE-RULES
+- Time: 2026-07-20 12:55 IST
+- Passed: Yes
+- Checks: AI API key form remains visible; AI Users Access list remains visible; removed section is no longer rendered.
+- Remaining Risk: Backend type rules remain available but hidden from this screen.
+
+## REG-20260720-ADMIN-GROUP-CHANNEL-MEMBER-DELETE
+- Date: 2026-07-20
+- Verified: Local PHP lint passed for admin legacy API; live /var/www/html/admin/api.php PHP lint passed; node --check passed for admin app.js; git diff --check passed.
+- Watch: Add-member XMPP sync is best-effort; DB membership is saved and audited even if Ejabberd admin API is unavailable.
+
+## REG-20260720-ADMIN-WAKEUP-CHANNEL-TYPE-CONFIG
+- Date: 2026-07-20
+- Verified: Local PHP lint passed, local JS syntax check passed, git diff --check passed, and live /var/www/html/admin/api.php PHP lint passed after upload.
+- Watch: Next wake-up display is calculated from last activity and last wake-up sent time; actual worker scheduling still depends on server cron/notification worker.
+
+## REG-20260720-ADMIN-WAKEUP-AI-SCHEMA-FIX
+- Date: 2026-07-20
+- Risk: Admin API schema migration could affect existing AI API records if columns were missing.
+- Verification: Local PHP lint passed, live PHP lint passed after upload, and admin CSS selectors verified.
+- Status: Passed.
+
+## REG-20260720-ADMIN-AI-JSON-ENDPOINT-FIX
+- Date: 2026-07-20
+- Risk: Admin API fetch URL changes could affect module loading.
+- Verification: admin/routes/web.php PHP lint passed; local /api?admin=1&action=ai_access with Accept header returns HTTP 401 instead of HTML when unauthenticated, confirming JSON auth path is used.
+- Status: Passed with note: node --check was blocked by local sandbox ACL, and app.js change was limited to fetch headers.
+
+## REG-20260720-ADMIN-AI-LOAD-FIX
+- Date: 2026-07-20
+- Risk: Incorrect API URL fallback could break flat live admin or local Laravel admin differently.
+- Verification: app.js shows resolveApiUrl for Laravel /api?admin=1 and standalone api.php?admin=1; PHP lint passed for routes and legacy dashboard view.
+- Status: Passed.
+
+## REG-20260720-ADMIN-AI-ACCESS-TIMEOUT-FIX
+- Date: 2026-07-20
+- Risk: AI Users Access list now shows explicit assigned AI users only.
+- Verification: Local CLI ai_access API returned JSON status=true in 5 seconds; local/live PHP lint passed for api.php.
+- Status: Passed.
+
+## REG-20260720-ADMIN-AI-HY093-FIX
+- Date: 2026-07-20
+- Risk: AI provider create could fail if placeholder names do not match execute params.
+- Verification: Local PHP lint passed; scan found no repeated admin_emp_id placeholder pattern; live PHP lint passed after upload.
+- Status: Passed.
+
+## REG-20260720-ADMIN-AI-KEY-MASK-FIX
+- Date: 2026-07-20
+- Risk: API key masking could accidentally expose raw keys.
+- Verification: Local ai_access JSON smoke test returned api_key_masked as ASCII stars and did not include api_key; live PHP lint passed.
+- Status: Passed.
+
+## REG-20260720-EXT-USERS
+- Verified: PHP lint passed for admin API, chat bootstrap and send_message. JS syntax check passed for admin app.js.
+- Risk: Actual email/WhatsApp/Telegram/SMS gateway worker is queued-only and must be connected separately before outbound delivery goes live.
+
+
+## REG-20260720-EXTERNAL-REQUESTS
+- Verified: PHP lint passed for new chat endpoint, group members endpoint, admin API and admin controller; admin app.js syntax check passed; targeted Dart analyze reported existing warnings only, no new compile errors.
+- Risk: Outbound email/WhatsApp/Telegram/SMS delivery still requires gateway worker; current implementation queues approved welcome/mention deliveries.
+
+
+## REG-20260720-EXTERNAL-REQUEST-ROUTE-FIX
+- Verified: admin legacy API PHP lint passed and admin app.js syntax check passed.

@@ -49,3 +49,29 @@
 - Requirement: REQ-2026-07-18-004
 - Status: Implemented
 - Summary: Added standalone admin AI Access module with provider/API key storage, A/B/C1/C2 type rules, daily token/search limits, and user-detail AI access summary.
+
+## FEAT-ADMIN-GROUP-CHANNEL-MEMBER-DELETE
+- Date: 2026-07-20
+- Summary: Group/channel detail view now has employee search/add-member controls, role selection, show old messages toggle, audited delete action, and existing role/remove controls preserved.
+- Status: Implemented.
+
+## FEAT-ADMIN-WAKEUP-CHANNEL-TYPE-CONFIG
+- Date: 2026-07-20
+- Summary: Group/channel detail now supports wake-up enabled, wake-up interval choices, calculated next wake-up display, and channel definition dropdown types.
+- Status: Implemented.
+
+## FEAT-20260720-ADMIN-WAKEUP-AI-SCHEMA-FIX
+- Date: 2026-07-20
+- Feature: Admin group/channel wake-up configuration and AI API provider management reliability.
+- Status: Completed.
+- Notes: Wake-up controls are stacked responsively; AI provider/access tables auto-create and auto-migrate missing columns.
+
+## FEAT-ADMIN-EXT-USERS
+- Status: Implemented
+- Adds External users panel in group/channel detail with delivery channel selection, remove action, mention token, welcome message, and mention-only delivery queue support.
+
+
+## FEAT-EXTERNAL-USER-APPROVAL-FLOW
+- Status: Implemented
+- Chat app adds an Add external user request form for groups/channels. Admin adds External Requests module with approve/reject controls. Approved users appear in mention suggestions as External mention-only contacts.
+

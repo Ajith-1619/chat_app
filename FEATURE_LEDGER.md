@@ -26,3 +26,9 @@
 - Feature: Standalone Flow Master Admin web app under admin/.
 - Capabilities: Super-admin login, overview metrics, users, groups/channels, messages, files, tasks, location, notifications, releases, diagnostics, audit log, CSRF-protected audited admin actions.
 - Access: Employee IDs 302 and 116 only by default.
+
+## FEATURE-20260720-GROUP-CHANNEL-CREATOR-POLICY
+- Date: 2026-07-20
+- Area: Group and Channel Management
+- Capability: Employee type policy blocks C1/C2 users from creating groups/channels while preserving A/B access.
+- Status: Implemented.

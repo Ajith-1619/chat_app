@@ -229,6 +229,56 @@ function chat_employee_row(PDO $pdo, int $empId): array
     return $stmt->fetch(PDO::FETCH_ASSOC) ?: [];
 }
 
+
+function chat_employee_type_label(mixed $empType, ?string $override = null): string
+{
+    $override = strtoupper(trim((string)$override));
+    if (in_array($override, ['A', 'B', 'C1', 'C2'], true)) return $override;
+    $raw = trim((string)$empType);
+    if ($raw === '1') return 'B';
+    if ($raw === '0') return 'C1';
+    $upper = strtoupper($raw);
+    if (in_array($upper, ['A', 'B', 'C1', 'C2'], true)) return $upper;
+    return $raw !== '' ? $raw : 'C1';
+}
+
+function chat_employee_type(PDO $chatPdo, PDO $employeePdo, int $empId): string
+{
+    $override = '';
+    try {
+        $stmt = $chatPdo->prepare("SELECT employee_type FROM flow_admin_employee_types WHERE emp_id = :emp_id LIMIT 1");
+        $stmt->execute([':emp_id' => $empId]);
+        $override = (string)($stmt->fetchColumn() ?: '');
+    } catch (Throwable $ignored) {
+        $override = '';
+    }
+    $empType = '';
+    try {
+        $stmt = $employeePdo->prepare('SELECT emp_type FROM employee WHERE emp_id = :emp_id LIMIT 1');
+        $stmt->execute([':emp_id' => $empId]);
+        $empType = (string)($stmt->fetchColumn() ?: '');
+    } catch (Throwable $ignored) {
+        $empType = '';
+    }
+    return chat_employee_type_label($empType, $override);
+}
+
+function chat_can_create_group_channel(PDO $chatPdo, PDO $employeePdo, int $empId): bool
+{
+    return !in_array(chat_employee_type($chatPdo, $employeePdo, $empId), ['C1', 'C2'], true);
+}
+
+function chat_require_group_channel_creator(PDO $chatPdo, PDO $employeePdo, int $empId): void
+{
+    $type = chat_employee_type($chatPdo, $employeePdo, $empId);
+    if (in_array($type, ['C1', 'C2'], true)) {
+        chat_json([
+            'status' => false,
+            'error' => 'Your user type is not allowed to create groups or channels.',
+            'employee_type' => $type,
+        ], 403);
+    }
+}
 function chat_jid(int $empId): string
 {
     return $empId . '@' . SKYCHAT_DOMAIN;
@@ -679,6 +729,78 @@ function chat_ensure_schema(PDO $pdo): void
             created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
             PRIMARY KEY (message_id, emp_id),
             INDEX idx_xmpp_message_recipients_emp (emp_id, message_id)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci'
+    );
+    $pdo->exec(
+        'CREATE TABLE IF NOT EXISTS external_contacts (
+            id INT AUTO_INCREMENT PRIMARY KEY,
+            display_name VARCHAR(160) NOT NULL DEFAULT \'\',
+            email VARCHAR(190) NULL,
+            phone VARCHAR(40) NULL,
+            whatsapp_number VARCHAR(40) NULL,
+            telegram_username VARCHAR(120) NULL,
+            telegram_chat_id VARCHAR(120) NULL,
+            status TINYINT NOT NULL DEFAULT 1,
+            created_by_emp_id INT NULL,
+            updated_by_emp_id INT NULL,
+            created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+            INDEX idx_external_contacts_name (display_name),
+            INDEX idx_external_contacts_status (status)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci'
+    );
+    chat_ensure_column($pdo, 'external_contacts', 'display_name', 'VARCHAR(160) NOT NULL DEFAULT \'\'');
+    chat_ensure_column($pdo, 'external_contacts', 'email', 'VARCHAR(190) NULL');
+    chat_ensure_column($pdo, 'external_contacts', 'phone', 'VARCHAR(40) NULL');
+    chat_ensure_column($pdo, 'external_contacts', 'whatsapp_number', 'VARCHAR(40) NULL');
+    chat_ensure_column($pdo, 'external_contacts', 'telegram_username', 'VARCHAR(120) NULL');
+    chat_ensure_column($pdo, 'external_contacts', 'telegram_chat_id', 'VARCHAR(120) NULL');
+    chat_ensure_column($pdo, 'external_contacts', 'status', 'TINYINT NOT NULL DEFAULT 1');
+    chat_ensure_column($pdo, 'external_contacts', 'created_by_emp_id', 'INT NULL');
+    chat_ensure_column($pdo, 'external_contacts', 'updated_by_emp_id', 'INT NULL');
+    chat_ensure_column($pdo, 'external_contacts', 'created_at', 'DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP');
+    chat_ensure_column($pdo, 'external_contacts', 'updated_at', 'DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP');
+    $pdo->exec(
+        'CREATE TABLE IF NOT EXISTS xmpp_group_external_members (
+            id BIGINT AUTO_INCREMENT PRIMARY KEY,
+            group_id INT NOT NULL,
+            external_contact_id INT NOT NULL,
+            delivery_channels VARCHAR(160) NOT NULL DEFAULT \'\',
+            mention_token VARCHAR(180) NOT NULL DEFAULT \'\',
+            status TINYINT NOT NULL DEFAULT 1,
+            added_by_emp_id INT NULL,
+            added_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            removed_at DATETIME NULL,
+            UNIQUE KEY uq_group_external_contact (group_id, external_contact_id),
+            INDEX idx_group_external_group (group_id, status),
+            INDEX idx_group_external_contact (external_contact_id)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci'
+    );
+    chat_ensure_column($pdo, 'xmpp_group_external_members', 'delivery_channels', 'VARCHAR(160) NOT NULL DEFAULT \'\'');
+    chat_ensure_column($pdo, 'xmpp_group_external_members', 'mention_token', 'VARCHAR(180) NOT NULL DEFAULT \'\'');
+    chat_ensure_column($pdo, 'xmpp_group_external_members', 'status', 'TINYINT NOT NULL DEFAULT 1');
+    chat_ensure_column($pdo, 'xmpp_group_external_members', 'added_by_emp_id', 'INT NULL');
+    chat_ensure_column($pdo, 'xmpp_group_external_members', 'added_at', 'DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP');
+    chat_ensure_column($pdo, 'xmpp_group_external_members', 'removed_at', 'DATETIME NULL');
+    $pdo->exec(
+        'CREATE TABLE IF NOT EXISTS xmpp_external_delivery_queue (
+            id BIGINT AUTO_INCREMENT PRIMARY KEY,
+            group_id INT NOT NULL,
+            external_contact_id INT NOT NULL,
+            message_id BIGINT NULL,
+            event_type VARCHAR(40) NOT NULL,
+            channel VARCHAR(24) NOT NULL,
+            destination VARCHAR(255) NOT NULL,
+            subject VARCHAR(255) NOT NULL,
+            body TEXT NOT NULL,
+            status VARCHAR(24) NOT NULL DEFAULT \'queued\',
+            attempts INT NOT NULL DEFAULT 0,
+            last_error TEXT NULL,
+            created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            sent_at DATETIME NULL,
+            INDEX idx_external_delivery_status (status, created_at),
+            INDEX idx_external_delivery_message (message_id),
+            INDEX idx_external_delivery_group (group_id, external_contact_id)
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci'
     );
     chat_ensure_column($pdo, 'xmpp_users', 'avatar_url', 'VARCHAR(500) NULL AFTER jid');

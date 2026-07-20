@@ -2,23 +2,30 @@ const appShell = document.querySelector('.app-shell');
 const state = { view: appShell?.dataset.initialView || 'overview', q: '', modal: null, locationRefreshTimer: null, locationRefreshEmpId: null, attendanceTimer: null, locationTimeline: [] };
 const LOCATION_REFRESH_MS = 5 * 60 * 1000;
 const csrf = document.querySelector('meta[name="flow-admin-csrf"]')?.content || '';
-const apiUrl = appShell?.dataset.apiUrl || '?ajax=api';
+function resolveApiUrl() {
+  if (appShell?.dataset.apiUrl) return appShell.dataset.apiUrl;
+  const path = window.location.pathname || '/';
+  if (path.includes('/admin') && !path.includes('/public')) return 'api.php?admin=1';
+  return '/api?admin=1';
+}
+const apiUrl = resolveApiUrl();
 const titles = {
   overview: ['Overview', 'Chat application control center'],
   users: ['Users', 'Employee access, presence and profile identity'],
   groups: ['Groups', 'Group list, members, wake-up and admin controls'],
   channels: ['Channels', 'Channel list, type, wake-up and admin controls'],
+  external_requests: ['External Requests', 'Approve external users for groups and channels'],
   messages: ['Messages', 'Latest chat history records'],
   attachments: ['Files', 'Uploaded images, documents, videos and voice files'],
   tasks: ['Tasks', 'MyHub task master records'],
   location: ['Location', 'Location visibility and presence policy'],
-  ai_access: ['AI Access', 'AI API keys, user type rules and limits'],
+  ai_access: ['AI API', 'AI API keys, user type access and daily usage limits'],
   notifications: ['Notifications', 'Push queue and delivery status'],
   releases: ['Releases', 'Draft/live app release management'],
   diagnostics: ['Diagnostics', 'API, database and notification timings'],
   audit: ['Audit Log', 'All super-admin changes and security events'],
 };
-const destructiveActions = new Set(['delete_message', 'rollback_release', 'remove_member', 'set_user_status']);
+const destructiveActions = new Set(['delete_message', 'rollback_release', 'remove_member', 'set_user_status', 'delete_group_channel']);
 const actionLabels = {
   archive_channel: 'Archive',
   unarchive_channel: 'Unarchive',
@@ -142,7 +149,7 @@ async function refreshUserLocation(empId, container, silent = false) {
     button.textContent = 'Refreshing...';
   }
   try {
-    const response = await fetch(`${apiUrl}&action=user_detail&id=${encodeURIComponent(empId)}`, { credentials: 'same-origin' });
+    const response = await fetch(`${apiUrl}&action=user_detail&id=${encodeURIComponent(empId)}`, { credentials: 'same-origin', headers: { Accept: 'application/json' } });
     const data = await response.json();
     if (!response.ok || data.status !== true) throw new Error(data.error || 'Unable to refresh location.');
     const panel = container.querySelector('[data-location-panel]');
@@ -177,9 +184,15 @@ async function load() {
   const params = new URLSearchParams({ action: state.view });
   if (state.q) params.set('q', state.q);
   try {
-    const response = await fetch(`${apiUrl}&${params.toString()}`, { credentials: 'same-origin' });
-    const data = await response.json();
-    if (!response.ok || data.status !== true) throw new Error(data.error || 'Unable to load admin data.');
+    const response = await fetch(`${apiUrl}&${params.toString()}`, { credentials: 'same-origin', headers: { Accept: 'application/json' } });
+    const raw = await response.text();
+    let data;
+    try {
+      data = JSON.parse(raw);
+    } catch (parseError) {
+      throw new Error(raw.trim().startsWith('<') ? 'Admin session expired or server returned an HTML page. Please refresh and sign in again.' : (raw.trim() || 'Admin API returned invalid JSON.'));
+    }
+    if (!response.ok || data.status !== true) throw new Error(data.error || `Unable to load admin data. HTTP ${response.status}`);
     render(data);
   } catch (error) {
     content.innerHTML = `<div class="empty">${escapeHtml(error.message)}</div>`;
@@ -192,47 +205,118 @@ function render(data) {
   if (state.view === 'users') return renderUserMasterDetail(rows);
   if (state.view === 'ai_access') return renderAiAccess(data);
   if (['groups', 'channels'].includes(state.view)) return renderGroupMasterDetail(rows);
+  if (state.view === 'external_requests') return renderExternalRequests(rows);
   document.getElementById('content').innerHTML = `<section class="card"><div class="card-head"><h2>${escapeHtml(titles[state.view][0])}</h2><span>${rows.length} records</span></div>${table(rows)}</section>`;
   wireActions();
+}
+
+function renderExternalRequests(rows) {
+  document.getElementById('content').innerHTML = '<section class="card external-requests-card"><div class="card-head"><h2>External User Requests</h2><span>' + escapeHtml(rows.length) + ' requests</span></div>' + externalRequestsHtml(rows) + '</section>';
+  wireExternalRequestActions();
+}
+
+function externalRequestsHtml(rows) {
+  if (!rows.length) return '<div class="empty">No external user requests found.</div>';
+  return '<div class="external-request-list">' + rows.map((row) => {
+    const status = String(row.status || 'pending').toLowerCase();
+    const actions = status === 'pending' ? '<button class="row-action" type="button" data-external-approve="' + escapeHtml(row.id) + '">Approve</button><button class="row-action danger" type="button" data-external-reject="' + escapeHtml(row.id) + '">Reject</button>' : '<small>Reviewed ' + escapeHtml(row.reviewed_at || '-') + '</small>';
+    return '<article class="external-request-row ' + escapeHtml(status) + '"><div><strong>' + escapeHtml(row.display_name || 'External user') + ' <span class="pill external-pill">External</span></strong><span>' + escapeHtml(row.room_name || 'Group/channel') + ' - ' + escapeHtml(row.delivery_channels || '-') + '</span><small>' + escapeHtml(row.email || row.whatsapp_number || row.telegram_username || row.phone || '-') + '</small>' + (row.reason ? '<small>Reason: ' + escapeHtml(row.reason) + '</small>' : '') + '</div><div><span class="pill">' + escapeHtml(row.status || 'pending') + '</span><small>Requested by ' + escapeHtml(row.requested_by_emp_id || '-') + ' on ' + escapeHtml(row.created_at || '-') + '</small>' + (row.mention_token ? '<small>' + escapeHtml(row.mention_token) + '</small>' : '') + '</div><div class="external-request-actions">' + actions + '</div></article>';
+  }).join('') + '</div>';
+}
+
+function wireExternalRequestActions() {
+  document.querySelectorAll('[data-external-approve]').forEach((button) => {
+    button.addEventListener('click', async () => {
+      await postAction('approve_external_request', { request_id: button.dataset.externalApprove }, { reload: true });
+    });
+  });
+  document.querySelectorAll('[data-external-reject]').forEach((button) => {
+    button.addEventListener('click', async () => {
+      if (!confirm('Reject this external user request?')) return;
+      await postAction('reject_external_request', { request_id: button.dataset.externalReject }, { reload: true });
+    });
+  });
 }
 
 function renderAiAccess(data) {
   const providers = data.providers || [];
   const rules = data.rules || [];
+  const users = data.users || [];
   document.getElementById('content').innerHTML = `
     <section class="ai-access-grid">
       <section class="card ai-provider-card">
-        <div class="card-head"><h2>AI API Providers</h2><span>${escapeHtml(providers.length)} configured</span></div>
+
+        <div class="card-head"><h2>AI API Keys</h2><span>${escapeHtml(providers.length)} configured</span></div>
+
         <form id="aiProviderForm" class="admin-form-grid">
+
           <input name="id" type="hidden">
-          <label>AI API<input name="provider_name" placeholder="OpenAI / Gemini / Claude" required></label>
-          <label>API Type<input name="api_type" placeholder="chat, search, embedding" required></label>
+
+          <label>Title<input name="provider_name" placeholder="Operations GPT / Gemini Search / Claude Desk" required></label>
+
+          <label>AI Name<select name="api_type" required><option value="openai">OpenAI</option><option value="gemini">Gemini</option><option value="claude">Claude</option><option value="perplexity">Perplexity</option><option value="custom">Custom</option></select></label>
+
           <label>Model<input name="model_name" placeholder="gpt-4.1, gemini... "></label>
+
           <label>Endpoint<input name="api_endpoint" placeholder="https://..."></label>
+
           <label class="wide">API Key<input name="api_key" type="password" placeholder="Enter new key to save or replace"></label>
+
           <label>Status<select name="status"><option value="1">Active</option><option value="0">Inactive</option></select></label>
+
           <label class="wide">Other Details<textarea name="notes" rows="3" placeholder="Usage notes, owner, billing, scope"></textarea></label>
+
           <button type="submit">Save AI API</button>
+
         </form>
-        <div class="table-wrap ai-table"><table><thead><tr><th>AI API</th><th>Type</th><th>Model</th><th>Key</th><th>Status</th><th>Action</th></tr></thead><tbody>${providers.map((provider) => `
+
+        <div class="table-wrap ai-table"><table><thead><tr><th>Title</th><th>AI Name</th><th>Model</th><th>Key</th><th>Status</th><th>Action</th></tr></thead><tbody>${providers.map((provider) => `
+
           <tr>
+
             <td>${escapeHtml(provider.provider_name || '-')}</td>
+
             <td>${escapeHtml(provider.api_type || '-')}</td>
+
             <td>${escapeHtml(provider.model_name || '-')}</td>
+
             <td>${escapeHtml(provider.api_key_masked || '-')}</td>
+
             <td><span class="pill">${Number(provider.status || 0) === 1 ? 'Active' : 'Inactive'}</span></td>
+
             <td><button class="row-action" type="button" data-ai-edit="${escapeHtml(provider.id)}" data-row="${escapeHtml(JSON.stringify(provider))}">Edit</button></td>
+
           </tr>`).join('') || '<tr><td colspan="6">No AI APIs configured.</td></tr>'}</tbody></table></div>
       </section>
-      <section class="card ai-rules-card">
-        <div class="card-head"><h2>User Type Access</h2><span>A multiple, B single</span></div>
-        <div class="ai-rule-list">${rules.map((rule) => aiRuleForm(rule, providers)).join('')}</div>
-      </section>
+
+    </section>
+    <section class="card ai-users-card">
+      <div class="card-head"><h2>AI Users Access</h2><span>${escapeHtml(users.length)} users</span></div>
+      <div class="table-wrap ai-users-table"><table><thead><tr><th>User</th><th>Type</th><th>Access</th><th>Assigned AI Keys</th><th>Daily Tokens</th><th>Daily Searches</th><th>Status</th><th>Updated</th></tr></thead><tbody>${users.map((user) => `
+
+        <tr>
+
+          <td><strong>${escapeHtml(user.name || ('Employee ' + user.emp_id))}</strong><small>${escapeHtml(user.emp_id || '-')} - ${escapeHtml(user.designation || '-')}</small></td>
+
+          <td><span class="pill">${escapeHtml(user.employee_type || '-')}</span></td>
+
+          <td>${escapeHtml(user.access_mode || 'none')}</td>
+
+          <td>${escapeHtml(user.ai_keys || 'No key assigned')}</td>
+
+          <td>${escapeHtml(user.daily_token_limit || 0)}</td>
+
+          <td>${escapeHtml(user.daily_search_limit || 0)}</td>
+
+          <td><span class="pill">${user.enabled === false ? 'Disabled' : 'Enabled'}</span></td>
+
+          <td>${escapeHtml(user.updated_at || 'Type rule')}</td>
+
+        </tr>`).join('') || '<tr><td colspan="8">No AI users found. Assign AI keys to Type A/B users or user detail records.</td></tr>'}</tbody></table></div>
     </section>
   `;
   wireAiAccessForms();
 }
-
 function aiRuleForm(rule, providers) {
   const type = rule.employee_type || 'C1';
   const selected = new Set(String(rule.provider_ids || '').split(',').filter(Boolean));
@@ -241,7 +325,7 @@ function aiRuleForm(rule, providers) {
     <input name="employee_type" type="hidden" value="${escapeHtml(type)}">
     <div><strong>Type ${escapeHtml(type)}</strong><small>${type === 'A' ? 'Multiple AI access' : type === 'B' ? 'One AI access' : 'No AI by default'}</small></div>
     <label>Access<select name="access_mode"><option value="none" ${rule.access_mode === 'none' ? 'selected' : ''}>No access</option><option value="single" ${rule.access_mode === 'single' ? 'selected' : ''}>Single AI</option><option value="multiple" ${rule.access_mode === 'multiple' ? 'selected' : ''}>Multiple AI</option></select></label>
-    <label>AI APIs<select name="provider_ids" multiple size="4">${options}</select></label>
+    <label>Assigned AI Keys<select name="provider_ids" multiple size="4">${options}</select></label>
     <label>Daily tokens<input name="daily_token_limit" type="number" min="0" value="${escapeHtml(rule.daily_token_limit || 0)}"></label>
     <label>Daily searches<input name="daily_search_limit" type="number" min="0" value="${escapeHtml(rule.daily_search_limit || 0)}"></label>
     <button type="submit">Save Rule</button>
@@ -274,19 +358,31 @@ function wireAiAccessForms() {
   });
 }
 
-function aiAccessPanel(access) {
+function aiAccessPanel(access, empId = '') {
   const providers = access.providers || [];
+  const available = access.available_providers || providers;
+  const selected = new Set(String(access.provider_ids || '').split(',').filter(Boolean));
   const providerText = providers.length ? providers.map((item) => item.provider_name || item.id).join(', ') : 'No AI access';
+  const options = available.map((provider) => `<option value="${escapeHtml(provider.id)}" ${selected.has(String(provider.id)) ? 'selected' : ''}>${escapeHtml(provider.provider_name || provider.id)} - ${escapeHtml(provider.api_type || 'AI')}</option>`).join('');
   return `<section class="detail-panel ai-user-panel">
     <div class="members-head"><h4>AI Access</h4><span>${escapeHtml(access.enabled === false ? 'Disabled' : 'Enabled')}</span></div>
     <div class="attendance-grid">
       ${detailMini('Type', access.employee_type || '-')}
       ${detailMini('Mode', access.access_mode || 'none')}
-      ${detailMini('AI APIs', providerText)}
+      ${detailMini('AI Keys', providerText)}
       ${detailMini('Daily Tokens', access.daily_token_limit || 0)}
       ${detailMini('Daily Searches', access.daily_search_limit || 0)}
       ${detailMini('Updated', access.updated_at || '-')}
     </div>
+    <form class="ai-user-form" data-ai-user-access>
+      <label>Employee Type<select name="employee_type_override"><option value="">Use employee type</option>${['A','B','C1','C2'].map((type) => `<option value="${type}" ${access.employee_type === type ? 'selected' : ''}>${type}</option>`).join('')}</select></label>
+      <label>Access<select name="access_mode"><option value="">Use type rule</option><option value="none" ${access.access_mode === 'none' ? 'selected' : ''}>No access</option><option value="single" ${access.access_mode === 'single' ? 'selected' : ''}>Single AI</option><option value="multiple" ${access.access_mode === 'multiple' ? 'selected' : ''}>Multiple AI</option></select></label>
+      <label>Assign AI Keys<select name="provider_ids" multiple size="4">${options}</select></label>
+      <label>Daily tokens<input name="daily_token_limit" type="number" min="0" value="${escapeHtml(access.daily_token_limit || '')}" placeholder="Use type limit"></label>
+      <label>Daily searches<input name="daily_search_limit" type="number" min="0" value="${escapeHtml(access.daily_search_limit || '')}" placeholder="Use type limit"></label>
+      <label>Enabled<select name="enabled"><option value="1" ${access.enabled === false ? '' : 'selected'}>Enabled</option><option value="0" ${access.enabled === false ? 'selected' : ''}>Disabled</option></select></label>
+      <button class="secondary" type="button" data-ai-user-save data-emp-id="${escapeHtml(empId || '')}">Save AI Access</button>
+    </form>
   </section>`;
 }
 function renderOverview(data) {
@@ -306,7 +402,9 @@ function renderUserMasterDetail(rows) {
   content.innerHTML = `
     <section class="master-detail-shell">
       <aside class="master-list-panel">
+
         <div class="master-head"><h2>Users</h2><span>${escapeHtml(rows.length)} records</span></div>
+
         <div class="master-list">${rows.length ? rows.map(userMasterItem).join('') : '<div class="empty compact">No users found.</div>'}</div>
       </aside>
       <section id="detailPane" class="detail-pane"><div class="empty">Select a user to view and edit details.</div></section>
@@ -334,7 +432,9 @@ function renderGroupMasterDetail(rows) {
   content.innerHTML = `
     <section class="master-detail-shell">
       <aside class="master-list-panel">
+
         <div class="master-head"><h2>${title}</h2><span>${escapeHtml(rows.length)} records</span></div>
+
         <div class="master-list">${rows.length ? rows.map(groupMasterItem).join('') : '<div class="empty compact">No records found.</div>'}</div>
       </aside>
       <section id="detailPane" class="detail-pane"><div class="empty">Select a ${state.view === 'channels' ? 'channel' : 'group'} to view and edit details.</div></section>
@@ -366,13 +466,14 @@ async function openUserInline(empId) {
   if (!pane) return openUserDetailModal(empId);
   pane.innerHTML = '<div class="empty">Loading user information...</div>';
   try {
-    const response = await fetch(`${apiUrl}&action=user_detail&id=${encodeURIComponent(empId)}`, { credentials: 'same-origin' });
+    const response = await fetch(`${apiUrl}&action=user_detail&id=${encodeURIComponent(empId)}`, { credentials: 'same-origin', headers: { Accept: 'application/json' } });
     const data = await response.json();
     if (!response.ok || data.status !== true) throw new Error(data.error || 'Unable to load user details.');
     pane.innerHTML = `<form id="inlineUserForm" class="inline-detail-form">${userDetailHtml(data)}<footer class="inline-actions"><button class="secondary" type="button" id="clearPasswordBtn">Clear</button><button type="submit">Save User</button></footer></form>`;
     wireUserMembershipLinks(pane);
     wireUserLocationRefresh(pane, empId);
     wireUserStorageLimit(pane, empId);
+    wireUserAiAccess(pane, empId);
     scheduleUserLocationRefresh(empId, pane);
     startAttendanceTimers(pane);
     document.getElementById('clearPasswordBtn')?.addEventListener('click', () => {
@@ -396,11 +497,12 @@ async function openGroupInline(groupId) {
   if (!pane) return openGroupDetailModal(groupId);
   pane.innerHTML = '<div class="empty">Loading group information...</div>';
   try {
-    const response = await fetch(`${apiUrl}&action=group_detail&id=${encodeURIComponent(groupId)}`, { credentials: 'same-origin' });
+    const response = await fetch(`${apiUrl}&action=group_detail&id=${encodeURIComponent(groupId)}`, { credentials: 'same-origin', headers: { Accept: 'application/json' } });
     const data = await response.json();
     if (!response.ok || data.status !== true) throw new Error(data.error || 'Unable to load group details.');
-    pane.innerHTML = `<form id="inlineGroupForm" class="inline-detail-form">${groupDetailHtml(data)}<footer class="inline-actions"><button type="submit">Save Group</button></footer></form>`;
+    pane.innerHTML = `<form id="inlineGroupForm" class="inline-detail-form">${groupDetailHtml(data)}<footer class="inline-actions"><button class="danger" type="button" data-delete-group>Delete</button><button type="submit">Save Group</button></footer></form>`;
     wireGroupMemberActions(groupId, pane, true);
+    wireGroupDelete(groupId, pane, true);
     document.getElementById('inlineGroupForm')?.addEventListener('submit', async (event) => {
       event.preventDefault();
       const form = new FormData(event.currentTarget);
@@ -466,7 +568,9 @@ function openActionModal(action, id, row, labelText, danger) {
   } else {
     modalFields.innerHTML = `
       <div class="confirm-panel ${danger ? 'danger' : ''}">
+
         <strong>${escapeHtml(labelText)} record ${escapeHtml(id)}</strong>
+
         <span>This operation will be recorded in the admin audit log.</span>
       </div>
     `;
@@ -500,11 +604,12 @@ async function openGroupDetailModal(groupId) {
   modalBackdrop.classList.remove('hidden');
 
   try {
-    const response = await fetch(`${apiUrl}&action=group_detail&id=${encodeURIComponent(groupId)}`, { credentials: 'same-origin' });
+    const response = await fetch(`${apiUrl}&action=group_detail&id=${encodeURIComponent(groupId)}`, { credentials: 'same-origin', headers: { Accept: 'application/json' } });
     const data = await response.json();
     if (!response.ok || data.status !== true) throw new Error(data.error || 'Unable to load group details.');
     modalFields.innerHTML = groupDetailHtml(data);
     wireGroupMemberActions(groupId);
+    wireGroupDelete(groupId);
   } catch (error) {
     modalFields.innerHTML = `<div class="empty">${escapeHtml(error.message)}</div>`;
   }
@@ -514,67 +619,208 @@ function groupDetailHtml(data) {
   const group = data.group || {};
   const stats = data.stats || {};
   const members = data.members || [];
+  const externalMembers = data.external_members || [];
+  const wakeup = data.wakeup || {};
+  const channelTypes = data.channel_types || [];
   const type = group.group_type || group.channel_kind || 'group';
   return `
     <div class="user-detail-scroll group-detail-scroll">
       <section class="user-hero">
+
         <div class="avatar-large">${escapeHtml(String(group.room_name || 'G').charAt(0) || 'G')}</div>
+
         <div class="user-hero-main">
+
           <span class="eyebrow">${escapeHtml(type)} #${escapeHtml(group.id || '-')}</span>
+
           <h3>${escapeHtml(group.room_name || '-')}</h3>
+
           <p>${escapeHtml(group.room_jid || '-')}</p>
+
         </div>
+
         <div class="user-hero-side">
+
           <span class="pill">${Number(group.is_archived || 0) === 1 ? 'Archived' : 'Active'}</span>
+
           <strong>${escapeHtml(group.created_at || '-')}</strong>
+
           <small>Created</small>
+
         </div>
       </section>
 
       <section class="detail-metrics">
-        ${metricCard('Members', stats.members || 0, 'Total users')}
+
+        ${metricCard('Members', stats.members || 0, 'Flow users')}
+
         ${metricCard('Owners', stats.owners || 0, 'Owner role')}
         ${metricCard('Admins', stats.admins || 0, 'Admin role')}
+
+        ${metricCard('External', stats.external_members || 0, 'Mention-only')}
+
         ${metricCard('Messages', stats.messages || 0, 'Group messages')}
+
         ${metricCard('Files', stats.files || 0, 'Shared files')}
+
         ${metricCard('Images', stats.images || 0, 'Shared images')}
       </section>
 
       <section class="detail-grid">
+
         <div class="detail-panel">
+
           <h4>Edit Details</h4>
+
           <label>Name<input name="room_name" value="${escapeHtml(group.room_name || '')}" required></label>
-          <label>Channel type / kind<input name="channel_kind" value="${escapeHtml(group.channel_kind || group.group_type || '')}"></label>
-          <div class="toggle-row"><input id="groupWakeupEnabled" name="wakeup_enabled" type="checkbox" value="1" ${Number(group.wakeup_enabled || 0) === 1 ? 'checked' : ''}><label for="groupWakeupEnabled">Wake-up notifications</label></div>
+
+          <label>Channel type / kind<select name="channel_kind">${channelTypeOptionsHtml(channelTypes, group.channel_kind || group.group_type || 'operational')}</select></label>
+
+          <div class="wakeup-config-grid">
+
+            <div class="toggle-row"><input id="groupWakeupEnabled" name="wakeup_enabled" type="checkbox" value="1" ${wakeup.enabled ? 'checked' : ''}><label for="groupWakeupEnabled">Wake-up notifications</label></div>
+
+            <label>Wake-up interval<select name="wakeup_interval_minutes">${wakeupIntervalOptionsHtml(wakeup.options || [], wakeup.interval_minutes || group.wakeup_interval_minutes || 1440)}</select></label>
+
+            <div class="wakeup-next"><span>Next wake-up message</span><strong>${escapeHtml(wakeup.next_wakeup_label || (wakeup.enabled ? '-' : 'Disabled'))}</strong><small>${escapeHtml(wakeup.interval_label || '')}${wakeup.last_activity_at ? ' from last activity ' + escapeHtml(wakeup.last_activity_at) : ''}</small></div>
+
+          </div>
+
           <div class="toggle-row"><input id="groupIsArchived" name="is_archived" type="checkbox" value="1" ${Number(group.is_archived || 0) === 1 ? 'checked' : ''}><label for="groupIsArchived">Archived</label></div>
+
+          <button class="danger-panel-action" type="button" data-delete-group>Delete group/channel</button>
+
         </div>
+
         ${detailPanel('Technical Details', {
+
           'Room JID': group.room_jid,
+
           'Group Type': group.group_type,
+
           'Channel Kind': group.channel_kind,
+
           'Priority': group.priority,
+
           'Storage': stats.storage_label || '0 B',
+
           'Updated': group.updated_at,
+
         })}
       </section>
 
       <section class="detail-panel members-panel">
+
         <div class="members-head"><h4>Members, Owners & Admins</h4><span>${escapeHtml(members.length)} members</span></div>
+
+        ${addMemberHtml()}
+
         ${membersHtml(members)}
+      </section>
+      <section class="detail-panel members-panel external-panel">
+
+        <div class="members-head"><h4>External users</h4><span>${escapeHtml(externalMembers.length)} external</span></div>
+
+        ${addExternalMemberHtml()}
+
+        ${externalMembersHtml(externalMembers)}
       </section>
     </div>
   `;
 }
 
+function channelTypeOptionsHtml(types, current) {
+  const fallback = [
+    { key: 'incident', name: 'Incident' },
+    { key: 'action', name: 'Action' },
+    { key: 'operational', name: 'Operational' },
+    { key: 'project', name: 'Project' },
+    { key: 'announcement', name: 'Announcement' },
+  ];
+  const rows = types.length ? types : fallback;
+  const value = String(current || '').toLowerCase();
+  return rows.map((row) => {
+    const key = String(row.key || row.type_key || row.channel_kind || '').toLowerCase();
+    const name = row.name || label(key);
+    return `<option value="${escapeHtml(key)}" ${value === key ? 'selected' : ''}>${escapeHtml(name)}</option>`;
+  }).join('');
+}
+
+function wakeupIntervalOptionsHtml(options, current) {
+  const fallback = [
+    { minutes: 60, label: '1 hour' },
+    { minutes: 180, label: '3 hours' },
+    { minutes: 360, label: '6 hours' },
+    { minutes: 720, label: '12 hours' },
+    { minutes: 1440, label: '1 day' },
+    { minutes: 4320, label: '3 days' },
+    { minutes: 10080, label: '7 days' },
+    { minutes: 20160, label: '14 days' },
+    { minutes: 43200, label: '30 days' },
+  ];
+  const rows = options.length ? options : fallback;
+  const selected = String(current || 1440);
+  return rows.map((row) => `<option value="${escapeHtml(row.minutes)}" ${selected === String(row.minutes) ? 'selected' : ''}>${escapeHtml(row.label)}</option>`).join('');
+}
+
+function addMemberHtml() {
+  return `<div class="add-member-panel">
+    <div class="add-member-grid">
+      <label>Find employee<input type="search" data-member-search placeholder="Search employee name, id, mobile"></label>
+      <label>Employee<select data-member-picker><option value="">Search and select employee</option></select></label>
+      <label>Role<select data-member-role><option value="member">Member</option><option value="admin">Admin</option><option value="owner">Owner</option></select></label>
+      <label class="toggle-row member-history"><input type="checkbox" data-member-history value="1"><span>Show old messages</span></label>
+      <button type="button" data-member-add>Add member</button>
+    </div>
+  </div>`;
+}
+
+function addExternalMemberHtml() {
+  return `<div class="add-member-panel external-add-panel">
+    <div class="external-member-grid">
+      <label>Name<input type="text" data-external-name placeholder="External contact name"></label>
+      <label>Email<input type="email" data-external-email placeholder="name@example.com"></label>
+      <label>Phone/SMS<input type="text" data-external-phone placeholder="Mobile number"></label>
+      <label>WhatsApp<input type="text" data-external-whatsapp placeholder="WhatsApp number"></label>
+      <label>Telegram<input type="text" data-external-telegram placeholder="Telegram username/chat id"></label>
+      <div class="external-channel-box">
+
+        <span>Deliver only when mentioned</span>
+
+        ${['email', 'whatsapp', 'telegram', 'sms'].map((channel) => `<label class="mini-check"><input type="checkbox" data-external-channel value="${channel}"> ${label(channel)}</label>`).join('')}
+      </div>
+      <button type="button" data-external-add>Add external user</button>
+    </div>
+  </div>`;
+}
+
+function externalMembersHtml(members) {
+  if (!members.length) return '<div class="empty compact">No external users added.</div>';
+  return `<div class="member-list external-member-list">${members.map((member) => `
+    <div class="member-row external-member-row" data-external-id="${escapeHtml(member.external_contact_id)}">
+      <div class="member-main">
+
+        <strong>${escapeHtml(member.display_name || 'External user')} <span class="pill external-pill">External</span></strong>
+
+        <span>${escapeHtml(member.mention_token || '-')} - ${escapeHtml(member.delivery_channels || '-')}</span>
+      </div>
+      <span class="member-date">${escapeHtml(member.email || member.whatsapp_number || member.telegram_username || member.phone || '-')}</span>
+      <span class="member-date">${escapeHtml(member.added_at || '-')}</span>
+      <button class="member-remove external-remove" type="button" data-external-id="${escapeHtml(member.external_contact_id)}">Remove</button>
+    </div>`).join('')}</div>`;
+}
 function membersHtml(members) {
   if (!members.length) return '<div class="empty compact">No members found.</div>';
   return `<div class="member-list">${members.map((member) => `
     <div class="member-row" data-emp-id="${escapeHtml(member.emp_id)}">
       <div class="member-main">
+
         <strong>${escapeHtml(member.name || `Employee ${member.emp_id}`)}</strong>
+
         <span>${escapeHtml(member.designation || member.jid || '-')}</span>
       </div>
       <select class="member-role" data-emp-id="${escapeHtml(member.emp_id)}">
+
         ${['owner', 'admin', 'member'].map((role) => `<option value="${role}" ${String(member.role || 'member').toLowerCase() === role ? 'selected' : ''}>${label(role)}</option>`).join('')}
       </select>
       <span class="member-date">${escapeHtml(member.joined_at || '-')}</span>
@@ -583,14 +829,95 @@ function membersHtml(members) {
   `).join('')}</div>`;
 }
 
+function wireGroupDelete(groupId, container = modalFields, inline = false) {
+  container.querySelectorAll('[data-delete-group]').forEach((button) => {
+    button.addEventListener('click', async () => {
+      if (!confirm('Delete this group/channel from active lists? This operation is audited.')) return;
+      await postAction('delete_group_channel', { id: groupId }, { reload: false });
+      if (inline) {
+
+        const pane = document.getElementById('detailPane');
+
+        if (pane) pane.innerHTML = '<div class="empty">Group/channel deleted. Refresh the list to continue.</div>';
+      } else {
+
+        closeModal();
+      }
+      await loadData();
+    });
+  });
+}
+
+async function loadMemberPickerOptions(query, select) {
+  if (!select) return;
+  const params = new URLSearchParams({ action: 'employee_picker', q: query || '' });
+  const response = await fetch(`${apiUrl}&${params.toString()}`, { credentials: 'same-origin', headers: { Accept: 'application/json' } });
+  const data = await response.json();
+  if (!response.ok || data.status !== true) throw new Error(data.error || 'Unable to load employees.');
+  const rows = data.rows || [];
+  select.innerHTML = '<option value="">Select employee</option>' + rows.map((row) => `<option value="${escapeHtml(row.emp_id)}">${escapeHtml(row.name || ('Employee ' + row.emp_id))} - ${escapeHtml(row.designation || row.mobile || row.jid || '')}</option>`).join('');
+}
+
+function wireAddMember(groupId, container = modalFields, inline = false) {
+  const search = container.querySelector('[data-member-search]');
+  const select = container.querySelector('[data-member-picker]');
+  const role = container.querySelector('[data-member-role]');
+  const history = container.querySelector('[data-member-history]');
+  const add = container.querySelector('[data-member-add]');
+  let timer = null;
+  const runSearch = () => {
+    clearTimeout(timer);
+    timer = setTimeout(async () => {
+      try { await loadMemberPickerOptions(search?.value.trim() || '', select); } catch (error) { showNotice(error.message, true); }
+    }, 250);
+  };
+  search?.addEventListener('input', runSearch);
+  select?.addEventListener('focus', () => { if (!select.dataset.loaded) { select.dataset.loaded = '1'; runSearch(); } });
+  add?.addEventListener('click', async () => {
+    const empId = select?.value || '';
+    if (!empId) { showNotice('Select an employee to add.', true); return; }
+    await postAction('add_member', {
+      group_id: groupId,
+      emp_id: empId,
+      role: role?.value || 'member',
+      show_history: history?.checked ? '1' : '0',
+    }, { reload: false });
+    inline ? await openGroupInline(groupId) : await openGroupDetailModal(groupId);
+  });
+}
+
+function wireExternalMemberActions(groupId, container = modalFields, inline = false) {
+  container.querySelector('[data-external-add]')?.addEventListener('click', async () => {
+    const channels = Array.from(container.querySelectorAll('[data-external-channel]:checked')).map((input) => input.value);
+    await postAction('add_external_member', {
+      group_id: groupId,
+      display_name: container.querySelector('[data-external-name]')?.value.trim() || '',
+      email: container.querySelector('[data-external-email]')?.value.trim() || '',
+      phone: container.querySelector('[data-external-phone]')?.value.trim() || '',
+      whatsapp_number: container.querySelector('[data-external-whatsapp]')?.value.trim() || '',
+      telegram_username: container.querySelector('[data-external-telegram]')?.value.trim() || '',
+      delivery_channels: channels.join(','),
+    }, { reload: false });
+    inline ? await openGroupInline(groupId) : await openGroupDetailModal(groupId);
+  });
+  container.querySelectorAll('[data-external-id].external-remove').forEach((button) => {
+    button.addEventListener('click', async () => {
+      if (!confirm('Remove this external user from this group/channel?')) return;
+      await postAction('remove_external_member', { group_id: groupId, external_contact_id: button.dataset.externalId }, { reload: false });
+      inline ? await openGroupInline(groupId) : await openGroupDetailModal(groupId);
+    });
+  });
+}
 function wireGroupMemberActions(groupId, container = modalFields, inline = false) {
+  wireAddMember(groupId, container, inline);
+  wireExternalMemberActions(groupId, container, inline);
   container.querySelectorAll('.member-role').forEach((select) => {
     select.addEventListener('change', async () => {
       await postAction('set_member_role', { group_id: groupId, emp_id: select.dataset.empId, role: select.value });
       inline ? await openGroupInline(groupId) : await openGroupDetailModal(groupId);
     });
   });
-  container.querySelectorAll('.member-remove').forEach((button) => {
+  container.querySelectorAll('.member-remove:not(.external-remove)').forEach((button) => {
     button.addEventListener('click', async () => {
       if (!confirm(`Remove employee ${button.dataset.empId} from this group/channel?`)) return;
       await postAction('remove_member', { group_id: groupId, emp_id: button.dataset.empId });
@@ -609,13 +936,14 @@ async function openUserDetailModal(empId) {
   modalBackdrop.classList.remove('hidden');
 
   try {
-    const response = await fetch(`${apiUrl}&action=user_detail&id=${encodeURIComponent(empId)}`, { credentials: 'same-origin' });
+    const response = await fetch(`${apiUrl}&action=user_detail&id=${encodeURIComponent(empId)}`, { credentials: 'same-origin', headers: { Accept: 'application/json' } });
     const data = await response.json();
     if (!response.ok || data.status !== true) throw new Error(data.error || 'Unable to load user details.');
     modalFields.innerHTML = userDetailHtml(data);
     wireUserMembershipLinks();
     wireUserLocationRefresh(modalFields, empId);
     wireUserStorageLimit(modalFields, empId);
+    wireUserAiAccess(modalFields, empId);
     scheduleUserLocationRefresh(empId, modalFields);
     startAttendanceTimers(modalFields);
   } catch (error) {
@@ -642,56 +970,92 @@ function userDetailHtml(data) {
   return `
     <div class="user-detail-scroll">
       <section class="user-hero">
+
         <div class="avatar-large">${escapeHtml(String(displayName).charAt(0) || 'U')}</div>
+
         <div class="user-hero-main">
+
           <span class="eyebrow">Employee ${escapeHtml(user.emp_id || '-')}</span>
+
           <h3>${escapeHtml(displayName)}</h3>
+
           <p>${escapeHtml(designation)}</p>
+
         </div>
+
         <div class="user-hero-side">
+
           <span class="pill">${escapeHtml(statusText)}</span>
+
           <strong>${escapeHtml(presence.last_seen_at || '-')}</strong>
+
           <small>Last seen</small>
+
         </div>
       </section>
 
       <section class="detail-metrics">
+
         ${metricCard('Messages', messages.total || 0, 'Total chat activity')}
+
         ${metricCard('Sent', messages.sent || 0, 'Outgoing messages')}
+
         ${metricCard('Received', messages.received || 0, 'Incoming messages')}
+
         ${metricCard('Files', files.count || 0, 'Shared attachments')}
+
         ${metricCard('Storage', files.storage_label || '0 B', 'Uploaded file size')}
+
         ${metricCard('Storage Limit', files.quota?.limit_label || 'Unlimited', files.quota?.is_over_limit ? 'Over limit' : 'Per-user limit')}
+
         ${metricCard('Systems', systems.length || 0, 'Active devices')}
+
         ${metricCard('Groups', memberships.groups || 0, 'Involved groups')}
+
         ${metricCard('Channels', memberships.channels || 0, 'Involved channels')}
       </section>
 
       <section class="detail-grid">
+
         ${detailPanel('Identity', {
+
           'Employee ID': user.emp_id,
+
           'Username': user.username,
+
           'Designation': designation,
+
           'Employee Type': employeeType.value || '-',
+
           'Account Created': user.created_at,
+
           'Last Updated': user.updated_at,
+
         })}
+
         ${locationPanel(location, user.emp_id)}
+
         ${storagePanel(files, user.emp_id)}
+
         ${employeeTypePanel(employeeType, user.emp_id)}
       </section>
 
-      ${aiAccessPanel(data.ai_access || {})}
+      ${aiAccessPanel(data.ai_access || {}, user.emp_id)}
       ${attendancePanel(attendance)}
       ${membershipsHtml(memberships)}
       ${systemsHtml(systems)}
       ${profileHtml(profile)}
 
       <section class="password-panel">
+
         <div>
+
           <h4>Password Update</h4>
+
           <p>Enter a new password only when this user password must be changed.</p>
+
         </div>
+
         <label>New chat password<input name="password" type="password" autocomplete="new-password" placeholder="Leave empty to keep current password"></label>
       </section>
     </div>
@@ -707,9 +1071,13 @@ function employeeTypePanel(employeeType, empId) {
     <div class="detail-row"><span>Updated</span><strong>${escapeHtml(employeeType.updated_at || '-')}</strong></div>
     <div class="storage-limit-row">
       <label>Type<select name="employee_type">
+
         ${option('A', 'A')}
+
         ${option('B', 'B - emp_type 1')}
+
         ${option('C1', 'C1 - emp_type 0')}
+
         ${option('C2', 'C2')}
       </select></label>
       <button class="secondary" type="button" data-employee-type data-emp-id="${escapeHtml(empId || '')}">Save Type</button>
@@ -748,6 +1116,34 @@ function storagePanel(files, empId) {
   </div>`;
 }
 
+function wireUserAiAccess(container = modalFields, empId = '') {
+  container.querySelectorAll('[data-ai-user-save]').forEach((button) => {
+    button.addEventListener('click', async () => {
+      const root = button.closest('.ai-user-panel') || container;
+      const select = root.querySelector('select[name="provider_ids"]');
+      const providerIds = [...(select?.selectedOptions || [])].map((option) => option.value).join(',');
+      const payload = {
+
+        id: button.dataset.empId || empId,
+
+        emp_id: button.dataset.empId || empId,
+
+        employee_type_override: root.querySelector('select[name="employee_type_override"]')?.value || '',
+
+        access_mode: root.querySelector('select[name="access_mode"]')?.value || '',
+
+        provider_ids: providerIds,
+
+        daily_token_limit: root.querySelector('input[name="daily_token_limit"]')?.value || '',
+
+        daily_search_limit: root.querySelector('input[name="daily_search_limit"]')?.value || '',
+
+        enabled: root.querySelector('select[name="enabled"]')?.value || '1',
+      };
+      await postAction('save_ai_user_access', payload, { reload: false });
+    });
+  });
+}
 function wireUserStorageLimit(container = modalFields, empId = '') {
   container.querySelectorAll('[data-storage-limit]').forEach((button) => {
     button.addEventListener('click', async () => {
@@ -797,7 +1193,9 @@ function openLocationMapModal() {
     <div class="location-map-shell">
       ${mapHtml}
       <section class="detail-panel timeline-panel">
+
         <div class="members-head"><h4>Today timeline</h4><span>${escapeHtml(points.length)} points</span></div>
+
         <div class="timeline-list">${rows || '<div class="empty compact">No timeline points found.</div>'}</div>
       </section>
     </div>
@@ -848,11 +1246,17 @@ function membershipsHtml(memberships) {
     <div class="members-head"><h4>Groups & Channels</h4><span>${escapeHtml(memberships.total || rows.length)} total</span></div>
     <div class="membership-list">${rows.map((item) => `
       <button class="membership-row" type="button" data-group-id="${escapeHtml(item.id)}">
+
         <div>
+
           <strong>${escapeHtml(item.room_name || '-')}</strong>
+
           <span>${escapeHtml(item.channel_kind || item.group_type || item.kind || '-')}</span>
+
         </div>
+
         <span class="pill">${escapeHtml(item.role || 'member')}</span>
+
         <small>${escapeHtml(item.joined_at || '-')}</small>
       </button>
     `).join('')}</div>
@@ -893,7 +1297,7 @@ async function postAction(action, payload, options = {}) {
       method: 'POST',
       body: form,
       credentials: 'same-origin',
-      headers: { 'X-Flow-Admin-CSRF': csrf },
+      headers: { 'X-Flow-Admin-CSRF': csrf, Accept: 'application/json' },
     });
     const raw = await response.text();
     let data;
@@ -937,4 +1341,6 @@ function escapeHtml(value) {
 
 renderTitle();
 load();
+
+
 

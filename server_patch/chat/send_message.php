@@ -2,6 +2,77 @@
 declare(strict_types=1);
 require_once __DIR__ . '/bootstrap.php';
 
+function chat_external_destination(array $contact, string $channel): string
+{
+    switch ($channel) {
+        case 'email':
+            return trim((string)($contact['email'] ?? ''));
+        case 'whatsapp':
+            return trim((string)($contact['whatsapp_number'] ?? $contact['phone'] ?? ''));
+        case 'telegram':
+            return trim((string)($contact['telegram_chat_id'] ?? $contact['telegram_username'] ?? ''));
+        case 'sms':
+            return trim((string)($contact['phone'] ?? ''));
+        default:
+            return '';
+    }
+}
+
+function chat_external_is_mentioned(array $externalMember, string $body, array $mentions): bool
+{
+    $token = trim((string)($externalMember['mention_token'] ?? ''));
+    $name = trim((string)($externalMember['display_name'] ?? ''));
+    $needles = [];
+    if ($token !== '') $needles[] = $token;
+    if ($name !== '') {
+        $needles[] = '@' . preg_replace('/[^A-Za-z0-9_]+/', '', str_replace(' ', '_', $name));
+        $needles[] = '@' . preg_replace('/[^A-Za-z0-9_]+/', '', $name);
+    }
+    $haystack = strtolower($body . ' ' . implode(' ', array_map('strval', $mentions)));
+    foreach (array_unique(array_filter($needles)) as $needle) {
+        $needle = strtolower((string)$needle);
+        if ($needle !== '' && strpos($haystack, $needle) !== false) return true;
+    }
+    return false;
+}
+
+function chat_queue_external_mentions(PDO $pdo, int $messageId, array $group, int $senderEmpId, string $body, array $mentions): void
+{
+    if ($messageId <= 0 || empty($group['id'])) return;
+    $stmt = $pdo->prepare('SELECT gm.external_contact_id, gm.delivery_channels, gm.mention_token, c.display_name, c.email, c.phone, c.whatsapp_number, c.telegram_username, c.telegram_chat_id
+        FROM xmpp_group_external_members gm
+        INNER JOIN external_contacts c ON c.id = gm.external_contact_id AND c.status = 1
+        WHERE gm.group_id = :group_id AND gm.status = 1');
+    $stmt->execute([':group_id' => (int)$group['id']]);
+    $members = $stmt->fetchAll(PDO::FETCH_ASSOC) ?: [];
+    if (!$members) return;
+    $insert = $pdo->prepare('INSERT INTO xmpp_external_delivery_queue (group_id, external_contact_id, message_id, event_type, channel, destination, subject, body, status) VALUES (:group_id, :external_contact_id, :message_id, :event_type, :channel, :destination, :subject, :body, :status)');
+    $roomName = trim((string)($group['room_name'] ?? 'Flow group/channel'));
+    foreach ($members as $member) {
+        if (!chat_external_is_mentioned($member, $body, $mentions)) continue;
+        $channels = array_values(array_unique(array_filter(array_map('trim', explode(',', strtolower((string)($member['delivery_channels'] ?? '')))))));
+        foreach ($channels as $channel) {
+            if (!in_array($channel, ['email', 'whatsapp', 'telegram', 'sms'], true)) continue;
+            $destination = chat_external_destination($member, $channel);
+            if ($destination === '') continue;
+            $insert->execute([
+                ':group_id' => (int)$group['id'],
+                ':external_contact_id' => (int)$member['external_contact_id'],
+                ':message_id' => $messageId,
+                ':event_type' => 'mention',
+                ':channel' => $channel,
+                ':destination' => mb_substr($destination, 0, 255),
+                ':subject' => mb_substr('Mention in ' . $roomName, 0, 255),
+                ':body' => 'Employee ' . $senderEmpId . ' mentioned you in ' . $roomName . ":
+
+" . $body,
+                ':status' => 'queued',
+            ]);
+        }
+    }
+}
+
+
 $session = chat_require_user();
 $traceId = trim((string)($_SERVER['HTTP_X_SKYLINK_TRACE_ID'] ?? 'message-' . bin2hex(random_bytes(8))));
 $requestStarted = microtime(true);
@@ -254,6 +325,13 @@ try {
         );
         foreach ($selectedRecipientIds as $recipientId) {
             $recipientStmt->execute([':message_id' => $messageId, ':emp_id' => $recipientId]);
+        }
+    }
+    if ($isGroup && $messageId > 0 && $body !== '') {
+        try {
+            chat_queue_external_mentions($pdo, $messageId, $group, (int)$session['emp_id'], $body, $mentions);
+        } catch (Throwable $externalQueueError) {
+            error_log('chat/send_message external delivery queue skipped: ' . $externalQueueError->getMessage());
         }
     }
     $responsePayload = [

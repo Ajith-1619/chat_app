@@ -153,3 +153,10 @@
 - Fixed undefined admin_groups_or_channels() route error by renaming the list function and applying group/channel type filtering.
 - Uploaded corrected admin/api.php to /var/www/html/admin.
 
+
+## CHANGE-20260720-C1C2-GROUP-CHANNEL-CREATE-BLOCK
+- Date: 2026-07-20
+- Files: lib/home/home_screen.dart, server_patch/chat/bootstrap.php, server_patch/chat/create_group.php, server_patch/chat/create_channel.php, server_patch/chat/profile.php
+- Change: Added normalized employee type lookup with admin override support, backend guards for group/channel creation, profile employee_type normalization, and UI create-entry guard.
+- Risk: Low; creation flow only. Existing group/channel membership and chat history logic unchanged.
+- Deployment: Uploaded backend patch files to /var/www/html/router_login/chat/ and verified PHP syntax on server.

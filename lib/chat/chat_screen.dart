@@ -2217,6 +2217,15 @@ class _ChatScreenState extends State<ChatScreen> {
       }
     }
     if (member == null) return;
+    if (member.role == 'external') {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('${member.name} is an external mention-only user.'),
+        ),
+      );
+      return;
+    }
     await _showUserProfile(empId: member.empId, fallbackName: member.name);
   }
 
@@ -5583,6 +5592,158 @@ class _ChatScreenState extends State<ChatScreen> {
     }
   }
 
+
+  Future<void> _requestExternalUser() async {
+    final groupId = int.tryParse(widget.chat.empId) ?? 0;
+    if (groupId <= 0) return;
+    final nameController = TextEditingController();
+    final emailController = TextEditingController();
+    final phoneController = TextEditingController();
+    final whatsappController = TextEditingController();
+    final telegramController = TextEditingController();
+    final reasonController = TextEditingController();
+    final channels = <String>{};
+    try {
+      final submitted = await showDialog<bool>(
+        context: context,
+        builder: (dialogContext) => StatefulBuilder(
+          builder: (context, setDialogState) => AlertDialog(
+            title: const Text('Add external user'),
+            content: SizedBox(
+              width: 460,
+              child: SingleChildScrollView(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    TextField(
+                      controller: nameController,
+                      decoration: const InputDecoration(
+                        labelText: 'Name',
+                        prefixIcon: Icon(Icons.person_outline_rounded),
+                      ),
+                      textInputAction: TextInputAction.next,
+                    ),
+                    const SizedBox(height: 10),
+                    TextField(
+                      controller: emailController,
+                      decoration: const InputDecoration(
+                        labelText: 'Email',
+                        prefixIcon: Icon(Icons.mail_outline_rounded),
+                      ),
+                      keyboardType: TextInputType.emailAddress,
+                      textInputAction: TextInputAction.next,
+                    ),
+                    const SizedBox(height: 10),
+                    TextField(
+                      controller: phoneController,
+                      decoration: const InputDecoration(
+                        labelText: 'Phone / SMS',
+                        prefixIcon: Icon(Icons.sms_outlined),
+                      ),
+                      keyboardType: TextInputType.phone,
+                      textInputAction: TextInputAction.next,
+                    ),
+                    const SizedBox(height: 10),
+                    TextField(
+                      controller: whatsappController,
+                      decoration: const InputDecoration(
+                        labelText: 'WhatsApp number',
+                        prefixIcon: Icon(Icons.chat_outlined),
+                      ),
+                      keyboardType: TextInputType.phone,
+                      textInputAction: TextInputAction.next,
+                    ),
+                    const SizedBox(height: 10),
+                    TextField(
+                      controller: telegramController,
+                      decoration: const InputDecoration(
+                        labelText: 'Telegram username/chat id',
+                        prefixIcon: Icon(Icons.send_outlined),
+                      ),
+                      textInputAction: TextInputAction.next,
+                    ),
+                    const SizedBox(height: 12),
+                    Align(
+                      alignment: Alignment.centerLeft,
+                      child: Text(
+                        'Deliver only when mentioned',
+                        style: Theme.of(context).textTheme.labelLarge,
+                      ),
+                    ),
+                    Wrap(
+                      spacing: 8,
+                      runSpacing: 8,
+                      children: ['email', 'whatsapp', 'telegram', 'sms'].map((channel) {
+                        final selected = channels.contains(channel);
+                        return FilterChip(
+                          label: Text(channel[0].toUpperCase() + channel.substring(1)),
+                          selected: selected,
+                          onSelected: (value) => setDialogState(() {
+                            if (value) {
+                              channels.add(channel);
+                            } else {
+                              channels.remove(channel);
+                            }
+                          }),
+                        );
+                      }).toList(),
+                    ),
+                    const SizedBox(height: 10),
+                    TextField(
+                      controller: reasonController,
+                      minLines: 2,
+                      maxLines: 4,
+                      decoration: const InputDecoration(
+                        labelText: 'Reason / note',
+                        alignLabelWithHint: true,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(dialogContext, false),
+                child: const Text('Cancel'),
+              ),
+              FilledButton(
+                onPressed: () => Navigator.pop(dialogContext, true),
+                child: const Text('Submit request'),
+              ),
+            ],
+          ),
+        ),
+      );
+      if (submitted != true) return;
+      await chatApi.requestExternalUser(
+        groupId: groupId,
+        displayName: nameController.text,
+        email: emailController.text,
+        phone: phoneController.text,
+        whatsappNumber: whatsappController.text,
+        telegramUsername: telegramController.text,
+        deliveryChannels: channels.toList(growable: false),
+        reason: reasonController.text,
+      );
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('External user request sent for admin approval.')),
+      );
+    } on ApiException catch (error) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(error.message)));
+      }
+    } finally {
+      nameController.dispose();
+      emailController.dispose();
+      phoneController.dispose();
+      whatsappController.dispose();
+      telegramController.dispose();
+      reasonController.dispose();
+    }
+  }
+
   Future<void> _showConversationProfile() async {
     if (!widget.chat.isGroup) {
       await _showUserProfile();
@@ -5660,6 +5821,13 @@ class _ChatScreenState extends State<ChatScreen> {
             ),
             if (const {'owner', 'admin'}.contains(_groupRole)) ...[
               ListTile(
+                leading: const Icon(Icons.person_add_alt_1_rounded),
+                title: const Text('Add external user'),
+                subtitle: const Text(
+                  'Request approval for email, WhatsApp, Telegram or SMS access',
+                ),
+                onTap: _requestExternalUser,
+              ),              ListTile(
                 leading: const Icon(Icons.person_add_alt_rounded),
                 title: const Text('Manage members'),
                 onTap: () async {

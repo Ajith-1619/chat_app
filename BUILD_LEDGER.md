@@ -152,3 +152,9 @@
 - Scope: Admin PHP hotfix only; no Flutter build.
 - Validation: Local and live PHP syntax passed. Live verification: function=yes, groups=164, channels=53.
 
+
+## BUILD-20260720-C1C2-GROUP-CHANNEL-CREATE-BLOCK
+- Date: 2026-07-20
+- Type: Backend patch deploy, no Flutter build requested.
+- Validation: PHP lint local/live passed. Flutter analyze scoped to lib/home/home_screen.dart completed with existing warnings/info only.
+- Live Patch: server_patch/chat/*.php uploaded to /var/www/html/router_login/chat/.

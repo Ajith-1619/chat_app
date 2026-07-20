@@ -107,3 +107,9 @@
 - Time: 2026-07-16 18:20:59
 - Checked: Admin API route now has matching function for Groups and Channels views; overview counts unchanged.
 
+
+## REG-20260720-C1C2-GROUP-CHANNEL-CREATE-BLOCK
+- Date: 2026-07-20
+- Scope: Group/channel creation authorization.
+- Verified: Local PHP syntax passed for bootstrap/create_group/create_channel/profile; live server PHP syntax passed after upload; flutter analyze on home_screen.dart had no new blocking errors, only existing warnings/info.
+- Regression Watch: A/B users should still create groups/channels; C1/C2 should receive 403 from backend and UI feedback before create sheet opens.

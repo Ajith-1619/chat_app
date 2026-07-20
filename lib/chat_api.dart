@@ -2785,6 +2785,38 @@ class ChatApi {
     }
   }
 
+
+  Future<void> requestExternalUser({
+    required int groupId,
+    required String displayName,
+    String email = '',
+    String phone = '',
+    String whatsappNumber = '',
+    String telegramUsername = '',
+    List<String> deliveryChannels = const [],
+    String reason = '',
+  }) async {
+    if (groupId <= 0) throw const ApiException('Valid group is required.');
+    if (displayName.trim().isEmpty) {
+      throw const ApiException('External user name is required.');
+    }
+    if (deliveryChannels.isEmpty) {
+      throw const ApiException('Select at least one delivery channel.');
+    }
+    await _postJson('chat/external_user_request.php', {
+      'group_id': groupId,
+      'display_name': displayName.trim(),
+      if (email.trim().isNotEmpty) 'email': email.trim(),
+      if (phone.trim().isNotEmpty) 'phone': phone.trim(),
+      if (whatsappNumber.trim().isNotEmpty)
+        'whatsapp_number': whatsappNumber.trim(),
+      if (telegramUsername.trim().isNotEmpty)
+        'telegram_username': telegramUsername.trim(),
+      'delivery_channels': deliveryChannels,
+      if (reason.trim().isNotEmpty) 'reason': reason.trim(),
+    });
+  }
+
   Future<void> groupMemberAction({
     required int groupId,
     required String empId,

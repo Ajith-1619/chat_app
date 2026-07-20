@@ -77,3 +77,8 @@
 - Date: 2026-07-16 15:34:05 +05:30
 - Request: Rework admin/ as standalone PHP master admin web app at /admin, outside /chat, with local frontend/backend/config helpers, same employee login, and super-admin-only full control for 302 and 116.
 - Status: Implemented; no build/release requested.
+
+## REQ-20260720-C1C2-CREATE-BLOCK
+- Date: 2026-07-20
+- Request: C1 and C2 employee type users must not be allowed to create groups or channels.
+- Status: Implemented and backend deployed.

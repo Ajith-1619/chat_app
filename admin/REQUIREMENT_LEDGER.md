@@ -44,3 +44,68 @@
 - Date: 2026-07-18
 - Status: Implemented
 - Summary: Admin must configure AI API providers/API keys and assign access rules by employee type, where Type A can have multiple AI APIs, Type B can have one AI API, and limits can be set per day by tokens and searches.
+
+## REQ-2026-07-20-001 - Admin AI API key management and assignment
+- Date: 2026-07-20
+- Status: Implemented
+- Summary: Admin side nav must show AI API, allow many AI API keys to be saved with title/name/key/details, configure A/B user type access and limits, and assign selected AI keys to users.
+
+## REQ-2026-07-20-002 - AI API assigned users visibility
+- Date: 2026-07-20
+- Status: Implemented
+- Summary: AI API admin page must show a list of users who have AI keys assigned, including the user, employee type, access mode, assigned AI API keys, daily token limit, daily search limit, status, and update time.
+
+## REQ-2026-07-20-003 - Remove AI User Type Access section
+- Date: 2026-07-20
+- Status: Implemented
+- Summary: Admin AI API page must not show the User Type Access card; it should show AI API key entry and AI Users Access list only.
+
+## REQ-20260720-ADMIN-GROUP-CHANNEL-MEMBER-DELETE
+- Date: 2026-07-20
+- Summary: Admin dashboard must allow super admins to add users to groups/channels and delete groups/channels from active lists.
+- Status: Implemented and live admin files deployed.
+
+## REQ-20260720-ADMIN-WAKEUP-CHANNEL-TYPE-CONFIG
+- Date: 2026-07-20
+- Summary: Admin group/channel detail must show wake-up interval configuration, next wake-up date/time, and channel type as a dropdown instead of free text.
+- Status: Implemented and deployed.
+
+## REQ-20260720-ADMIN-WAKEUP-AI-SCHEMA-FIX
+- Date: 2026-07-20
+- Request: Fix admin wake-up configuration alignment, show next wake-up time, and make AI API key creation/storage style backend setup work without manual table creation.
+- Status: Completed and deployed to live admin draft path.
+
+## REQ-20260720-ADMIN-AI-JSON-ENDPOINT-FIX
+- Date: 2026-07-20
+- Request: AI API page must stop showing Unexpected token HTML/JSON parse errors in local Laravel admin and live admin.
+- Status: Completed.
+
+## REQ-20260720-ADMIN-AI-LOAD-FIX
+- Date: 2026-07-20
+- Request: AI API page must load instead of showing Unable to load admin data.
+- Status: Completed.
+
+## REQ-20260720-ADMIN-AI-ACCESS-TIMEOUT-FIX
+- Date: 2026-07-20
+- Request: AI API page must open and stop showing HTTP 500 / unable to load admin data.
+- Status: Completed.
+
+## REQ-20260720-ADMIN-AI-HY093-FIX
+- Date: 2026-07-20
+- Request: Fix AI API provider save error SQLSTATE HY093 invalid parameter number.
+- Status: Completed.
+
+## REQ-20260720-ADMIN-AI-KEY-MASK-FIX
+- Date: 2026-07-20
+- Request: Fix AI API key list showing corrupted/gibberish text and bad table alignment.
+- Status: Completed.
+
+## REQ-ADMIN-EXT-USERS-20260720
+- Status: Implemented
+- Requirement: Admin can add external email/WhatsApp/Telegram/SMS contacts to groups/channels, show them with External badge, and deliver only mentioned conversations through a queued outbound channel model.
+
+
+## REQ-ADMIN-EXT-REQUEST-20260720
+- Status: Implemented
+- Requirement: Flow group/channel owner/admin can request adding an external user from chat UI; super admin approves/rejects in admin; approval adds external user to group/channel.
+

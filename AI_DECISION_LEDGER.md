@@ -80,3 +80,9 @@
 - Decision: Use xmpp_users for Overview Users because admin Users screen is for live chat accounts, while employee table can contain broader HR records.
 - Decision: Split Groups and Channels as separate admin views rather than a combined table to match operational admin workflows.
 
+
+## DEC-20260720-C1C2-GROUP-CHANNEL-CREATE-BLOCK
+- Date: 2026-07-20
+- Decision: Enforce the create restriction in backend create_group.php/create_channel.php and mirror it in UI.
+- Reason: UI-only checks can be bypassed; backend guard protects all clients, while UI avoids letting restricted users reach a dead-end create sheet.
+- Mapping: Admin override A/B/C1/C2 wins; employee.emp_type 1 maps to B and 0 maps to C1.

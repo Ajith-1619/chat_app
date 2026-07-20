@@ -45,3 +45,33 @@
 - Decision: Store AI provider/API configuration and employee-type access rules in admin-owned tables instead of changing employee master schema directly.
 - Reason: Keeps the admin feature standalone, avoids destructive employee table changes, supports Type A multiple-provider access and Type B single-provider access, and allows future per-user overrides.
 - Security Note: API keys are accepted by admin forms and masked in API responses; production secret rotation/encryption can be added as a follow-up hardening step.
+
+## DEC-20260720-ADMIN-GROUP-CHANNEL-MEMBER-DELETE
+- Date: 2026-07-20
+- Decision: Implement delete as audited soft delete plus archive instead of hard deleting group rows.
+- Reason: Preserves message/member audit relationships while removing the group/channel from active admin lists. Add member defaults to hiding old history unless the admin explicitly enables Show old messages.
+
+## DEC-20260720-ADMIN-WAKEUP-CHANNEL-TYPE-CONFIG
+- Date: 2026-07-20
+- Decision: Use fixed operational wake-up intervals and database-backed channel definitions for type dropdown options.
+- Reason: Admin users need clear choices like 1 day/3 days and consistent channel types instead of ambiguous free-text values.
+
+## DEC-20260720-ADMIN-WAKEUP-AI-SCHEMA-FIX
+- Date: 2026-07-20
+- Decision: Keep admin AI provider tables self-managed by the standalone admin app instead of requiring manual DB setup.
+- Rationale: The admin app is intended to be deployable as one folder, so first use should create/migrate required admin tables safely.
+
+## DEC-20260720-ADMIN-AI-JSON-ENDPOINT-FIX
+- Date: 2026-07-20
+- Decision: Use the named Laravel /api route and explicit JSON Accept headers instead of dashboard ?ajax=api calls.
+- Rationale: Admin API failures must return JSON errors, not HTML login/dashboard pages that break frontend parsing.
+
+## DEC-20260720-EXT-USERS
+- Decision: Store external users in separate contact/membership tables instead of creating Flow/XMPP accounts, preserving privacy and preventing them from receiving normal conversation history.
+- Decision: Queue mention deliveries instead of synchronously calling mail/WhatsApp/Telegram/SMS gateways, preserving chat send latency and reliability.
+
+
+## DEC-20260720-EXTERNAL-REQUESTS
+- Decision: Chat users create pending requests only; super admins approve before external contacts become active, preserving enterprise control and auditability.
+- Decision: External approved contacts are exposed as mention-only GroupMember records with role=external, avoiding creation of normal Flow/XMPP accounts.
+

@@ -5,6 +5,7 @@ require_once __DIR__ . '/bootstrap.php';
 $session = chat_require_user();
 $pdo = chat_db();
 chat_ensure_schema($pdo);
+chat_require_group_channel_creator($pdo, getEmployeeDB(), (int)$session['emp_id']);
 $input = json_decode(file_get_contents('php://input') ?: '{}', true);
 if (!is_array($input)) chat_json(['status' => false, 'error' => 'Invalid JSON'], 422);
 

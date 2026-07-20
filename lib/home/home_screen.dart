@@ -1214,6 +1214,8 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   Future<void> _createGroup() async {
+    if (!await _canCreateGroupOrChannel(context)) return;
+    if (!mounted) return;
     final group = await showModalBottomSheet<ChatPreview>(
       context: context,
       isScrollControlled: true,
@@ -1226,6 +1228,8 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   Future<void> _createChannel() async {
+    if (!await _canCreateGroupOrChannel(context)) return;
+    if (!mounted) return;
     final channel = await showModalBottomSheet<ChatPreview>(
       context: context,
       isScrollControlled: true,
@@ -3236,6 +3240,8 @@ class _AppDrawer extends StatelessWidget {
         MaterialPageRoute(builder: (_) => const ScheduleMessageScreen()),
       );
     } else if (action == 'New group' || action == 'New channel') {
+      if (!await _canCreateGroupOrChannel(context)) return;
+      if (!context.mounted) return;
       final group = await showModalBottomSheet<ChatPreview>(
         context: context,
         isScrollControlled: true,
@@ -4487,6 +4493,34 @@ class DrawerItem extends StatelessWidget {
   }
 }
 
+
+String _normalizedCreatorEmployeeType(String value) {
+  final type = value.trim().toUpperCase();
+  if (type == '1') return 'B';
+  if (type == '0') return 'C1';
+  return type;
+}
+
+Future<bool> _canCreateGroupOrChannel(BuildContext context) async {
+  try {
+    final cached = await chatApi.cachedProfile();
+    final profile = cached ?? await chatApi.getProfile();
+    final type = _normalizedCreatorEmployeeType(profile.employeeType);
+    if (type == 'C1' || type == 'C2') {
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Your user type is not allowed to create groups or channels.'),
+          ),
+        );
+      }
+      return false;
+    }
+  } catch (_) {
+    // Backend enforces this rule; allow the attempt if profile loading is unavailable.
+  }
+  return true;
+}
 void showNewMessageSheet(BuildContext context) {
   showModalBottomSheet<void>(
     context: context,

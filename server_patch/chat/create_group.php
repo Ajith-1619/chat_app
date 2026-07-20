@@ -6,6 +6,7 @@ $session = chat_require_user();
 $chatPdo = chat_db();
 $employeePdo = getEmployeeDB();
 chat_ensure_schema($chatPdo);
+chat_require_group_channel_creator($chatPdo, $employeePdo, (int)$session['emp_id']);
 $raw = file_get_contents('php://input') ?: '{}';
 $in = json_decode($raw, true);
 if (!is_array($in)) chat_json(['status' => false, 'error' => 'Invalid JSON'], 422);

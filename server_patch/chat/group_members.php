@@ -91,4 +91,30 @@ foreach ($memberRows as $row) {
     ];
 }
 
+try {
+    $externalStmt = $chatPdo->prepare(
+        'SELECT gm.external_contact_id, gm.delivery_channels, gm.mention_token, c.display_name, c.email, c.phone, c.whatsapp_number, c.telegram_username
+         FROM xmpp_group_external_members gm
+         INNER JOIN external_contacts c ON c.id = gm.external_contact_id AND c.status = 1
+         WHERE gm.group_id = :group_id AND gm.status = 1
+         ORDER BY c.display_name ASC'
+    );
+    $externalStmt->execute([':group_id' => $groupId]);
+    foreach (($externalStmt->fetchAll(PDO::FETCH_ASSOC) ?: []) as $external) {
+        $token = (string)($external['mention_token'] ?? '');
+        $members[] = [
+            'emp_id' => $token !== '' ? $token : ('external-' . (int)$external['external_contact_id']),
+            'jid' => '',
+            'name' => (string)($external['display_name'] ?? 'External user'),
+            'designation' => 'External - ' . (string)($external['delivery_channels'] ?? 'mention only'),
+            'online' => false,
+            'last_seen' => '',
+            'role' => 'external',
+            'avatar_url' => '',
+        ];
+    }
+} catch (Throwable $e) {
+    error_log('group_members external load failed: ' . $e->getMessage());
+}
+
 chat_json(['status' => true, 'current_role' => $currentRole, 'members' => $members]);

@@ -2,7 +2,7 @@
 
 @section('content')
 <meta name="flow-admin-csrf" content="{{ $legacyCsrf }}">
-<div class="app-shell" data-admin-name="{{ $admin['name'] ?? 'Admin' }}" data-initial-view="{{ $activeView }}" data-api-url="{{ route('admin.dashboard', ['ajax' => 'api']) }}">
+<div class="app-shell" data-admin-name="{{ $admin['name'] ?? 'Admin' }}" data-initial-view="{{ $activeView }}" data-api-url="{{ route('admin.api') }}?admin=1">
   <aside class="sidebar">
     <div class="brand">
       <div class="brand-mark">F</div>
@@ -65,3 +65,5 @@
 
 <script src="{{ asset('admin/app.js') }}?v={{ filemtime(public_path('admin/app.js')) }}"></script>
 @endsection
+
+

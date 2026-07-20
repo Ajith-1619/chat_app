@@ -115,3 +115,86 @@
 - Impact Analysis: Standalone admin-only change. Added admin-owned AI provider, type rule, and user override tables; added AI Access side-nav module; added masked API key listing and save forms; added user detail AI Access summary. Chat runtime AI enforcement is not changed in this step.
 - Regression Verification: Local PHP lint passed; local JS syntax check passed; live /var/www/html/admin/api.php lint passed; live index.php contains AI Access nav and cache-busted assets; live ai_access endpoint returned status=true with default A=multiple, B=single, C1/C2=none.
 - Status: Completed
+
+## CHG-20260720-ADMIN-AI-API
+- Time: 2026-07-20 17:30 IST
+- Requirement: Add AI API side-nav module and support multiple saved AI keys, AI name dropdown, title/API key/details, A/B type usage rules, and per-user key assignment.
+- Impact Analysis: Admin-only change. Laravel module route list now exposes ai_access as AI API; admin JS wording/form updated; backend save_ai_user_access persists per-user selected providers and daily token/search overrides; user detail now includes available providers for assignment.
+- Regression Verification: Local PHP lint passed for AdminController, routes, and legacy API; local JS syntax check passed; live flat admin api.php lint passed; live index.php shows AI API nav with cache-busted assets; live ai_access endpoint returned JSON status=true.
+- Status: Completed
+
+## CHG-20260720-ADMIN-AI-USERS-LIST
+- Time: 2026-07-20 12:45 IST
+- Requirement: Show AI using users below AI API key entry and type rules, including assigned API names and token/search allocation.
+- Impact Analysis: Admin-only change. Added ai_access users payload derived from employee list plus AI type/user assignment rules. Added AI Users Access table under the AI API page and CSS to prevent rule panel overflow.
+- Regression Verification: Local PHP lint passed; local JS syntax check passed; live /var/www/html/admin/api.php lint passed; live app.js contains AI Users Access render and cache-busted asset v=202607202.
+- Status: Completed
+
+## CHG-20260720-ADMIN-HIDE-AI-TYPE-RULES
+- Time: 2026-07-20 12:55 IST
+- Requirement: Remove User Type Access section from AI API admin page.
+- Impact Analysis: Frontend-only admin change. Existing backend rule support remains for compatibility, but the AI API page no longer renders the type-rule card. Provider entry is full width and AI Users Access stays below it.
+- Regression Verification: Local node --check passed; live app.js deployed; live index.php cache-busted to v=202607203; live grep confirms AI API Keys and AI Users Access are present while User Type Access is absent.
+- Status: Completed
+
+## CHG-20260720-ADMIN-GROUP-CHANNEL-MEMBER-DELETE
+- Date: 2026-07-20
+- Files: admin/legacy_standalone/api.php, admin/public/admin/app.js, admin/public/admin/app.css
+- Impact Analysis: Adds admin-only member insertion and soft-delete/archive support for group/channel records. Existing role update/remove, group edit, and list rendering are preserved.
+- Deployment: Uploaded to /var/www/html/admin/api.php, app.js, and app.css.
+
+## CHG-20260720-ADMIN-WAKEUP-CHANNEL-TYPE-CONFIG
+- Date: 2026-07-20
+- Files: admin/legacy_standalone/api.php, admin/public/admin/app.js, admin/public/admin/app.css
+- Impact Analysis: Extends existing update_group action to persist wake-up interval metadata and updates the admin detail UI. Existing member management/delete/group edit behavior is preserved.
+- Deployment: Uploaded to /var/www/html/admin/api.php, app.js, and app.css.
+
+## CHG-20260720-ADMIN-WAKEUP-AI-SCHEMA-FIX
+- Date: 2026-07-20
+- Files: admin/legacy_standalone/api.php, admin/public/admin/app.css, admin/public/admin/app.js
+- Impact Analysis: Fixes cramped wake-up admin UI and hardens AI API/storage-style schema setup by creating missing tables/columns automatically. Existing admin auth, group/channel update, member management, and dashboard modules are preserved.
+- Deployment: Uploaded to /var/www/html/admin/api.php, app.js, and app.css.
+
+## CHG-20260720-ADMIN-AI-JSON-ENDPOINT-FIX
+- Date: 2026-07-20
+- Files: admin/routes/web.php, admin/resources/views/admin/dashboard.blade.php, admin/public/admin/app.js
+- Impact Analysis: Routes Laravel admin API calls to the real /api endpoint and sends Accept: application/json on admin fetch calls. This prevents login/dashboard HTML from being parsed as JSON. Existing standalone admin modules are preserved.
+- Deployment: Uploaded updated app.js to /var/www/html/admin/app.js.
+
+## CHG-20260720-ADMIN-AI-LOAD-FIX
+- Date: 2026-07-20
+- Files: admin/public/admin/app.js, admin/legacy_standalone/app/Views/admin/dashboard.php
+- Impact Analysis: Makes admin API URL resolution work for both Laravel local admin and flat standalone /admin deployment, and improves load error parsing so HTML/session errors do not hide the real failure.
+- Deployment: Uploaded updated app.js to /var/www/html/admin/app.js.
+
+## CHG-20260720-ADMIN-AI-ACCESS-TIMEOUT-FIX
+- Date: 2026-07-20
+- Files: admin/legacy_standalone/api.php, admin/public/admin/app.js
+- Impact Analysis: Replaces the slow AI Users list build with a direct assigned-access query, removing repeated per-employee AI summary queries. Existing provider save, user detail AI assignment, and type-rule defaults are preserved.
+- Deployment: Uploaded to /var/www/html/admin/api.php and /var/www/html/admin/app.js.
+
+## CHG-20260720-ADMIN-AI-HY093-FIX
+- Date: 2026-07-20
+- Files: admin/legacy_standalone/api.php
+- Impact Analysis: Changes AI provider insert placeholders from duplicated :admin_emp_id to distinct :created_by_emp_id and :updated_by_emp_id. Existing update path and provider listing remain unchanged.
+- Deployment: Uploaded to /var/www/html/admin/api.php.
+
+## CHG-20260720-ADMIN-AI-KEY-MASK-FIX
+- Date: 2026-07-20
+- Files: admin/legacy_standalone/api.php, admin/public/admin/app.css
+- Impact Analysis: Removes mojibake mask literal from SQL and masks API keys in PHP using ASCII stars. Adds fixed AI key table sizing to prevent horizontal garbage layout. Raw API keys remain excluded from the JSON response.
+- Deployment: Uploaded to /var/www/html/admin/api.php and /var/www/html/admin/app.css.
+
+## CHG-20260720-EXT-USERS
+- Files: admin/legacy_standalone/api.php, admin/public/admin/app.js, admin/public/admin/app.css, server_patch/chat/bootstrap.php, server_patch/chat/send_message.php
+- Change: Added external contact schema, admin add/remove UI/API, welcome queueing, and send-message mention-only queueing for external users.
+
+
+## CHG-20260720-EXTERNAL-REQUESTS
+- Files: lib/chat_api.dart, lib/chat/chat_screen.dart, server_patch/chat/external_user_request.php, server_patch/chat/group_members.php, admin/legacy_standalone/api.php, admin/public/admin/app.js, admin/public/admin/app.css, admin/app/Http/Controllers/AdminController.php, admin/legacy_standalone/app/Views/admin/dashboard.php
+- Change: Added external user approval workflow from chat UI to admin approval and mention dropdown exposure after approval.
+
+
+## CHG-20260720-EXTERNAL-REQUEST-ROUTE-FIX
+- Fixed admin user detail external member count regression caused by group-only metric in user file stats.
+- Registered external_requests GET route and approve/reject POST cases in legacy admin API.

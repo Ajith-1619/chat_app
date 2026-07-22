@@ -180,3 +180,17 @@
 
 ## REG-20260720-EXTERNAL-REQUEST-ROUTE-FIX
 - Verified: admin legacy API PHP lint passed and admin app.js syntax check passed.
+
+## REG-20260721-EXTERNAL-EMAIL-SMTP
+- Verified: PHP lint passed for external_delivery_worker.php, external_mail_config.php, send_message.php and admin legacy API.
+- Risk: Live SMTP delivery requires the new worker/config files to be uploaded to the live chat PHP folder; current turn did not deploy.
+
+## 2026-07-21 - External Welcome Email Regression
+- Verified: PHP lint passed for admin/legacy_standalone/api.php, external_mailer.php, and external_mail_config.php.
+- Risk: Live SMTP/network delivery was not executed from this sandbox. If delivery still fails, inspect xmpp_external_delivery_queue.last_error for the queued welcome row.
+
+
+## 2026-07-21 - Storage Quota Regression Verification
+- Verified: PHP lint passed for bootstrap.php, upload_file.php and storage_usage.php. Dart format passed for settings_screens.dart and chat_api.dart. Dart analyze completed with only existing info-level suggestions in chat_api.dart and no warnings/errors for the new settings screen.
+- Risk: Production upload enforcement starts after patched server files are deployed; existing users without admin override receive the new 2GB default.
+

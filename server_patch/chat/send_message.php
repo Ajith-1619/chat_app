@@ -1,6 +1,21 @@
 <?php
 declare(strict_types=1);
 require_once __DIR__ . '/bootstrap.php';
+require_once __DIR__ . '/ai_room_helper.php';
+require_once __DIR__ . '/channel_action_helper.php';
+
+
+function chat_spawn_external_delivery_worker(): void
+{
+    $worker = __DIR__ . '/external_delivery_worker.php';
+    if (!is_file($worker)) return;
+    $php = PHP_BINARY ?: 'php';
+    if (stripos(PHP_OS_FAMILY, 'Windows') !== false) {
+        @pclose(@popen('start /B "" ' . escapeshellarg($php) . ' ' . escapeshellarg($worker) . ' 25', 'r'));
+        return;
+    }
+    @exec(escapeshellarg($php) . ' ' . escapeshellarg($worker) . ' 25 > /dev/null 2>&1 &');
+}
 
 function chat_external_destination(array $contact, string $channel): string
 {
@@ -330,6 +345,7 @@ try {
     if ($isGroup && $messageId > 0 && $body !== '') {
         try {
             chat_queue_external_mentions($pdo, $messageId, $group, (int)$session['emp_id'], $body, $mentions);
+            chat_spawn_external_delivery_worker();
         } catch (Throwable $externalQueueError) {
             error_log('chat/send_message external delivery queue skipped: ' . $externalQueueError->getMessage());
         }
@@ -353,6 +369,18 @@ try {
         echo json_encode($responsePayload, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
         fastcgi_finish_request();
         $responseFinished = true;
+    }
+    if ($isGroup && $messageId > 0 && $body !== '' && $visibilityMode === 'all' && $fileUrl === '') {
+        try {
+            chat_update_channel_next_action_from_message($pdo, $group, $messageId, (int)$session['emp_id'], $body, $mentions);
+        } catch (Throwable $actionError) {
+            error_log('chat/send_message channel next action skipped: ' . $actionError->getMessage());
+        }
+        try {
+            chat_try_send_ai_room_reply($pdo, $group, $messageId, $body);
+        } catch (Throwable $aiError) {
+            error_log('chat/send_message ai room reply skipped: ' . $aiError->getMessage());
+        }
     }
     try {
         $pushStarted = microtime(true);
@@ -399,3 +427,4 @@ chat_json([
     'xmpp_delivered' => $xmppDelivered ?? false,
     'visibility_mode' => $visibilityMode ?? 'all',
 ]);
+

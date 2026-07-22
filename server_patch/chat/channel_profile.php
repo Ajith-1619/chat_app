@@ -15,7 +15,7 @@ $stmt = $pdo->prepare(
      INNER JOIN xmpp_group_members gm ON gm.group_id = g.id
      WHERE (g.id = :group_id OR g.room_jid = :jid)
        AND gm.emp_id = :emp_id
-       AND g.group_type = \'channel\'
+       AND (g.group_type = \'channel\' OR g.room_jid LIKE \'channel-%\' OR g.room_name LIKE \'#%\')
      LIMIT 1'
 );
 $stmt->execute([
@@ -52,10 +52,14 @@ chat_json([
         'channel_kind' => (string)$channel['channel_kind'],
         'status_text' => (string)$channel['status'],
         'priority' => (string)$channel['priority'],
+        'description' => (string)($channel['description'] ?? ''),
         'owner_emp_id' => (int)($channel['owner_emp_id'] ?? 0),
         'created_at' => (string)$channel['created_at'],
         'target_date' => (string)($channel['target_date'] ?? ''),
         'next_action_date' => (string)($channel['next_action_date'] ?? ''),
+        'next_action_text' => (string)($channel['next_action_text'] ?? ''),
+        'next_action_persons' => (string)($channel['next_action_persons'] ?? ''),
+        'next_action_updated_at' => (string)($channel['next_action_updated_at'] ?? ''),
         'sla_minutes' => $slaMinutes,
         'stale_alert_minutes' => (int)($channel['stale_alert_minutes'] ?? 0),
         'metadata' => json_decode((string)($channel['metadata_json'] ?? '{}'), true) ?: [],
@@ -73,3 +77,4 @@ chat_json([
         'timeline' => $timelineStmt->fetchAll(PDO::FETCH_ASSOC) ?: [],
     ],
 ]);
+

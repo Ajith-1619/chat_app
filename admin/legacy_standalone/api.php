@@ -1061,6 +1061,7 @@ function admin_group_detail(PDO $pdo): array
         'external_members' => admin_group_external_members($pdo, $groupId),
         'wakeup' => admin_group_wakeup_summary($pdo, $group, $roomJid),
         'channel_types' => admin_channel_type_options($pdo),
+        'ai_room_access' => admin_group_ai_access($pdo, $groupId),
     ];
 }
 function admin_ensure_column_safe(PDO $pdo, string $table, string $column, string $definition): void
@@ -1134,6 +1135,23 @@ function admin_ensure_ai_tables(PDO $pdo): void
     admin_ensure_column_safe($pdo, 'flow_admin_ai_user_access', 'enabled', 'TINYINT NOT NULL DEFAULT 1');
     admin_ensure_column_safe($pdo, 'flow_admin_ai_user_access', 'updated_by_emp_id', 'INT NULL');
     admin_ensure_column_safe($pdo, 'flow_admin_ai_user_access', 'updated_at', 'DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP');
+
+    $pdo->exec("CREATE TABLE IF NOT EXISTS flow_admin_ai_room_access (
+        group_id INT NOT NULL PRIMARY KEY,
+        provider_id INT NULL,
+        enabled TINYINT NOT NULL DEFAULT 0,
+        trigger_token VARCHAR(40) NOT NULL DEFAULT '@ai',
+        max_context_messages INT NOT NULL DEFAULT 50,
+        updated_by_emp_id INT NULL,
+        updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+        INDEX idx_ai_room_enabled (enabled, provider_id)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
+    admin_ensure_column_safe($pdo, 'flow_admin_ai_room_access', 'provider_id', 'INT NULL');
+    admin_ensure_column_safe($pdo, 'flow_admin_ai_room_access', 'enabled', 'TINYINT NOT NULL DEFAULT 0');
+    admin_ensure_column_safe($pdo, 'flow_admin_ai_room_access', 'trigger_token', "VARCHAR(40) NOT NULL DEFAULT '@ai'");
+    admin_ensure_column_safe($pdo, 'flow_admin_ai_room_access', 'max_context_messages', 'INT NOT NULL DEFAULT 50');
+    admin_ensure_column_safe($pdo, 'flow_admin_ai_room_access', 'updated_by_emp_id', 'INT NULL');
+    admin_ensure_column_safe($pdo, 'flow_admin_ai_room_access', 'updated_at', 'DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP');
 }
 
 function admin_mask_secret(?string $value): string
@@ -1158,6 +1176,26 @@ function admin_ai_provider_map(PDO $pdo): array
     $map = [];
     foreach ($rows as $row) $map[(int)($row['id'] ?? 0)] = $row;
     return $map;
+}
+
+function admin_active_ai_providers(PDO $pdo): array
+{
+    admin_ensure_ai_tables($pdo);
+    return flow_admin_rows($pdo, 'SELECT id, provider_name, api_type, model_name, status FROM flow_admin_ai_providers WHERE status = 1 ORDER BY provider_name ASC, id ASC');
+}
+
+function admin_group_ai_access(PDO $pdo, int $groupId): array
+{
+    admin_ensure_ai_tables($pdo);
+    $row = flow_admin_rows($pdo, 'SELECT group_id, provider_id, enabled, trigger_token, max_context_messages, updated_at FROM flow_admin_ai_room_access WHERE group_id = :group_id LIMIT 1', [':group_id' => $groupId])[0] ?? [];
+    return [
+        'enabled' => isset($row['enabled']) && (int)$row['enabled'] === 1,
+        'provider_id' => isset($row['provider_id']) ? (int)$row['provider_id'] : 0,
+        'trigger_token' => (string)($row['trigger_token'] ?? '@ai'),
+        'max_context_messages' => (int)($row['max_context_messages'] ?? 50),
+        'updated_at' => (string)($row['updated_at'] ?? ''),
+        'providers' => admin_active_ai_providers($pdo),
+    ];
 }
 
 function admin_ai_type_rules(PDO $pdo): array
@@ -1314,6 +1352,32 @@ function admin_save_ai_type_rule(PDO $pdo, int $adminEmpId): array
     $stmt->execute([':employee_type' => $type, ':access_mode' => $mode, ':provider_ids' => implode(',', $providerIds), ':token_limit' => $tokenLimit, ':search_limit' => $searchLimit, ':admin_emp_id' => $adminEmpId]);
     flow_admin_audit($adminEmpId, 'save_ai_type_rule', 'flow_admin_ai_type_rules', $type, ['access_mode' => $mode, 'provider_ids' => $providerIds, 'token_limit' => $tokenLimit, 'search_limit' => $searchLimit]);
     return ['status' => true, 'message' => 'AI access rule saved.'];
+}
+
+function admin_save_group_ai_access(PDO $pdo, int $adminEmpId): array
+{
+    admin_ensure_ai_tables($pdo);
+    $groupId = (int)($_POST['group_id'] ?? $_POST['id'] ?? 0);
+    if ($groupId <= 0) return ['status' => false, 'error' => 'Valid group/channel id is required.'];
+    $enabled = (int)($_POST['enabled'] ?? 0) === 1 ? 1 : 0;
+    $providerId = (int)($_POST['provider_id'] ?? 0);
+    $trigger = trim((string)($_POST['trigger_token'] ?? '@ai'));
+    $trigger = preg_replace('/\s+/', '', $trigger) ?: '@ai';
+    if ($trigger[0] !== '@') $trigger = '@' . $trigger;
+    $trigger = mb_substr($trigger, 0, 40);
+    $maxContext = max(5, min(50, (int)($_POST['max_context_messages'] ?? 50)));
+    if ($enabled === 1) {
+        $provider = flow_admin_rows($pdo, 'SELECT id FROM flow_admin_ai_providers WHERE id = :id AND status = 1 LIMIT 1', [':id' => $providerId])[0] ?? [];
+        if (!$provider) return ['status' => false, 'error' => 'Select an active AI API before enabling this group/channel.'];
+    } else {
+        $providerId = $providerId > 0 ? $providerId : null;
+    }
+    $group = flow_admin_rows($pdo, 'SELECT id FROM xmpp_groups WHERE id = :id LIMIT 1', [':id' => $groupId])[0] ?? [];
+    if (!$group) return ['status' => false, 'error' => 'Group/channel not found.'];
+    $stmt = $pdo->prepare('INSERT INTO flow_admin_ai_room_access (group_id, provider_id, enabled, trigger_token, max_context_messages, updated_by_emp_id, updated_at) VALUES (:group_id, :provider_id, :enabled, :trigger_token, :max_context_messages, :admin_emp_id, NOW()) ON DUPLICATE KEY UPDATE provider_id = VALUES(provider_id), enabled = VALUES(enabled), trigger_token = VALUES(trigger_token), max_context_messages = VALUES(max_context_messages), updated_by_emp_id = VALUES(updated_by_emp_id), updated_at = NOW()');
+    $stmt->execute([':group_id' => $groupId, ':provider_id' => $providerId, ':enabled' => $enabled, ':trigger_token' => $trigger, ':max_context_messages' => $maxContext, ':admin_emp_id' => $adminEmpId]);
+    flow_admin_audit($adminEmpId, 'save_group_ai_access', 'flow_admin_ai_room_access', (string)$groupId, ['provider_id' => $providerId, 'enabled' => $enabled, 'trigger_token' => $trigger, 'max_context_messages' => $maxContext]);
+    return ['status' => true, 'message' => $enabled ? 'AI access enabled for this group/channel.' : 'AI access disabled for this group/channel.'];
 }
 
 function admin_save_ai_user_access(PDO $pdo, int $adminEmpId): array
@@ -1515,6 +1579,28 @@ function admin_ensure_external_tables(PDO $pdo): void
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
 }
 
+
+function admin_spawn_external_delivery_worker(): void
+{
+    $candidates = [
+        dirname(__DIR__, 2) . '/router_login/chat/external_delivery_worker.php',
+        dirname(__DIR__) . '/router_login/chat/external_delivery_worker.php',
+        dirname(__DIR__) . '/chat/external_delivery_worker.php',
+        __DIR__ . '/../router_login/chat/external_delivery_worker.php',
+    ];
+    $worker = '';
+    foreach ($candidates as $candidate) {
+        if (is_file($candidate)) { $worker = $candidate; break; }
+    }
+    if ($worker === '') return;
+    $php = PHP_BINARY ?: 'php';
+    if (stripos(PHP_OS_FAMILY, 'Windows') !== false) {
+        @pclose(@popen('start /B "" ' . escapeshellarg($php) . ' ' . escapeshellarg($worker) . ' 25', 'r'));
+        return;
+    }
+    @exec(escapeshellarg($php) . ' ' . escapeshellarg($worker) . ' 25 > /dev/null 2>&1 &');
+}
+
 function admin_external_token(string $name): string
 {
     $token = preg_replace('/[^A-Za-z0-9_]+/', '', str_replace(' ', '_', trim($name))) ?: 'external';
@@ -1642,9 +1728,25 @@ function admin_add_external_member(PDO $pdo, int $adminEmpId): array
     $msg = $pdo->prepare('INSERT INTO xmpp_messages (from_jid, to_jid, body, message_type, status, source_device, source_name) VALUES (:from_jid, :to_jid, :body, :message_type, :status, :source_device, :source_name)');
     $msg->execute([':from_jid' => 'system@chat.skylinkonline.net', ':to_jid' => (string)$group['room_jid'], ':body' => $welcome, ':message_type' => 'groupchat', ':status' => 'sent', ':source_device' => 'system', ':source_name' => 'External contact welcome']);
     $messageId = (int)$pdo->lastInsertId();
-    admin_queue_external_delivery($pdo, $groupId, $contactId, $messageId, 'welcome', $channels, 'Welcome to ' . (string)$group['room_name'], $welcome);
-    flow_admin_audit($adminEmpId, 'add_external_member', 'xmpp_group_external_members', $groupId . ':' . $contactId, ['channels' => $channels, 'mention_token' => $token]);
-    return ['status' => true, 'message' => 'External user added. Welcome delivery queued.', 'mention_token' => $token];
+    $subject = 'Welcome to ' . (string)$group['room_name'];
+    admin_queue_external_delivery($pdo, $groupId, $contactId, $messageId, 'welcome', $channels, $subject, $welcome);
+    $emailSent = false;
+    if (in_array('email', $channels, true) && $email !== '') {
+        try {
+            require_once __DIR__ . '/external_mailer.php';
+            flow_send_external_email($email, $name, $subject, $welcome);
+            $sent = $pdo->prepare("UPDATE xmpp_external_delivery_queue SET status = 'sent', sent_at = NOW(), last_error = NULL WHERE group_id = :group_id AND external_contact_id = :contact_id AND message_id = :message_id AND event_type = 'welcome' AND channel = 'email' AND status = 'queued'");
+            $sent->execute([':group_id' => $groupId, ':contact_id' => $contactId, ':message_id' => $messageId]);
+            $emailSent = true;
+        } catch (Throwable $e) {
+            $failed = $pdo->prepare("UPDATE xmpp_external_delivery_queue SET last_error = :error WHERE group_id = :group_id AND external_contact_id = :contact_id AND message_id = :message_id AND event_type = 'welcome' AND channel = 'email' AND status = 'queued'");
+            $failed->execute([':error' => substr($e->getMessage(), 0, 1000), ':group_id' => $groupId, ':contact_id' => $contactId, ':message_id' => $messageId]);
+            error_log('Flow external welcome email failed: ' . $e->getMessage());
+        }
+    }
+    admin_spawn_external_delivery_worker();
+    flow_admin_audit($adminEmpId, 'add_external_member', 'xmpp_group_external_members', $groupId . ':' . $contactId, ['channels' => $channels, 'mention_token' => $token, 'welcome_email_sent' => $emailSent]);
+    return ['status' => true, 'message' => $emailSent ? 'External user added. Welcome email sent.' : 'External user added. Welcome delivery queued.', 'mention_token' => $token, 'welcome_email_sent' => $emailSent, 'external_contact_id' => $contactId];
 }
 
 function admin_remove_external_member(PDO $pdo, int $adminEmpId): array
@@ -1762,7 +1864,7 @@ function admin_post_action(PDO $pdo, int $adminEmpId, string $action): array
 {
     flow_admin_require_csrf();
     $id = (int)($_POST['id'] ?? 0);
-    if ($id <= 0 && !in_array($action, ['set_member_role', 'add_member', 'remove_member', 'add_external_member', 'remove_external_member', 'approve_external_request', 'reject_external_request', 'save_ai_provider', 'save_ai_type_rule', 'save_ai_user_access'], true)) {
+    if ($id <= 0 && !in_array($action, ['set_member_role', 'add_member', 'remove_member', 'add_external_member', 'remove_external_member', 'approve_external_request', 'reject_external_request', 'save_ai_provider', 'save_ai_type_rule', 'save_ai_user_access', 'save_group_ai_access'], true)) {
         return ['status' => false, 'error' => 'Valid id is required.'];
     }
 
@@ -1838,6 +1940,9 @@ function admin_post_action(PDO $pdo, int $adminEmpId, string $action): array
 
         case 'save_ai_user_access':
             return admin_save_ai_user_access($pdo, $adminEmpId);
+
+        case 'save_group_ai_access':
+            return admin_save_group_ai_access($pdo, $adminEmpId);
 
         case 'add_member':
             return admin_add_group_member($pdo, $adminEmpId);

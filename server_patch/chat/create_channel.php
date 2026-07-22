@@ -28,6 +28,8 @@ $status = trim((string)($input['status'] ?? 'Open'));
 $priority = trim((string)($input['priority'] ?? ($definitionSla['priority'] ?? 'Normal')));
 $targetDate = trim((string)($input['target_date'] ?? ''));
 $nextActionDate = trim((string)($input['next_action_date'] ?? ''));
+$description = trim((string)($input['description'] ?? ''));
+if (mb_strlen($description) > 4000) $description = mb_substr($description, 0, 4000);
 $slaMinutes = max(0, (int)($input['sla_minutes'] ?? ($definitionSla['default_minutes'] ?? 0)));
 $staleAlertMinutes = max(0, (int)($input['stale_alert_minutes'] ?? 0));
 $metadata = is_array($input['metadata'] ?? null) ? $input['metadata'] : [];
@@ -59,17 +61,18 @@ try {
     $pdo->beginTransaction();
     $stmt = $pdo->prepare(
         'INSERT INTO xmpp_groups
-         (room_name, room_jid, group_type, channel_kind, channel_definition_id,
+         (room_name, room_jid, description, group_type, channel_kind, channel_definition_id,
           channel_template_key, status, target_date, next_action_date, sla_minutes,
           priority, owner_emp_id, stale_alert_minutes, metadata_json, created_by_emp_id)
          VALUES
-         (:name, :jid, \'channel\', :kind, :definition_id,
+         (:name, :jid, :description, \'channel\', :kind, :definition_id,
           :template_key, :status, :target_date, :next_action_date, :sla_minutes,
           :priority, :owner_emp_id, :stale_alert_minutes, :metadata, :created_by)'
     );
     $stmt->execute([
         ':name' => $name,
         ':jid' => $roomJid,
+        ':description' => $description !== '' ? $description : null,
         ':kind' => $channelKind,
         ':definition_id' => $definitionId,
         ':template_key' => $channelKind,
@@ -151,3 +154,5 @@ try {
     error_log('create channel failed: ' . $e->getMessage());
     chat_json(['status' => false, 'error' => 'Unable to create channel'], 500);
 }
+
+

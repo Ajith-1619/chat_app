@@ -1703,15 +1703,13 @@ class _DesktopConversationProfileState
     ChannelProfile? channelProfile;
     if (groupId > 0) {
       members = await chatApi.getGroupMembers(groupId);
-      if (chat.isChannel) {
-        try {
-          channelProfile = await chatApi.getChannelProfile(
-            groupId: groupId,
-            jid: chat.jid,
-          );
-        } catch (error) {
-          channelProfile = null;
-        }
+      try {
+        channelProfile = await chatApi.getChannelProfile(
+          groupId: groupId,
+          jid: chat.jid,
+        );
+      } catch (error) {
+        channelProfile = null;
       }
     }
     return <String, dynamic>{
@@ -1720,6 +1718,12 @@ class _DesktopConversationProfileState
       'channel_kind': channelProfile?.kind ?? '',
       'channel_status': channelProfile?.statusText ?? '',
       'channel_priority': channelProfile?.priority ?? '',
+      'channel_description': channelProfile?.description ?? '',
+      'channel_next_action_text': channelProfile?.nextActionText ?? '',
+      'channel_next_action_persons': channelProfile?.nextActionPersons ?? '',
+      'channel_next_action_date': channelProfile?.nextActionDate ?? '',
+      'channel_next_action_updated_at':
+          channelProfile?.nextActionUpdatedAt ?? '',
     };
   }
 
@@ -1755,6 +1759,207 @@ class _DesktopConversationProfileState
         context,
       ).showSnackBar(SnackBar(content: Text(error.message)));
     }
+  }
+
+  Future<void> _editChannelDetails() async {
+    final channelId = int.tryParse(chat.empId) ?? 0;
+    if (channelId <= 0) return;
+    final profile = await _profileFuture;
+    final descriptionController = TextEditingController(
+      text: '${profile['channel_description'] ?? ''}',
+    );
+    final nextController = TextEditingController(
+      text: '${profile['channel_next_action_date'] ?? ''}',
+    );
+    var kind = '${profile['channel_kind'] ?? 'operational'}';
+    var priority = '${profile['channel_priority'] ?? 'Normal'}';
+    var status = '${profile['channel_status'] ?? 'Open'}';
+    final saved = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => StatefulBuilder(
+        builder: (dialogContext, setDialogState) => AlertDialog(
+          title: const Text('Edit channel details'),
+          content: SizedBox(
+            width: 520,
+            child: SingleChildScrollView(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  TextField(
+                    controller: descriptionController,
+                    minLines: 3,
+                    maxLines: 6,
+                    maxLength: 4000,
+                    decoration: const InputDecoration(
+                      labelText: 'Description',
+                      hintText: 'Purpose, scope and operating notes',
+                    ),
+                  ),
+                  const SizedBox(height: 10),
+                  DropdownButtonFormField<String>(
+                    initialValue: kind.isEmpty ? 'operational' : kind,
+                    decoration: const InputDecoration(
+                      labelText: 'Channel type',
+                    ),
+                    items: const [
+                      DropdownMenuItem(
+                        value: 'incident',
+                        child: Text('Incident'),
+                      ),
+                      DropdownMenuItem(value: 'action', child: Text('Action')),
+                      DropdownMenuItem(
+                        value: 'operational',
+                        child: Text('Operational'),
+                      ),
+                      DropdownMenuItem(
+                        value: 'project',
+                        child: Text('Project'),
+                      ),
+                      DropdownMenuItem(
+                        value: 'announcement',
+                        child: Text('Announcement'),
+                      ),
+                    ],
+                    onChanged: (value) =>
+                        setDialogState(() => kind = value ?? 'operational'),
+                  ),
+                  const SizedBox(height: 10),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: DropdownButtonFormField<String>(
+                          initialValue: priority.isEmpty ? 'Normal' : priority,
+                          decoration: const InputDecoration(
+                            labelText: 'Priority',
+                          ),
+                          items: const [
+                            DropdownMenuItem(value: 'Low', child: Text('Low')),
+                            DropdownMenuItem(
+                              value: 'Normal',
+                              child: Text('Normal'),
+                            ),
+                            DropdownMenuItem(
+                              value: 'High',
+                              child: Text('High'),
+                            ),
+                            DropdownMenuItem(
+                              value: 'Critical',
+                              child: Text('Critical'),
+                            ),
+                          ],
+                          onChanged: (value) => setDialogState(
+                            () => priority = value ?? 'Normal',
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: DropdownButtonFormField<String>(
+                          initialValue: status.isEmpty ? 'Open' : status,
+                          decoration: const InputDecoration(
+                            labelText: 'Status',
+                          ),
+                          items: const [
+                            DropdownMenuItem(
+                              value: 'Open',
+                              child: Text('Open'),
+                            ),
+                            DropdownMenuItem(
+                              value: 'In Progress',
+                              child: Text('In Progress'),
+                            ),
+                            DropdownMenuItem(
+                              value: 'Blocked',
+                              child: Text('Blocked'),
+                            ),
+                            DropdownMenuItem(
+                              value: 'Closed',
+                              child: Text('Closed'),
+                            ),
+                          ],
+                          onChanged: (value) =>
+                              setDialogState(() => status = value ?? 'Open'),
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 10),
+                  TextField(
+                    controller: nextController,
+                    readOnly: true,
+                    onTap: () => _pickPanelChannelDate(nextController),
+                    decoration: const InputDecoration(
+                      labelText: 'Next action date',
+                      suffixIcon: Icon(Icons.event_available_outlined),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(dialogContext, false),
+              child: const Text('Cancel'),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.pop(dialogContext, true),
+              child: const Text('Save'),
+            ),
+          ],
+        ),
+      ),
+    );
+    final description = descriptionController.text.trim();
+    final nextDate = nextController.text.trim();
+    descriptionController.dispose();
+    nextController.dispose();
+    if (saved != true || !mounted) return;
+    try {
+      await chatApi.updateChannelDetails(
+        groupId: channelId,
+        description: description,
+        channelType: kind,
+        priority: priority,
+        status: status,
+        nextActionDate: nextDate,
+      );
+      if (!mounted) return;
+      _reloadPanel();
+    } on ApiException catch (error) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(error.message)));
+    }
+  }
+
+  Future<void> _pickPanelChannelDate(TextEditingController controller) async {
+    final now = DateTime.now();
+    final initial = DateTime.tryParse(controller.text.trim()) ?? now;
+    final date = await showDatePicker(
+      context: context,
+      initialDate: initial.isBefore(DateTime(now.year - 1)) ? now : initial,
+      firstDate: DateTime(now.year - 1),
+      lastDate: DateTime(now.year + 5),
+    );
+    if (date == null || !mounted) return;
+    final time = await showTimePicker(
+      context: context,
+      initialTime: TimeOfDay.fromDateTime(initial),
+    );
+    if (time == null || !mounted) return;
+    final selected = DateTime(
+      date.year,
+      date.month,
+      date.day,
+      time.hour,
+      time.minute,
+    );
+    String two(int number) => number.toString().padLeft(2, '0');
+    controller.text =
+        '${selected.year}-${two(selected.month)}-${two(selected.day)} '
+        '${two(selected.hour)}:${two(selected.minute)}:00';
   }
 
   Future<void> _renameConversation() async {
@@ -2051,11 +2256,15 @@ class _DesktopConversationProfileState
         action: action,
       );
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(success)));
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(success)));
       _reloadPanel();
     } on ApiException catch (error) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(error.message)));
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(error.message)));
     }
   }
 
@@ -2076,9 +2285,25 @@ class _DesktopConversationProfileState
           final channelStatus = (profile['channel_status'] ?? '').toString();
           final channelPriority = (profile['channel_priority'] ?? '')
               .toString();
+          final channelDescription = (profile['channel_description'] ?? '')
+              .toString();
+          final channelNextAction = (profile['channel_next_action_text'] ?? '')
+              .toString();
+          final channelNextPersons =
+              (profile['channel_next_action_persons'] ?? '').toString();
+          final channelNextDate = (profile['channel_next_action_date'] ?? '')
+              .toString();
+          final isChannelPanel =
+              chat.isChannel ||
+              channelKind.trim().isNotEmpty ||
+              channelStatus.trim().isNotEmpty ||
+              channelDescription.trim().isNotEmpty ||
+              channelNextAction.trim().isNotEmpty ||
+              channelNextPersons.trim().isNotEmpty ||
+              channelNextDate.trim().isNotEmpty;
           final designation =
               (profile['designation'] ??
-                      (chat.isChannel
+                      (isChannelPanel
                           ? 'Channel'
                           : chat.isGroup
                           ? 'Group'
@@ -2152,6 +2377,42 @@ class _DesktopConversationProfileState
                   ),
                 ],
               ),
+              if (isChannelPanel) ...[
+                const SizedBox(height: 12),
+                _detailCard(
+                  context,
+                  icon: Icons.description_outlined,
+                  label: 'Description',
+                  value: channelDescription.trim().isEmpty
+                      ? 'No description added.'
+                      : channelDescription,
+                ),
+                const SizedBox(height: 10),
+                _detailCard(
+                  context,
+                  icon: Icons.task_alt_rounded,
+                  label: 'Next action',
+                  value: channelNextAction.trim().isEmpty
+                      ? 'No next action detected.'
+                      : channelNextAction,
+                ),
+                const SizedBox(height: 10),
+                _detailCard(
+                  context,
+                  icon: Icons.people_alt_outlined,
+                  label: 'Next action person',
+                  value: channelNextPersons.trim().isEmpty
+                      ? 'Mention a person to assign clearly.'
+                      : channelNextPersons,
+                ),
+                const SizedBox(height: 10),
+                _detailCard(
+                  context,
+                  icon: Icons.event_available_outlined,
+                  label: 'Next action date',
+                  value: channelNextDate.trim().isEmpty ? '-' : channelNextDate,
+                ),
+              ],
               if (chat.isGroup) ...[
                 const SizedBox(height: 12),
                 Wrap(
@@ -2162,7 +2423,7 @@ class _DesktopConversationProfileState
                       onPressed: canManageGroup ? _renameConversation : null,
                       icon: const Icon(Icons.edit_outlined),
                       label: Text(
-                        chat.isChannel ? 'Rename channel' : 'Rename group',
+                        isChannelPanel ? 'Rename channel' : 'Rename group',
                       ),
                     ),
                     OutlinedButton.icon(
@@ -2170,12 +2431,18 @@ class _DesktopConversationProfileState
                       icon: const Icon(Icons.photo_camera_outlined),
                       label: const Text('Photo'),
                     ),
-                    if (chat.isChannel)
+                    if (isChannelPanel) ...[
+                      OutlinedButton.icon(
+                        onPressed: canManageGroup ? _editChannelDetails : null,
+                        icon: const Icon(Icons.tune_rounded),
+                        label: const Text('Edit details'),
+                      ),
                       OutlinedButton.icon(
                         onPressed: canManageGroup ? _closeChannel : null,
                         icon: const Icon(Icons.archive_outlined),
                         label: const Text('Archive'),
                       ),
+                    ],
                     OutlinedButton.icon(
                       onPressed: groupRole == 'owner'
                           ? null
@@ -2438,13 +2705,49 @@ class _DesktopConversationProfileState
                   label: 'Your role',
                   value: groupRole.isEmpty ? '-' : groupRole,
                 ),
-                if (chat.isChannel) ...[
+                if (isChannelPanel) ...[
                   const SizedBox(height: 10),
                   _detailCard(
                     context,
                     icon: Icons.category_outlined,
                     label: 'Channel type',
                     value: channelKind,
+                  ),
+                  const SizedBox(height: 10),
+                  _detailCard(
+                    context,
+                    icon: Icons.description_outlined,
+                    label: 'Description',
+                    value: channelDescription.trim().isEmpty
+                        ? 'No description added.'
+                        : channelDescription,
+                  ),
+                  const SizedBox(height: 10),
+                  _detailCard(
+                    context,
+                    icon: Icons.task_alt_rounded,
+                    label: 'Next action',
+                    value: channelNextAction.trim().isEmpty
+                        ? 'No next action detected.'
+                        : channelNextAction,
+                  ),
+                  const SizedBox(height: 10),
+                  _detailCard(
+                    context,
+                    icon: Icons.people_alt_outlined,
+                    label: 'Next action persons',
+                    value: channelNextPersons.trim().isEmpty
+                        ? 'Mention a person to assign clearly.'
+                        : channelNextPersons,
+                  ),
+                  const SizedBox(height: 10),
+                  _detailCard(
+                    context,
+                    icon: Icons.event_available_outlined,
+                    label: 'Next action date',
+                    value: channelNextDate.trim().isEmpty
+                        ? '-'
+                        : channelNextDate,
                   ),
                   const SizedBox(height: 10),
                   _detailCard(
@@ -3796,6 +4099,7 @@ class _SavedMessagesScreenState extends State<SavedMessagesScreen> {
       if (mounted) setState(() => _saving = false);
     }
   }
+
   Future<void> _showSavedAttachmentOptions() async {
     if (_saving) return;
     final selected = await showModalBottomSheet<String>(
@@ -3812,7 +4116,9 @@ class _SavedMessagesScreenState extends State<SavedMessagesScreen> {
             ListTile(
               leading: const Icon(Icons.insert_drive_file_rounded),
               title: const Text('Document'),
-              subtitle: const Text('Save PDF, sheet, text, APK, HTML, PHP or any file'),
+              subtitle: const Text(
+                'Save PDF, sheet, text, APK, HTML, PHP or any file',
+              ),
               onTap: () => Navigator.pop(sheetContext, 'file'),
             ),
             ListTile(
@@ -3992,6 +4298,39 @@ class _SavedMessagesScreenState extends State<SavedMessagesScreen> {
     await launchUrl(uri, mode: LaunchMode.externalApplication);
   }
 
+  ChatAttachment _savedAttachment(SavedMessage item) {
+    final name = item.fileName.trim().isEmpty
+        ? 'saved-file'
+        : item.fileName.trim();
+    final type = item.fileType.trim().isEmpty
+        ? 'application/octet-stream'
+        : item.fileType.trim();
+    return ChatAttachment(
+      name: name,
+      url: item.fileUrl.trim(),
+      mimeType: type,
+      size: 0,
+    );
+  }
+
+  Future<void> _downloadFile(SavedMessage item) async {
+    if (!item.hasFile) return;
+    try {
+      final path = await chatApi.downloadAttachment(_savedAttachment(item));
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(path.isEmpty ? 'Download started.' : 'Saved to $path'),
+        ),
+      );
+    } catch (error) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Unable to download file: $error')),
+      );
+    }
+  }
+
   @override
   void dispose() {
     unregisterClipboardMediaHandler(_handleClipboardMediaPaste);
@@ -4063,7 +4402,8 @@ class _SavedMessagesScreenState extends State<SavedMessagesScreen> {
                             Expanded(
                               child: DecoratedBox(
                                 decoration: BoxDecoration(
-                                  color: theme.colorScheme.surfaceContainerHighest,
+                                  color:
+                                      theme.colorScheme.surfaceContainerHighest,
                                   borderRadius: BorderRadius.circular(24),
                                 ),
                                 child: TextField(
@@ -4087,7 +4427,9 @@ class _SavedMessagesScreenState extends State<SavedMessagesScreen> {
                             const SizedBox(width: 10),
                             IconButton(
                               tooltip: 'Attach file',
-                              onPressed: _saving ? null : _showSavedAttachmentOptions,
+                              onPressed: _saving
+                                  ? null
+                                  : _showSavedAttachmentOptions,
                               icon: const Icon(Icons.attach_file_rounded),
                             ),
                             const SizedBox(width: 4),
@@ -4097,7 +4439,9 @@ class _SavedMessagesScreenState extends State<SavedMessagesScreen> {
                               icon: _saving
                                   ? const SizedBox.square(
                                       dimension: 18,
-                                      child: CircularProgressIndicator(strokeWidth: 2),
+                                      child: CircularProgressIndicator(
+                                        strokeWidth: 2,
+                                      ),
                                     )
                                   : const Icon(Icons.send_rounded),
                             ),
@@ -4190,6 +4534,7 @@ class _SavedMessagesScreenState extends State<SavedMessagesScreen> {
             onCopy: () => _copy(item),
             onShare: () => _share(item),
             onOpenFile: () => _openFile(item),
+            onDownloadFile: item.hasFile ? () => _downloadFile(item) : null,
           );
         },
       ),
@@ -4203,12 +4548,14 @@ class _SavedMessageBubble extends StatelessWidget {
     required this.onCopy,
     required this.onShare,
     required this.onOpenFile,
+    this.onDownloadFile,
   });
 
   final SavedMessage item;
   final VoidCallback onCopy;
   final VoidCallback onShare;
   final VoidCallback onOpenFile;
+  final VoidCallback? onDownloadFile;
 
   @override
   Widget build(BuildContext context) {
@@ -4238,7 +4585,11 @@ class _SavedMessageBubble extends StatelessWidget {
                 mainAxisSize: MainAxisSize.min,
                 children: [
                   if (item.hasFile) ...[
-                    _SavedFilePreview(item: item, onOpen: onOpenFile),
+                    _SavedFilePreview(
+                      item: item,
+                      onOpen: onOpenFile,
+                      onDownload: onDownloadFile,
+                    ),
                     if (item.body.trim().isNotEmpty) const SizedBox(height: 8),
                   ],
                   if (item.body.trim().isNotEmpty)
@@ -4258,13 +4609,25 @@ class _SavedMessageBubble extends StatelessWidget {
                         tooltip: 'Saved message actions',
                         padding: EdgeInsets.zero,
                         iconSize: 18,
-                        itemBuilder: (_) => const [
-                          PopupMenuItem(value: 'copy', child: Text('Copy')),
-                          PopupMenuItem(value: 'share', child: Text('Share')),
+                        itemBuilder: (_) => [
+                          const PopupMenuItem(
+                            value: 'copy',
+                            child: Text('Copy'),
+                          ),
+                          const PopupMenuItem(
+                            value: 'share',
+                            child: Text('Share'),
+                          ),
+                          if (onDownloadFile != null)
+                            const PopupMenuItem(
+                              value: 'download',
+                              child: Text('Download'),
+                            ),
                         ],
                         onSelected: (value) {
                           if (value == 'copy') onCopy();
                           if (value == 'share') onShare();
+                          if (value == 'download') onDownloadFile?.call();
                         },
                       ),
                     ],
@@ -4280,10 +4643,15 @@ class _SavedMessageBubble extends StatelessWidget {
 }
 
 class _SavedFilePreview extends StatelessWidget {
-  const _SavedFilePreview({required this.item, required this.onOpen});
+  const _SavedFilePreview({
+    required this.item,
+    required this.onOpen,
+    required this.onDownload,
+  });
 
   final SavedMessage item;
   final VoidCallback onOpen;
+  final VoidCallback? onDownload;
 
   @override
   Widget build(BuildContext context) {
@@ -4333,6 +4701,11 @@ class _SavedFilePreview extends StatelessWidget {
                             overflow: TextOverflow.ellipsis,
                           ),
                         ),
+                        IconButton(
+                          tooltip: 'Download',
+                          onPressed: onDownload,
+                          icon: const Icon(Icons.download_rounded, size: 20),
+                        ),
                       ],
                     ),
                   ),
@@ -4375,6 +4748,11 @@ class _SavedFilePreview extends StatelessWidget {
                             ),
                         ],
                       ),
+                    ),
+                    IconButton(
+                      tooltip: 'Download',
+                      onPressed: onDownload,
+                      icon: const Icon(Icons.download_rounded, size: 20),
                     ),
                     const Icon(Icons.open_in_new_rounded, size: 18),
                   ],
@@ -4493,7 +4871,6 @@ class DrawerItem extends StatelessWidget {
   }
 }
 
-
 String _normalizedCreatorEmployeeType(String value) {
   final type = value.trim().toUpperCase();
   if (type == '1') return 'B';
@@ -4510,7 +4887,9 @@ Future<bool> _canCreateGroupOrChannel(BuildContext context) async {
       if (context.mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
-            content: Text('Your user type is not allowed to create groups or channels.'),
+            content: Text(
+              'Your user type is not allowed to create groups or channels.',
+            ),
           ),
         );
       }
@@ -4521,6 +4900,7 @@ Future<bool> _canCreateGroupOrChannel(BuildContext context) async {
   }
   return true;
 }
+
 void showNewMessageSheet(BuildContext context) {
   showModalBottomSheet<void>(
     context: context,
@@ -4586,7 +4966,6 @@ class ManageGroupSheetState extends State<ManageGroupSheet> {
     }
   }
 
-
   Future<void> _memberAction(GroupMember member, String action) async {
     setState(() => _busy = true);
     try {
@@ -4607,6 +4986,7 @@ class ManageGroupSheetState extends State<ManageGroupSheet> {
       if (mounted) setState(() => _busy = false);
     }
   }
+
   Future<void> _addMember() async {
     final users = await chatApi.searchUsers();
     if (!mounted) return;
@@ -4754,6 +5134,7 @@ class NewGroupSheetState extends State<NewGroupSheet> {
   final _staleController = TextEditingController(text: '120');
   final _targetDateController = TextEditingController();
   final _nextActionController = TextEditingController();
+  final _descriptionController = TextEditingController();
   final Set<String> _selectedIds = {};
   List<ChatContact> _users = [];
   String _channelType = 'operational';
@@ -4778,6 +5159,7 @@ class NewGroupSheetState extends State<NewGroupSheet> {
     _staleController.dispose();
     _targetDateController.dispose();
     _nextActionController.dispose();
+    _descriptionController.dispose();
     super.dispose();
   }
 
@@ -4859,6 +5241,7 @@ class NewGroupSheetState extends State<NewGroupSheet> {
               memberEmployeeIds: _selectedIds.toList(),
               channelType: _channelType,
               priority: _priority,
+              description: _descriptionController.text.trim(),
               targetDate: _targetDateController.text.trim(),
               nextActionDate: _nextActionController.text.trim(),
               slaMinutes: int.tryParse(_slaController.text.trim()) ?? 0,
@@ -4945,6 +5328,18 @@ class NewGroupSheetState extends State<NewGroupSheet> {
               padding: const EdgeInsets.fromLTRB(18, 0, 18, 10),
               child: Column(
                 children: [
+                  TextField(
+                    controller: _descriptionController,
+                    minLines: 2,
+                    maxLines: 4,
+                    maxLength: 4000,
+                    decoration: const InputDecoration(
+                      labelText: 'Channel description',
+                      hintText: 'Purpose, scope and operating notes',
+                      prefixIcon: Icon(Icons.description_outlined),
+                    ),
+                  ),
+                  const SizedBox(height: 10),
                   DropdownButtonFormField<String>(
                     initialValue: _channelType,
                     decoration: const InputDecoration(
@@ -5312,4 +5707,3 @@ class NewMessageSheetState extends State<NewMessageSheet> {
     );
   }
 }
-

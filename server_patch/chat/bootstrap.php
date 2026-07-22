@@ -302,14 +302,30 @@ function chat_is_room_jid(string $jid): bool
 function chat_group_for_member(PDO $pdo, string $roomJid, int $empId): array
 {
     $stmt = $pdo->prepare(
-        'SELECT g.id, g.room_name, g.room_jid, gm.role
+        'SELECT g.id, g.room_name, g.room_jid, g.group_type, g.channel_kind, gm.role
          FROM xmpp_groups g
          INNER JOIN xmpp_group_members gm ON gm.group_id = g.id
          WHERE g.room_jid = :room_jid AND gm.emp_id = :emp_id
          LIMIT 1'
     );
     $stmt->execute([':room_jid' => strtolower($roomJid), ':emp_id' => $empId]);
-    return $stmt->fetch(PDO::FETCH_ASSOC) ?: [];
+    $group = $stmt->fetch(PDO::FETCH_ASSOC) ?: [];
+    if ($group) {
+        try {
+            chat_ensure_column($pdo, 'xmpp_groups', 'description', 'TEXT NULL AFTER avatar_url');
+            chat_ensure_column($pdo, 'xmpp_groups', 'next_action_text', 'TEXT NULL AFTER next_action_date');
+            chat_ensure_column($pdo, 'xmpp_groups', 'next_action_persons', 'TEXT NULL AFTER next_action_text');
+            chat_ensure_column($pdo, 'xmpp_groups', 'next_action_updated_at', 'DATETIME NULL AFTER next_action_persons');
+            chat_ensure_column($pdo, 'xmpp_groups', 'next_action_source_message_id', 'BIGINT NULL AFTER next_action_updated_at');
+            $extra = $pdo->prepare('SELECT description, next_action_text, next_action_persons, next_action_date FROM xmpp_groups WHERE id = :group_id LIMIT 1');
+            $extra->execute([':group_id' => (int)$group['id']]);
+            $group = array_merge($group, $extra->fetch(PDO::FETCH_ASSOC) ?: []);
+        } catch (Throwable $e) {
+            $group += ['description' => '', 'next_action_text' => '', 'next_action_persons' => '', 'next_action_date' => ''];
+            error_log('chat group optional channel fields skipped: ' . $e->getMessage());
+        }
+    }
+    return $group;
 }
 
 function chat_firebase_credentials_path(): string
@@ -332,7 +348,7 @@ function chat_push_preview(string $body, string $fileName = ''): string
             $caption = trim((string)($decoded['caption'] ?? ''));
             if ($caption !== '') return $caption;
             $name = trim((string)($decoded['name'] ?? $fileName));
-            return $name !== '' ? 'Ã°Å¸â€œÅ½ ' . $name : 'Ã°Å¸â€œÅ½ File';
+            return $name !== '' ? 'ÃƒÂ°Ã…Â¸Ã¢â‚¬Å“Ã…Â½ ' . $name : 'ÃƒÂ°Ã…Â¸Ã¢â‚¬Å“Ã…Â½ File';
         }
     }
     if (str_starts_with($body, 'SKYLINK_LOCATION:')) {
@@ -344,9 +360,9 @@ function chat_push_preview(string $body, string $fileName = ''): string
             return $label;
         }
     }
-    if ($fileName !== '') return 'Ã°Å¸â€œÅ½ ' . $fileName;
+    if ($fileName !== '') return 'ÃƒÂ°Ã…Â¸Ã¢â‚¬Å“Ã…Â½ ' . $fileName;
     $plain = trim(preg_replace('/\s+/', ' ', $body) ?: '');
-    return mb_strlen($plain) > 180 ? mb_substr($plain, 0, 177) . 'Ã¢â‚¬Â¦' : ($plain ?: 'New message');
+    return mb_strlen($plain) > 180 ? mb_substr($plain, 0, 177) . 'ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¦' : ($plain ?: 'New message');
 }
 
 function chat_push_recipient_ids(PDO $pdo, string $toJid, int $senderEmpId): array
@@ -402,7 +418,7 @@ function chat_send_push_notifications(
     if (!$tokens) return;
 
     $push = new FirebasePush(chat_firebase_credentials_path());
-    $title = $groupName !== '' ? $senderName . ' Ã‚Â· ' . $groupName : $senderName;
+    $title = $groupName !== '' ? $senderName . ' Ãƒâ€šÃ‚Â· ' . $groupName : $senderName;
     $preview = chat_push_preview($body, $fileName);
     $baseTitle = $title;
     foreach ($tokens as $row) {
@@ -547,6 +563,74 @@ function chat_process_push_queue(int $limit = 25): int
     }
     return $processed;
 }
+
+function chat_ensure_user_storage_limit_table(PDO $pdo): void
+{
+    $pdo->exec("CREATE TABLE IF NOT EXISTS flow_admin_user_storage_limits (
+        emp_id INT NOT NULL PRIMARY KEY,
+        limit_bytes BIGINT UNSIGNED NULL,
+        updated_by_emp_id INT NULL,
+        updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
+}
+
+function chat_default_storage_limit_bytes(): int
+{
+    return 2147483648; // 2 GB default quota for every Flow user.
+}
+
+function chat_user_storage_limit_bytes(PDO $pdo, int $empId): int
+{
+    chat_ensure_user_storage_limit_table($pdo);
+    $stmt = $pdo->prepare('SELECT limit_bytes FROM flow_admin_user_storage_limits WHERE emp_id = :emp_id LIMIT 1');
+    $stmt->execute([':emp_id' => $empId]);
+    $value = $stmt->fetchColumn();
+    if ($value === false || $value === null || $value === '') {
+        return chat_default_storage_limit_bytes();
+    }
+    return max(0, (int)$value);
+}
+
+function chat_user_uploaded_storage_bytes(PDO $pdo, int $empId): int
+{
+    chat_ensure_column($pdo, 'xmpp_messages', 'file_url', 'VARCHAR(500) NULL AFTER body');
+    chat_ensure_column($pdo, 'xmpp_messages', 'file_name', 'VARCHAR(255) NULL AFTER file_url');
+    chat_ensure_column($pdo, 'xmpp_messages', 'file_type', 'VARCHAR(255) NULL AFTER file_name');
+    chat_ensure_column($pdo, 'xmpp_messages', 'file_size', 'BIGINT NOT NULL DEFAULT 0 AFTER file_type');
+    chat_ensure_column($pdo, 'xmpp_messages', 'read_at', 'DATETIME NULL AFTER status');
+    chat_ensure_column($pdo, 'xmpp_messages', 'deleted_at', 'DATETIME NULL AFTER read_at');
+    $stmt = $pdo->prepare("SELECT COALESCE(SUM(CAST(file_size AS UNSIGNED)), 0) FROM xmpp_messages WHERE from_jid = :jid AND file_url IS NOT NULL AND file_url <> '' AND deleted_at IS NULL");
+    $stmt->execute([':jid' => chat_jid($empId)]);
+    return max(0, (int)$stmt->fetchColumn());
+}
+
+function chat_user_storage_quota(PDO $pdo, int $empId): array
+{
+    $used = chat_user_uploaded_storage_bytes($pdo, $empId);
+    $limit = chat_user_storage_limit_bytes($pdo, $empId);
+    $remaining = $limit > 0 ? max(0, $limit - $used) : 0;
+    return [
+        'used_bytes' => $used,
+        'limit_bytes' => $limit,
+        'remaining_bytes' => $remaining,
+        'used_percent' => $limit > 0 ? min(999, round(($used / max(1, $limit)) * 100, 1)) : 0,
+        'is_over_limit' => $limit > 0 && $used > $limit,
+    ];
+}
+
+function chat_assert_storage_quota(PDO $pdo, int $empId, int $incomingBytes): void
+{
+    $quota = chat_user_storage_quota($pdo, $empId);
+    $limit = (int)$quota['limit_bytes'];
+    if ($limit > 0 && ((int)$quota['used_bytes'] + max(0, $incomingBytes)) > $limit) {
+        chat_json([
+            'status' => false,
+            'error' => 'Storage limit reached. Delete files or contact admin to increase your storage limit.',
+            'quota' => $quota,
+        ], 413);
+    }
+}
+
 function chat_db(): PDO
 {
     return getDB();
@@ -805,6 +889,7 @@ function chat_ensure_schema(PDO $pdo): void
     );
     chat_ensure_column($pdo, 'xmpp_users', 'avatar_url', 'VARCHAR(500) NULL AFTER jid');
     chat_ensure_column($pdo, 'xmpp_groups', 'avatar_url', 'VARCHAR(500) NULL AFTER room_jid');
+    chat_ensure_column($pdo, 'xmpp_groups', 'description', 'TEXT NULL AFTER avatar_url');
     chat_ensure_column($pdo, 'xmpp_groups', 'group_type', 'VARCHAR(20) NOT NULL DEFAULT \'group\' AFTER avatar_url');
     chat_ensure_column($pdo, 'xmpp_groups', 'is_archived', 'TINYINT NOT NULL DEFAULT 0 AFTER group_type');
     chat_ensure_column($pdo, 'xmpp_groups', 'archived_at', 'DATETIME NULL AFTER is_archived');
@@ -812,6 +897,10 @@ function chat_ensure_schema(PDO $pdo): void
     chat_ensure_column($pdo, 'xmpp_groups', 'status', 'VARCHAR(40) NOT NULL DEFAULT \'Open\' AFTER channel_kind');
     chat_ensure_column($pdo, 'xmpp_groups', 'target_date', 'DATETIME NULL AFTER status');
     chat_ensure_column($pdo, 'xmpp_groups', 'next_action_date', 'DATETIME NULL AFTER target_date');
+    chat_ensure_column($pdo, 'xmpp_groups', 'next_action_text', 'TEXT NULL AFTER next_action_date');
+    chat_ensure_column($pdo, 'xmpp_groups', 'next_action_persons', 'TEXT NULL AFTER next_action_text');
+    chat_ensure_column($pdo, 'xmpp_groups', 'next_action_updated_at', 'DATETIME NULL AFTER next_action_persons');
+    chat_ensure_column($pdo, 'xmpp_groups', 'next_action_source_message_id', 'BIGINT NULL AFTER next_action_updated_at');
     chat_ensure_column($pdo, 'xmpp_groups', 'sla_minutes', 'INT NULL AFTER next_action_date');
     chat_ensure_column($pdo, 'xmpp_groups', 'priority', 'VARCHAR(20) NOT NULL DEFAULT \'Normal\' AFTER sla_minutes');
     chat_ensure_column($pdo, 'xmpp_groups', 'owner_emp_id', 'INT NULL AFTER priority');
@@ -1391,3 +1480,4 @@ function chat_slug(string $name): string
     $slug = trim($slug, '-');
     return $slug !== '' ? $slug : 'group-' . date('Ymd-His');
 }
+

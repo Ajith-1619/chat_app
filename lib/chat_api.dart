@@ -324,6 +324,11 @@ class ChannelProfile {
   String get kind => '${data['channel_kind'] ?? ''}';
   String get statusText => '${data['status_text'] ?? ''}';
   String get priority => '${data['priority'] ?? ''}';
+  String get description => '${data['description'] ?? ''}';
+  String get nextActionText => '${data['next_action_text'] ?? ''}';
+  String get nextActionPersons => '${data['next_action_persons'] ?? ''}';
+  String get nextActionDate => '${data['next_action_date'] ?? ''}';
+  String get nextActionUpdatedAt => '${data['next_action_updated_at'] ?? ''}';
   String get ageLabel => '${data['age_label'] ?? ''}';
   Map<String, dynamic> get sla => data['sla'] is Map
       ? Map<String, dynamic>.from(data['sla'] as Map)
@@ -373,7 +378,9 @@ class ChatAttachment {
           ? (json['waveform'] as List).map((value) => _jsonInt(value)).toList()
           : const [],
       durationMs: _jsonInt(json['duration_ms']),
-      isRestricted: _jsonBool(json['restricted'] ?? json['is_restricted'] ?? json['file_restricted']),
+      isRestricted: _jsonBool(
+        json['restricted'] ?? json['is_restricted'] ?? json['file_restricted'],
+      ),
     );
   }
 
@@ -552,7 +559,9 @@ class ApiMessage {
       fileName: '${json['file_name'] ?? ''}',
       fileType: '${json['file_type'] ?? ''}',
       fileSize: _jsonInt(json['file_size']),
-      fileRestricted: _jsonBool(json['file_restricted'] ?? json['restricted'] ?? json['is_restricted']),
+      fileRestricted: _jsonBool(
+        json['file_restricted'] ?? json['restricted'] ?? json['is_restricted'],
+      ),
       latitude: _jsonDouble(json['latitude']),
       longitude: _jsonDouble(json['longitude']),
       locationAddress: '${json['location_address'] ?? ''}',
@@ -1374,6 +1383,7 @@ class ChatApi {
     String channelType = 'operational',
     String priority = 'Normal',
     String status = 'Open',
+    String description = '',
     String targetDate = '',
     String nextActionDate = '',
     int slaMinutes = 0,
@@ -1389,6 +1399,7 @@ class ChatApi {
       'channel_type': channelType,
       'priority': priority,
       'status': status,
+      if (description.trim().isNotEmpty) 'description': description.trim(),
       if (targetDate.isNotEmpty) 'target_date': targetDate,
       if (nextActionDate.isNotEmpty) 'next_action_date': nextActionDate,
       if (slaMinutes > 0) 'sla_minutes': slaMinutes,
@@ -1544,6 +1555,26 @@ class ChatApi {
     return ChannelProfile(
       data: channel is Map ? Map<String, dynamic>.from(channel) : body,
     );
+  }
+
+  Future<void> updateChannelDetails({
+    required int groupId,
+    String description = '',
+    String channelType = '',
+    String priority = '',
+    String status = '',
+    String targetDate = '',
+    String nextActionDate = '',
+  }) async {
+    await _postJson('chat/update_channel.php', {
+      'group_id': groupId,
+      'description': description.trim(),
+      if (channelType.trim().isNotEmpty) 'channel_type': channelType.trim(),
+      if (priority.trim().isNotEmpty) 'priority': priority.trim(),
+      if (status.trim().isNotEmpty) 'status': status.trim(),
+      'target_date': targetDate.trim(),
+      'next_action_date': nextActionDate.trim(),
+    });
   }
 
   Future<Map<String, dynamic>> getWakeupConfig({
@@ -2143,7 +2174,9 @@ class ChatApi {
       throw const ApiException('Location messages cannot be downloaded.');
     }
     if (attachment.isRestricted) {
-      throw const ApiException('This file is restricted and can only be viewed inside Flow.');
+      throw const ApiException(
+        'This file is restricted and can only be viewed inside Flow.',
+      );
     }
     final safeName = attachment.name
         .replaceAll(RegExp(r'[<>:"/\\|?*]'), '_')
@@ -2276,6 +2309,10 @@ class ChatApi {
       fileName: name,
       fileType: mimeType,
     );
+  }
+
+  Future<Map<String, dynamic>> getStorageUsage() async {
+    return _getJson('chat/storage_usage.php');
   }
 
   Future<UserProfile> getProfile() async {
@@ -2785,7 +2822,6 @@ class ChatApi {
     }
   }
 
-
   Future<void> requestExternalUser({
     required int groupId,
     required String displayName,
@@ -2822,11 +2858,7 @@ class ChatApi {
     required String empId,
     required String action,
   }) async {
-    final payload = {
-      'group_id': groupId,
-      'emp_id': empId,
-      'action': action,
-    };
+    final payload = {'group_id': groupId, 'emp_id': empId, 'action': action};
     if (_useDirectWebXmpp) {
       await _webHelperPost('/group/member', payload);
     } else {

@@ -22,6 +22,9 @@ if ($size <= 0) {
     chat_json(['status' => false, 'error' => 'File must be at least 1 byte.'], 422);
 }
 
+$pdo = chat_db();
+chat_assert_storage_quota($pdo, (int)$session['emp_id'], $size);
+
 $original = trim((string)($file['name'] ?? 'file'));
 $safeName = preg_replace('/[^A-Za-z0-9._-]+/', '_', basename($original)) ?: 'file';
 $extension = strtolower(pathinfo($safeName, PATHINFO_EXTENSION));

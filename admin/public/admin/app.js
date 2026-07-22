@@ -502,6 +502,7 @@ async function openGroupInline(groupId) {
     if (!response.ok || data.status !== true) throw new Error(data.error || 'Unable to load group details.');
     pane.innerHTML = `<form id="inlineGroupForm" class="inline-detail-form">${groupDetailHtml(data)}<footer class="inline-actions"><button class="danger" type="button" data-delete-group>Delete</button><button type="submit">Save Group</button></footer></form>`;
     wireGroupMemberActions(groupId, pane, true);
+    wireGroupAiAccess(groupId, pane, true);
     wireGroupDelete(groupId, pane, true);
     document.getElementById('inlineGroupForm')?.addEventListener('submit', async (event) => {
       event.preventDefault();
@@ -609,6 +610,7 @@ async function openGroupDetailModal(groupId) {
     if (!response.ok || data.status !== true) throw new Error(data.error || 'Unable to load group details.');
     modalFields.innerHTML = groupDetailHtml(data);
     wireGroupMemberActions(groupId);
+    wireGroupAiAccess(groupId);
     wireGroupDelete(groupId);
   } catch (error) {
     modalFields.innerHTML = `<div class="empty">${escapeHtml(error.message)}</div>`;
@@ -622,6 +624,7 @@ function groupDetailHtml(data) {
   const externalMembers = data.external_members || [];
   const wakeup = data.wakeup || {};
   const channelTypes = data.channel_types || [];
+  const aiRoomAccess = data.ai_room_access || {};
   const type = group.group_type || group.channel_kind || 'group';
   return `
     <div class="user-detail-scroll group-detail-scroll">
@@ -707,6 +710,8 @@ function groupDetailHtml(data) {
           'Updated': group.updated_at,
 
         })}
+
+        ${aiRoomAccessPanel(aiRoomAccess)}
       </section>
 
       <section class="detail-panel members-panel">
@@ -727,6 +732,25 @@ function groupDetailHtml(data) {
       </section>
     </div>
   `;
+}
+
+function aiRoomAccessPanel(access) {
+  const providers = access.providers || [];
+  const selected = String(access.provider_id || '');
+  const providerOptions = '<option value="">Select AI API</option>' + providers.map((provider) => {
+    const id = String(provider.id || '');
+    const model = provider.model_name ? ' - ' + provider.model_name : '';
+    return '<option value="' + escapeHtml(id) + '" ' + (selected === id ? 'selected' : '') + '>' + escapeHtml(provider.provider_name || provider.api_type || id) + escapeHtml(model) + '</option>';
+  }).join('');
+  return '<div class="detail-panel ai-room-panel">'
+    + '<div class="members-head"><h4>AI access</h4><span>' + (access.enabled ? 'Enabled' : 'Off') + '</span></div>'
+    + '<div class="toggle-row"><input id="groupAiEnabled" type="checkbox" data-ai-room-enabled value="1" ' + (access.enabled ? 'checked' : '') + '><label for="groupAiEnabled">Enable @AI for this group/channel</label></div>'
+    + '<label>AI API<select data-ai-room-provider>' + providerOptions + '</select></label>'
+    + '<label>Trigger token<input type="text" data-ai-room-trigger value="' + escapeHtml(access.trigger_token || '@ai') + '" maxlength="40"></label>'
+    + '<label>Context messages<input type="number" data-ai-room-context min="5" max="50" value="' + escapeHtml(access.max_context_messages || 50) + '"></label>'
+    + '<small>@ai reads up to the latest 50 visible room messages and replies in this chat. Disabled rooms will ignore @ai.</small>'
+    + '<button type="button" data-ai-room-save>Save AI access</button>'
+    + '</div>';
 }
 
 function channelTypeOptionsHtml(types, current) {
@@ -908,6 +932,19 @@ function wireExternalMemberActions(groupId, container = modalFields, inline = fa
     });
   });
 }
+function wireGroupAiAccess(groupId, container = modalFields, inline = false) {
+  container.querySelector('[data-ai-room-save]')?.addEventListener('click', async () => {
+    await postAction('save_group_ai_access', {
+      group_id: groupId,
+      enabled: container.querySelector('[data-ai-room-enabled]')?.checked ? '1' : '0',
+      provider_id: container.querySelector('[data-ai-room-provider]')?.value || '',
+      trigger_token: container.querySelector('[data-ai-room-trigger]')?.value.trim() || '@ai',
+      max_context_messages: container.querySelector('[data-ai-room-context]')?.value || '50',
+    }, { reload: false });
+    inline ? await openGroupInline(groupId) : await openGroupDetailModal(groupId);
+  });
+}
+
 function wireGroupMemberActions(groupId, container = modalFields, inline = false) {
   wireAddMember(groupId, container, inline);
   wireExternalMemberActions(groupId, container, inline);

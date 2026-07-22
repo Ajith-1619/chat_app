@@ -1,56 +1,11 @@
-﻿import 'dart:async';
-import 'dart:convert';
-import 'dart:io';
-import 'dart:math';
-import 'dart:typed_data';
-
-import 'package:file_picker/file_picker.dart';
-import 'package:desktop_drop/desktop_drop.dart';
 import 'package:flutter/material.dart';
-import 'package:flutter/gestures.dart';
-import 'package:flutter/services.dart';
-import 'package:flutter/foundation.dart';
-import 'package:geolocator/geolocator.dart';
-import 'package:permission_handler/permission_handler.dart' as ph;
-import 'package:share_plus/share_plus.dart';
-import 'package:package_info_plus/package_info_plus.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-import 'package:scrollable_positioned_list/scrollable_positioned_list.dart';
 import 'package:url_launcher/url_launcher.dart';
-import 'package:record/record.dart';
-import 'package:just_audio/just_audio.dart';
-import 'package:path_provider/path_provider.dart';
-import 'package:speech_to_text/speech_to_text.dart';
-import 'package:http/http.dart' as http;
-import 'package:archive/archive.dart';
-
 import '../chat_api.dart';
-import '../location_tracking_service.dart';
-import '../notification_service.dart';
-import '../session_store.dart';
-import '../myhub_leave_screens.dart';
-import '../myhub_tasks_screen.dart';
 import '../flow_registry.dart';
-import '../mojibake_tools.dart';
-import '../clipboard_media_bridge.dart';
-import '../clipboard_text_bridge.dart';
-import '../file_preview_embed.dart';
-import '../web_attachment_bridge.dart';
-import '../web_file_actions.dart';
-import '../xmpp_bridge.dart';
-
 import '../app/skylink_app.dart';
-import '../auth/login_screen.dart';
-import '../home/home_screen.dart';
-import '../diagnostics/diagnostics_screen.dart';
-import '../discovery/discovery_screens.dart';
-import '../reminders/reminders_screens.dart';
-import '../settings/settings_screens.dart';
 import '../release/release_screens.dart';
-import '../tickets/ticket_dashboard_screen.dart';
 import '../profile/profile_screens.dart';
-import '../chat/chat_screen.dart';
-import '../attachments/attachment_widgets.dart';
 
 class SettingsScreen extends StatelessWidget {
   const SettingsScreen({super.key, this.currentUser});
@@ -94,10 +49,16 @@ class SettingsScreen extends StatelessWidget {
             title: Text('Privacy and security'),
             subtitle: Text('Session and last-seen controls'),
           ),
-          const ListTile(
-            leading: Icon(Icons.data_usage_rounded),
-            title: Text('Data and storage'),
-            subtitle: Text('Images are compressed; documents stay original'),
+          ListTile(
+            leading: const Icon(Icons.data_usage_rounded),
+            title: const Text('Data and storage'),
+            subtitle: const Text('Storage limit, usage and conversation file size'),
+            trailing: const Icon(Icons.chevron_right_rounded),
+            onTap: () => Navigator.of(context).push(
+              MaterialPageRoute<void>(
+                builder: (_) => const DataStorageSettingsScreen(),
+              ),
+            ),
           ),
           ListTile(
             leading: const Icon(Icons.palette_outlined),
@@ -171,6 +132,312 @@ class SettingsScreen extends StatelessWidget {
     );
   }
 
+}
+class DataStorageSettingsScreen extends StatefulWidget {
+  const DataStorageSettingsScreen({super.key});
+
+  @override
+  State<DataStorageSettingsScreen> createState() =>
+      _DataStorageSettingsScreenState();
+}
+
+class _DataStorageSettingsScreenState extends State<DataStorageSettingsScreen> {
+  late Future<Map<String, dynamic>> _future;
+
+  @override
+  void initState() {
+    super.initState();
+    _future = chatApi.getStorageUsage();
+  }
+
+  void _reload() {
+    setState(() {
+      _future = chatApi.getStorageUsage();
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text('Data and storage'),
+        actions: [
+          IconButton(
+            tooltip: 'Refresh',
+            onPressed: _reload,
+            icon: const Icon(Icons.refresh_rounded),
+          ),
+        ],
+      ),
+      body: FutureBuilder<Map<String, dynamic>>(
+        future: _future,
+        builder: (context, snapshot) {
+          if (snapshot.connectionState != ConnectionState.done) {
+            return const Center(child: CircularProgressIndicator());
+          }
+          if (snapshot.hasError) {
+            return _StorageErrorView(onRetry: _reload);
+          }
+          final data = snapshot.data ?? const <String, dynamic>{};
+          final quota = _map(data['quota']);
+          final summary = _map(data['summary']);
+          final conversations = (data['conversations'] as List? ?? const [])
+              .whereType<Map>()
+              .map((item) => Map<String, dynamic>.from(item))
+              .toList();
+          return RefreshIndicator(
+            onRefresh: () async => _reload(),
+            child: ListView(
+              padding: const EdgeInsets.all(16),
+              children: [
+                _StorageQuotaCard(quota: quota),
+                const SizedBox(height: 12),
+                _StorageSummaryGrid(summary: summary),
+                const SizedBox(height: 16),
+                Text(
+                  'Storage by chat',
+                  style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                        fontWeight: FontWeight.w800,
+                      ),
+                ),
+                const SizedBox(height: 8),
+                if (conversations.isEmpty)
+                  const _StorageEmptyCard()
+                else
+                  ...conversations.map(_StorageConversationTile.new),
+              ],
+            ),
+          );
+        },
+      ),
+    );
+  }
+}
+
+class _StorageQuotaCard extends StatelessWidget {
+  const _StorageQuotaCard({required this.quota});
+
+  final Map<String, dynamic> quota;
+
+  @override
+  Widget build(BuildContext context) {
+    final used = _intValue(quota['used_bytes']);
+    final limit = _intValue(quota['limit_bytes']);
+    final remaining = _intValue(quota['remaining_bytes']);
+    final percent = limit > 0 ? (used / limit).clamp(0.0, 1.0) : 0.0;
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                const Icon(Icons.cloud_queue_rounded),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Text(
+                    'Your Flow storage',
+                    style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                          fontWeight: FontWeight.w800,
+                        ),
+                  ),
+                ),
+                Text(_storageLabel(used)),
+              ],
+            ),
+            const SizedBox(height: 14),
+            ClipRRect(
+              borderRadius: BorderRadius.circular(999),
+              child: LinearProgressIndicator(value: percent, minHeight: 10),
+            ),
+            const SizedBox(height: 12),
+            Row(
+              children: [
+                Expanded(child: _StorageMiniStat('Used', _storageLabel(used))),
+                Expanded(
+                  child: _StorageMiniStat(
+                    'Limit',
+                    limit > 0 ? _storageLabel(limit) : 'Unlimited',
+                  ),
+                ),
+                Expanded(child: _StorageMiniStat('Free', _storageLabel(remaining))),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _StorageSummaryGrid extends StatelessWidget {
+  const _StorageSummaryGrid({required this.summary});
+
+  final Map<String, dynamic> summary;
+
+  @override
+  Widget build(BuildContext context) {
+    final items = [
+      ('Files', '${_intValue(summary['total_files'])}', Icons.attach_file_rounded),
+      ('Uploaded', _storageLabel(_intValue(summary['uploaded_bytes'])), Icons.upload_file_rounded),
+      ('Received', _storageLabel(_intValue(summary['received_bytes'])), Icons.download_rounded),
+      ('Visible data', _storageLabel(_intValue(summary['visible_bytes'])), Icons.folder_copy_outlined),
+    ];
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final columns = constraints.maxWidth > 640 ? 4 : 2;
+        return GridView.count(
+          crossAxisCount: columns,
+          shrinkWrap: true,
+          physics: const NeverScrollableScrollPhysics(),
+          mainAxisSpacing: 10,
+          crossAxisSpacing: 10,
+          childAspectRatio: columns == 4 ? 2.4 : 1.65,
+          children: [
+            for (final item in items)
+              Card(
+                child: Padding(
+                  padding: const EdgeInsets.all(12),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      Icon(item.$3, size: 20),
+                      const SizedBox(height: 8),
+                      Text(item.$1, style: Theme.of(context).textTheme.labelMedium),
+                      const SizedBox(height: 4),
+                      Text(
+                        item.$2,
+                        style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                              fontWeight: FontWeight.w800,
+                            ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+          ],
+        );
+      },
+    );
+  }
+}
+
+class _StorageMiniStat extends StatelessWidget {
+  const _StorageMiniStat(this.label, this.value);
+
+  final String label;
+  final String value;
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(label, style: Theme.of(context).textTheme.labelSmall),
+        const SizedBox(height: 2),
+        Text(value, style: const TextStyle(fontWeight: FontWeight.w800)),
+      ],
+    );
+  }
+}
+
+class _StorageConversationTile extends StatelessWidget {
+  const _StorageConversationTile(this.item);
+
+  final Map<String, dynamic> item;
+
+  @override
+  Widget build(BuildContext context) {
+    final type = '${item['type'] ?? 'user'}';
+    final icon = switch (type) {
+      'channel' => Icons.campaign_rounded,
+      'group' => Icons.groups_rounded,
+      _ => Icons.person_rounded,
+    };
+    final sent = _intValue(item['sent_bytes']);
+    final received = _intValue(item['received_bytes']);
+    final total = sent + received;
+    return Card(
+      child: ListTile(
+        leading: CircleAvatar(child: Icon(icon, size: 20)),
+        title: Text('${item['name'] ?? item['jid'] ?? 'Chat'}'),
+        subtitle: Text(
+          'Total ${_storageLabel(total)} | Sent ${_storageLabel(sent)} | Received ${_storageLabel(received)}',
+        ),
+        trailing: Text('${_intValue(item['total_files'])} files'),
+      ),
+    );
+  }
+}
+
+class _StorageEmptyCard extends StatelessWidget {
+  const _StorageEmptyCard();
+
+  @override
+  Widget build(BuildContext context) {
+    return const Card(
+      child: Padding(
+        padding: EdgeInsets.all(24),
+        child: Center(child: Text('No files shared yet.')),
+      ),
+    );
+  }
+}
+
+class _StorageErrorView extends StatelessWidget {
+  const _StorageErrorView({required this.onRetry});
+
+  final VoidCallback onRetry;
+
+  @override
+  Widget build(BuildContext context) {
+    return Center(
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          const Icon(Icons.error_outline_rounded, size: 42),
+          const SizedBox(height: 10),
+          const Text('Unable to load storage details'),
+          const SizedBox(height: 12),
+          FilledButton.icon(
+            onPressed: onRetry,
+            icon: const Icon(Icons.refresh_rounded),
+            label: const Text('Retry'),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+Map<String, dynamic> _map(dynamic value) {
+  if (value is Map<String, dynamic>) return value;
+  if (value is Map) return Map<String, dynamic>.from(value);
+  return const <String, dynamic>{};
+}
+
+int _intValue(dynamic value) {
+  if (value is int) return value < 0 ? 0 : value;
+  if (value is num) return value < 0 ? 0 : value.toInt();
+  return int.tryParse('${value ?? ''}') ?? 0;
+}
+
+String _storageLabel(int bytes) {
+  if (bytes < 1024) return '$bytes B';
+  const units = ['KB', 'MB', 'GB', 'TB'];
+  var value = bytes / 1024;
+  for (final unit in units) {
+    if (value < 1024 || unit == units.last) {
+      var text = value.toStringAsFixed(value >= 10 ? 1 : 2);
+      text = text.replaceFirst(RegExp(r'\.0+$'), '');
+      text = text.replaceFirst(RegExp(r'(\.\d*[1-9])0+$'), r'$1');
+      return '$text $unit';
+    }
+    value /= 1024;
+  }
+  return '$bytes B';
 }
 class AppearanceSettingsScreen extends StatefulWidget {
   const AppearanceSettingsScreen({super.key});

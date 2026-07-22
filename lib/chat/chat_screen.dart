@@ -571,6 +571,7 @@ class _ChatScreenState extends State<ChatScreen> {
       // Group messages remain available if member details cannot refresh.
     }
   }
+
   Map<int, String> _participantNamesForMessage(ChatMessage message) {
     final names = <int, String>{};
     final myId = int.tryParse(chatApi.currentJid.split('@').first);
@@ -1722,15 +1723,23 @@ class _ChatScreenState extends State<ChatScreen> {
 
   Future<void> _handleClipboardMediaPaste(List<PastedMediaFile> files) async {
     if (!mounted || _isUploading || files.isEmpty) return;
-    final pasteKey = files.map((file) {
-      final bytes = file.bytes;
-      var hash = 0;
-      for (var index = 0; index < bytes.length; index += max(1, bytes.length ~/ 64)) {
-        hash = 0x1fffffff & (hash + bytes[index] + ((hash << 10) & 0x1fffffff));
-        hash ^= hash >> 6;
-      }
-      return '${file.name}|${file.mimeType}|${bytes.length}|$hash';
-    }).join('::');
+    final pasteKey = files
+        .map((file) {
+          final bytes = file.bytes;
+          var hash = 0;
+          for (
+            var index = 0;
+            index < bytes.length;
+            index += max(1, bytes.length ~/ 64)
+          ) {
+            hash =
+                0x1fffffff &
+                (hash + bytes[index] + ((hash << 10) & 0x1fffffff));
+            hash ^= hash >> 6;
+          }
+          return '${file.name}|${file.mimeType}|${bytes.length}|$hash';
+        })
+        .join('::');
     final now = DateTime.now();
     final previousAt = _lastClipboardPasteAt;
     if (pasteKey == _lastClipboardPasteKey &&
@@ -2042,11 +2051,12 @@ class _ChatScreenState extends State<ChatScreen> {
                       contentPadding: EdgeInsets.zero,
                       value: restricted,
                       title: const Text('Restricted'),
-                      subtitle: const Text('Open only inside Flow. Download and Open with are disabled.'),
-                      controlAffinity: ListTileControlAffinity.leading,
-                      onChanged: (value) => setDialogState(
-                        () => restricted = value ?? false,
+                      subtitle: const Text(
+                        'Open only inside Flow. Download and Open with are disabled.',
                       ),
+                      controlAffinity: ListTileControlAffinity.leading,
+                      onChanged: (value) =>
+                          setDialogState(() => restricted = value ?? false),
                     ),
                     const SizedBox(height: 14),
                     Focus(
@@ -2324,7 +2334,8 @@ class _ChatScreenState extends State<ChatScreen> {
       chatApi.searchUsers(),
     ]);
     final byJid = <String, ChatContact>{};
-    byJid[_savedMessagesForwardTarget.jid.toLowerCase()] = _savedMessagesForwardTarget;
+    byJid[_savedMessagesForwardTarget.jid.toLowerCase()] =
+        _savedMessagesForwardTarget;
     for (final chat in [...values[0], ...values[1]]) {
       byJid[chat.jid.toLowerCase()] = chat;
     }
@@ -3755,9 +3766,8 @@ class _ChatScreenState extends State<ChatScreen> {
         ? <TextEditingController>[TextEditingController()]
         : items
               .map(
-                (item) => TextEditingController(
-                  text: '${item['text'] ?? ''}'.trim(),
-                ),
+                (item) =>
+                    TextEditingController(text: '${item['text'] ?? ''}'.trim()),
               )
               .toList();
     final save = await showDialog<bool>(
@@ -3858,14 +3868,18 @@ class _ChatScreenState extends State<ChatScreen> {
     }
     final encodedItems = <Map<String, dynamic>>[];
     for (var i = 0; i < nextItems.length; i++) {
-      final previous = previousByText[nextItems[i].toLowerCase()] ??
+      final previous =
+          previousByText[nextItems[i].toLowerCase()] ??
           (i < items.length ? items[i] : <String, dynamic>{});
       encodedItems.add(<String, dynamic>{
         'text': nextItems[i],
         'done': previous['done'] == true,
-        if (previous['checked_by'] is List) 'checked_by': previous['checked_by'],
-        if (previous['updated_by'] != null) 'updated_by': previous['updated_by'],
-        if (previous['updated_at'] != null) 'updated_at': previous['updated_at'],
+        if (previous['checked_by'] is List)
+          'checked_by': previous['checked_by'],
+        if (previous['updated_by'] != null)
+          'updated_by': previous['updated_by'],
+        if (previous['updated_at'] != null)
+          'updated_at': previous['updated_at'],
       });
     }
     final editedBody =
@@ -3891,6 +3905,7 @@ class _ChatScreenState extends State<ChatScreen> {
       );
     }
   }
+
   Future<void> _editPollMessage(ChatMessage message) async {
     final poll = decodeLivePoll(message.text);
     if (poll == null || message.id <= 0) return;
@@ -3905,12 +3920,14 @@ class _ChatScreenState extends State<ChatScreen> {
       text: '${poll['question'] ?? 'Poll'}',
     );
     final optionControllers = options.length < 2
-        ? <TextEditingController>[TextEditingController(), TextEditingController()]
+        ? <TextEditingController>[
+            TextEditingController(),
+            TextEditingController(),
+          ]
         : options
               .map(
-                (item) => TextEditingController(
-                  text: '${item['text'] ?? ''}'.trim(),
-                ),
+                (item) =>
+                    TextEditingController(text: '${item['text'] ?? ''}'.trim()),
               )
               .toList();
     var allowMultiple =
@@ -4064,6 +4081,7 @@ class _ChatScreenState extends State<ChatScreen> {
       ).showSnackBar(SnackBar(content: Text('Could not edit poll: $error')));
     }
   }
+
   Future<void> _votePoll(ChatMessage message, int optionIndex) async {
     try {
       await chatApi.votePollOption(message.id, optionIndex);
@@ -4429,15 +4447,21 @@ class _ChatScreenState extends State<ChatScreen> {
     _textSelectionActiveUntil = DateTime.now().add(const Duration(seconds: 12));
     final positions = _itemPositionsListener.itemPositions.value;
     if (positions.isEmpty) return;
-    final visible = positions
-        .where((position) => position.itemTrailingEdge > 0 && position.itemLeadingEdge < 1)
-        .toList()
-      ..sort((a, b) => a.itemLeadingEdge.compareTo(b.itemLeadingEdge));
+    final visible =
+        positions
+            .where(
+              (position) =>
+                  position.itemTrailingEdge > 0 && position.itemLeadingEdge < 1,
+            )
+            .toList()
+          ..sort((a, b) => a.itemLeadingEdge.compareTo(b.itemLeadingEdge));
     if (visible.isEmpty) return;
     final anchor = visible.first;
     _selectionAnchorIndex = anchor.index;
-    _selectionAnchorAlignment = anchor.itemLeadingEdge.clamp(0.0, 1.0).toDouble();
-    WidgetsBinding.instance.addPostFrameCallback((_) => _restoreSelectionAnchor());
+    _selectionAnchorAlignment = anchor.itemLeadingEdge
+        .clamp(0.0, 1.0)
+        .toDouble();
+    // Keep browser text selection stable; do not force-scroll the selected bubble.
   }
 
   void _restoreSelectionAnchor({int attemptsLeft = 4}) {
@@ -4568,10 +4592,13 @@ class _ChatScreenState extends State<ChatScreen> {
       subtitle: Text(value),
     );
   }
+
   bool _looksLikeCoordinates(String value) {
     final text = value.trim();
     if (text.isEmpty) return false;
-    return RegExp(r'^-?\d{1,3}(?:\.\d+)?\s*,\s*-?\d{1,3}(?:\.\d+)?$').hasMatch(text);
+    return RegExp(
+      r'^-?\d{1,3}(?:\.\d+)?\s*,\s*-?\d{1,3}(?:\.\d+)?$',
+    ).hasMatch(text);
   }
 
   double? _infoDouble(Map<String, dynamic> data, List<String> keys) {
@@ -4819,7 +4846,8 @@ class _ChatScreenState extends State<ChatScreen> {
       chatApi.searchUsers(),
     ]);
     final byJid = <String, ChatContact>{};
-    byJid[_savedMessagesForwardTarget.jid.toLowerCase()] = _savedMessagesForwardTarget;
+    byJid[_savedMessagesForwardTarget.jid.toLowerCase()] =
+        _savedMessagesForwardTarget;
     for (final chat in [...values[0], ...values[1]]) {
       byJid[chat.jid.toLowerCase()] = chat;
     }
@@ -5161,7 +5189,9 @@ class _ChatScreenState extends State<ChatScreen> {
                                   message: message,
                                   showSender: widget.chat.isGroup,
                                   showLocationAddress: _canViewMessageLocations,
-                                  participantNames: _participantNamesForMessage(message),
+                                  participantNames: _participantNamesForMessage(
+                                    message,
+                                  ),
                                   showChecklistPollDetails: message.isMe,
                                   replyMessage: _messageById(message.replyToId),
                                   dateLabel: showDate
@@ -5592,7 +5622,6 @@ class _ChatScreenState extends State<ChatScreen> {
     }
   }
 
-
   Future<void> _requestExternalUser() async {
     final groupId = int.tryParse(widget.chat.empId) ?? 0;
     if (groupId <= 0) return;
@@ -5673,10 +5702,14 @@ class _ChatScreenState extends State<ChatScreen> {
                     Wrap(
                       spacing: 8,
                       runSpacing: 8,
-                      children: ['email', 'whatsapp', 'telegram', 'sms'].map((channel) {
+                      children: ['email', 'whatsapp', 'telegram', 'sms'].map((
+                        channel,
+                      ) {
                         final selected = channels.contains(channel);
                         return FilterChip(
-                          label: Text(channel[0].toUpperCase() + channel.substring(1)),
+                          label: Text(
+                            channel[0].toUpperCase() + channel.substring(1),
+                          ),
                           selected: selected,
                           onSelected: (value) => setDialogState(() {
                             if (value) {
@@ -5728,11 +5761,15 @@ class _ChatScreenState extends State<ChatScreen> {
       );
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('External user request sent for admin approval.')),
+        const SnackBar(
+          content: Text('External user request sent for admin approval.'),
+        ),
       );
     } on ApiException catch (error) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(error.message)));
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text(error.message)));
       }
     } finally {
       nameController.dispose();
@@ -5827,7 +5864,8 @@ class _ChatScreenState extends State<ChatScreen> {
                   'Request approval for email, WhatsApp, Telegram or SMS access',
                 ),
                 onTap: _requestExternalUser,
-              ),              ListTile(
+              ),
+              ListTile(
                 leading: const Icon(Icons.person_add_alt_rounded),
                 title: const Text('Manage members'),
                 onTap: () async {
@@ -5886,7 +5924,8 @@ class _ChatScreenState extends State<ChatScreen> {
                 ),
                 trailing:
                     (_groupRole == 'owner' ||
-                            (_groupRole == 'admin' && member.role == 'member')) &&
+                            (_groupRole == 'admin' &&
+                                member.role == 'member')) &&
                         member.role != 'owner'
                     ? PopupMenuButton<String>(
                         onSelected: (action) => _memberAction(member, action),
@@ -6086,68 +6125,84 @@ class _TaskPeoplePicker extends StatelessWidget {
                         builder: (context, setSheetState) {
                           final needle = query.trim().toLowerCase();
                           final visiblePeople = directory.where((person) {
-                            final idText = '${person['emp_id'] ?? person['id'] ?? ''}';
+                            final idText =
+                                '${person['emp_id'] ?? person['id'] ?? ''}';
                             if (needle.isEmpty) return true;
                             return idText.toLowerCase().contains(needle) ||
-                                '${person['name'] ?? ''}'.toLowerCase().contains(needle) ||
-                                '${person['designation'] ?? ''}'.toLowerCase().contains(needle);
+                                '${person['name'] ?? ''}'
+                                    .toLowerCase()
+                                    .contains(needle) ||
+                                '${person['designation'] ?? ''}'
+                                    .toLowerCase()
+                                    .contains(needle);
                           }).toList();
                           return SafeArea(
-                          child: Column(
-                            children: [
-                              ListTile(title: Text(title)),
-                              Padding(
-                                padding: const EdgeInsets.fromLTRB(16, 0, 16, 10),
-                                child: TextField(
-                                  decoration: const InputDecoration(
-                                    hintText: 'Search people',
-                                    prefixIcon: Icon(Icons.search_rounded),
+                            child: Column(
+                              children: [
+                                ListTile(title: Text(title)),
+                                Padding(
+                                  padding: const EdgeInsets.fromLTRB(
+                                    16,
+                                    0,
+                                    16,
+                                    10,
                                   ),
-                                  onChanged: (value) =>
-                                      setSheetState(() => query = value),
+                                  child: TextField(
+                                    decoration: const InputDecoration(
+                                      hintText: 'Search people',
+                                      prefixIcon: Icon(Icons.search_rounded),
+                                    ),
+                                    onChanged: (value) =>
+                                        setSheetState(() => query = value),
+                                  ),
                                 ),
-                              ),
-                              Expanded(
-                                child: visiblePeople.isEmpty
-                                    ? const Center(child: Text('No users found.'))
-                                    : ListView.builder(
-                                  itemCount: visiblePeople.length,
-                                  itemBuilder: (context, index) {
-                                    final person = visiblePeople[index];
-                                    final id =
-                                        int.tryParse(
-                                          '${person['emp_id'] ?? person['id'] ?? ''}',
-                                        ) ??
-                                        0;
-                                    if (id <= 0) return const SizedBox.shrink();
-                                    return CheckboxListTile(
-                                      value: draft.contains(id),
-                                      title: Text('${person['name'] ?? id}'),
-                                      subtitle: Text(
-                                        '${person['designation'] ?? ''}',
-                                      ),
-                                      onChanged: (value) => setSheetState(() {
-                                        if (value ?? false) {
-                                          draft.add(id);
-                                        } else {
-                                          draft.remove(id);
-                                        }
-                                      }),
-                                    );
-                                  },
+                                Expanded(
+                                  child: visiblePeople.isEmpty
+                                      ? const Center(
+                                          child: Text('No users found.'),
+                                        )
+                                      : ListView.builder(
+                                          itemCount: visiblePeople.length,
+                                          itemBuilder: (context, index) {
+                                            final person = visiblePeople[index];
+                                            final id =
+                                                int.tryParse(
+                                                  '${person['emp_id'] ?? person['id'] ?? ''}',
+                                                ) ??
+                                                0;
+                                            if (id <= 0)
+                                              return const SizedBox.shrink();
+                                            return CheckboxListTile(
+                                              value: draft.contains(id),
+                                              title: Text(
+                                                '${person['name'] ?? id}',
+                                              ),
+                                              subtitle: Text(
+                                                '${person['designation'] ?? ''}',
+                                              ),
+                                              onChanged: (value) =>
+                                                  setSheetState(() {
+                                                    if (value ?? false) {
+                                                      draft.add(id);
+                                                    } else {
+                                                      draft.remove(id);
+                                                    }
+                                                  }),
+                                            );
+                                          },
+                                        ),
                                 ),
-                              ),
-                              Padding(
-                                padding: const EdgeInsets.all(12),
-                                child: FilledButton(
-                                  onPressed: () =>
-                                      Navigator.pop(sheetContext, draft),
-                                  child: const Text('Done'),
+                                Padding(
+                                  padding: const EdgeInsets.all(12),
+                                  child: FilledButton(
+                                    onPressed: () =>
+                                        Navigator.pop(sheetContext, draft),
+                                    child: const Text('Done'),
+                                  ),
                                 ),
-                              ),
-                            ],
-                          ),
-                        );
+                              ],
+                            ),
+                          );
                         },
                       );
                     },
@@ -6282,177 +6337,227 @@ class _MessageBubble extends StatelessWidget {
               constraints: BoxConstraints(maxWidth: bubbleMaxWidth),
               child: IntrinsicWidth(
                 child: Container(
-              margin: EdgeInsets.only(bottom: 8 * appChatDensity.value),
-              padding: EdgeInsets.fromLTRB(
-                13,
-                9 * appChatDensity.value,
-                9,
-                7 * appChatDensity.value,
-              ),
-              decoration: BoxDecoration(
-                color: selected
-                    ? colors.primary.withValues(alpha: dark ? 0.36 : 0.24)
-                    : isTaggedOrReplied
-                    ? (dark
-                          ? colors.secondaryContainer.withValues(alpha: 0.55)
-                          : message.isMe
-                          ? const Color(0xFFC7E0FF)
-                          : const Color(0xFFFFF0C8))
-                    : message.isMe
-                    ? dark
-                          ? colors.primaryContainer.withValues(alpha: 0.55)
-                          : AppColors.outgoing
-                    : colors.surface,
-                borderRadius: BorderRadius.only(
-                  topLeft: const Radius.circular(17),
-                  topRight: const Radius.circular(17),
-                  bottomLeft: Radius.circular(message.isMe ? 17 : 4),
-                  bottomRight: Radius.circular(message.isMe ? 4 : 17),
-                ),
-                border: isTaggedOrReplied
-                    ? Border.all(
-                        color: dark ? colors.secondary : const Color(0xFFFFB020),
-                        width: 1.2,
-                      )
-                    : null,
-                boxShadow: const [
-                  BoxShadow(
-                    color: Color(0x100C2748),
-                    blurRadius: 3,
-                    offset: Offset(0, 1),
+                  margin: EdgeInsets.only(bottom: 8 * appChatDensity.value),
+                  padding: EdgeInsets.fromLTRB(
+                    13,
+                    9 * appChatDensity.value,
+                    9,
+                    7 * appChatDensity.value,
                   ),
-                ],
-              ),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  if (showSender && !message.isMe && message.sender != null)
-                    Padding(
-                      padding: const EdgeInsets.only(bottom: 3),
-                      child: Text(
-                        cleanMojibakeText(message.sender!),
-                        style: TextStyle(
-                          color: dark ? colors.primary : AppColors.primary,
-                          fontSize: 13,
-                          fontWeight: FontWeight.w700,
-                        ),
-                      ),
+                  decoration: BoxDecoration(
+                    color: selected
+                        ? colors.primary.withValues(alpha: dark ? 0.36 : 0.24)
+                        : isTaggedOrReplied
+                        ? (dark
+                              ? colors.secondaryContainer.withValues(
+                                  alpha: 0.55,
+                                )
+                              : message.isMe
+                              ? const Color(0xFFC7E0FF)
+                              : const Color(0xFFFFF0C8))
+                        : message.isMe
+                        ? dark
+                              ? colors.primaryContainer.withValues(alpha: 0.55)
+                              : AppColors.outgoing
+                        : colors.surface,
+                    borderRadius: BorderRadius.only(
+                      topLeft: const Radius.circular(17),
+                      topRight: const Radius.circular(17),
+                      bottomLeft: Radius.circular(message.isMe ? 17 : 4),
+                      bottomRight: Radius.circular(message.isMe ? 4 : 17),
                     ),
-                  if (replyMessage != null)
-                    InkWell(
-                      onTap: onReplyTap,
-                      child: Container(
-                        width: double.infinity,
-                        margin: const EdgeInsets.only(bottom: 7),
-                        padding: const EdgeInsets.all(8),
-                        decoration: BoxDecoration(
-                          color: AppColors.primary.withValues(alpha: 0.08),
-                          borderRadius: BorderRadius.circular(9),
-                          border: const Border(
-                            left: BorderSide(
-                              color: AppColors.primary,
-                              width: 3,
+                    border: isTaggedOrReplied
+                        ? Border.all(
+                            color: dark
+                                ? colors.secondary
+                                : const Color(0xFFFFB020),
+                            width: 1.2,
+                          )
+                        : null,
+                    boxShadow: const [
+                      BoxShadow(
+                        color: Color(0x100C2748),
+                        blurRadius: 3,
+                        offset: Offset(0, 1),
+                      ),
+                    ],
+                  ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      if (showSender && !message.isMe && message.sender != null)
+                        Padding(
+                          padding: const EdgeInsets.only(bottom: 3),
+                          child: Text(
+                            cleanMojibakeText(message.sender!),
+                            style: TextStyle(
+                              color: dark ? colors.primary : AppColors.primary,
+                              fontSize: 13,
+                              fontWeight: FontWeight.w700,
                             ),
                           ),
                         ),
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(
-                              replyMessage!.sender ??
-                                  (replyMessage!.isMe ? 'You' : 'Message'),
-                              style: const TextStyle(
-                                color: AppColors.primary,
-                                fontSize: 12,
-                                fontWeight: FontWeight.w700,
+                      if (replyMessage != null)
+                        InkWell(
+                          onTap: onReplyTap,
+                          child: Container(
+                            width: double.infinity,
+                            margin: const EdgeInsets.only(bottom: 7),
+                            padding: const EdgeInsets.all(8),
+                            decoration: BoxDecoration(
+                              color: AppColors.primary.withValues(alpha: 0.08),
+                              borderRadius: BorderRadius.circular(9),
+                              border: const Border(
+                                left: BorderSide(
+                                  color: AppColors.primary,
+                                  width: 3,
+                                ),
                               ),
                             ),
-                            Text(
-                              cleanMojibakeText(replyMessage!.previewText),
-                              maxLines: 2,
-                              overflow: TextOverflow.ellipsis,
-                              style: const TextStyle(fontSize: 12),
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  replyMessage!.sender ??
+                                      (replyMessage!.isMe ? 'You' : 'Message'),
+                                  style: const TextStyle(
+                                    color: AppColors.primary,
+                                    fontSize: 12,
+                                    fontWeight: FontWeight.w700,
+                                  ),
+                                ),
+                                Text(
+                                  cleanMojibakeText(replyMessage!.previewText),
+                                  maxLines: 2,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: const TextStyle(fontSize: 12),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ),
+                      if (message.threadRootId > 0)
+                        Padding(
+                          padding: const EdgeInsets.only(bottom: 5),
+                          child: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: const [
+                              Icon(
+                                Icons.forum_outlined,
+                                size: 13,
+                                color: AppColors.primary,
+                              ),
+                              SizedBox(width: 4),
+                              Text(
+                                'Thread reply',
+                                style: TextStyle(
+                                  color: AppColors.primary,
+                                  fontSize: 11,
+                                  fontWeight: FontWeight.w600,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      if (message.originalSenderName.isNotEmpty)
+                        Container(
+                          width: double.infinity,
+                          margin: const EdgeInsets.only(bottom: 7),
+                          padding: const EdgeInsets.all(8),
+                          decoration: BoxDecoration(
+                            color: AppColors.primary.withValues(alpha: 0.08),
+                            borderRadius: BorderRadius.circular(8),
+                          ),
+                          child: Text(
+                            'Forwarded from ${cleanMojibakeText(message.originalSenderName)}'
+                            '${message.originalSourceName.isNotEmpty ? ' - ${cleanMojibakeText(message.originalSourceName)}' : ''}',
+                            style: const TextStyle(
+                              color: AppColors.primary,
+                              fontSize: 11,
+                              fontWeight: FontWeight.w700,
+                            ),
+                          ),
+                        ),
+                      if (attachment != null)
+                        AttachmentContent(attachment: attachment)
+                      else if (contactCard != null)
+                        ContactMessageCard(data: contactCard)
+                      else if (checklist != null)
+                        LiveChecklistCard(
+                          data: checklist,
+                          onToggle: onChecklistToggle,
+                          showDetails: showChecklistPollDetails,
+                          participantNames: participantNames,
+                        )
+                      else if (poll != null)
+                        LivePollCard(
+                          data: poll,
+                          onVote: onPollVote,
+                          showDetails: showChecklistPollDetails,
+                          participantNames: participantNames,
+                        )
+                      else
+                        Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            _CollapsibleMessageText(
+                              text: cleanMojibakeText(message.text),
+                              onMentionTap: onMentionTap,
+                              onSelectionChanged: onTextSelectionChanged,
+                            ),
+                            const SizedBox(height: 3),
+                            Align(
+                              alignment: Alignment.centerRight,
+                              child: Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  Text(
+                                    message.time,
+                                    style: const TextStyle(
+                                      color: AppColors.muted,
+                                      fontSize: 10,
+                                    ),
+                                  ),
+                                  if (message.isEdited)
+                                    const Padding(
+                                      padding: EdgeInsets.only(left: 4),
+                                      child: Text(
+                                        'edited',
+                                        style: TextStyle(
+                                          color: AppColors.muted,
+                                          fontSize: 10,
+                                        ),
+                                      ),
+                                    ),
+                                  if (message.isMe) ...[
+                                    const SizedBox(width: 3),
+                                    Icon(
+                                      message.isFailed
+                                          ? Icons.error_outline_rounded
+                                          : message.isSending
+                                          ? Icons.schedule_rounded
+                                          : message.isRead
+                                          ? Icons.done_all_rounded
+                                          : Icons.done_rounded,
+                                      size: 16,
+                                      color: message.isFailed
+                                          ? Colors.red
+                                          : AppColors.primary,
+                                    ),
+                                  ],
+                                ],
+                              ),
                             ),
                           ],
                         ),
-                      ),
-                    ),
-                  if (message.threadRootId > 0)
-                    Padding(
-                      padding: const EdgeInsets.only(bottom: 5),
-                      child: Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: const [
-                          Icon(
-                            Icons.forum_outlined,
-                            size: 13,
-                            color: AppColors.primary,
-                          ),
-                          SizedBox(width: 4),
-                          Text(
-                            'Thread reply',
-                            style: TextStyle(
-                              color: AppColors.primary,
-                              fontSize: 11,
-                              fontWeight: FontWeight.w600,
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                  if (message.originalSenderName.isNotEmpty)
-                    Container(
-                      width: double.infinity,
-                      margin: const EdgeInsets.only(bottom: 7),
-                      padding: const EdgeInsets.all(8),
-                      decoration: BoxDecoration(
-                        color: AppColors.primary.withValues(alpha: 0.08),
-                        borderRadius: BorderRadius.circular(8),
-                      ),
-                      child: Text(
-                        'Forwarded from ${cleanMojibakeText(message.originalSenderName)}'
-                        '${message.originalSourceName.isNotEmpty ? ' - ${cleanMojibakeText(message.originalSourceName)}' : ''}',
-                        style: const TextStyle(
-                          color: AppColors.primary,
-                          fontSize: 11,
-                          fontWeight: FontWeight.w700,
-                        ),
-                      ),
-                    ),
-                  if (attachment != null)
-                    AttachmentContent(attachment: attachment)
-                  else if (contactCard != null)
-                    ContactMessageCard(data: contactCard)
-                  else if (checklist != null)
-                    LiveChecklistCard(
-                      data: checklist,
-                      onToggle: onChecklistToggle,
-                      showDetails: showChecklistPollDetails,
-                      participantNames: participantNames,
-                    )
-                  else if (poll != null)
-                    LivePollCard(
-                      data: poll,
-                      onVote: onPollVote,
-                      showDetails: showChecklistPollDetails,
-                      participantNames: participantNames,
-                    )
-                  else
-                    Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        _CollapsibleMessageText(
-                          text: cleanMojibakeText(message.text),
-                          onMentionTap: onMentionTap,
-                          onSelectionChanged: onTextSelectionChanged,
-                        ),
-                        const SizedBox(height: 3),
-                        Align(
-                          alignment: Alignment.centerRight,
+                      if (attachment != null)
+                        Padding(
+                          padding: const EdgeInsets.only(top: 5),
                           child: Row(
                             mainAxisSize: MainAxisSize.min,
+                            mainAxisAlignment: MainAxisAlignment.end,
                             children: [
                               Text(
                                 message.time,
@@ -6461,147 +6566,101 @@ class _MessageBubble extends StatelessWidget {
                                   fontSize: 10,
                                 ),
                               ),
-                              if (message.isEdited)
-                                const Padding(
-                                  padding: EdgeInsets.only(left: 4),
-                                  child: Text(
-                                    'edited',
-                                    style: TextStyle(
-                                      color: AppColors.muted,
-                                      fontSize: 10,
-                                    ),
-                                  ),
-                                ),
                               if (message.isMe) ...[
                                 const SizedBox(width: 3),
                                 Icon(
-                                  message.isFailed
-                                      ? Icons.error_outline_rounded
-                                      : message.isSending
-                                      ? Icons.schedule_rounded
-                                      : message.isRead
+                                  message.isRead
                                       ? Icons.done_all_rounded
                                       : Icons.done_rounded,
                                   size: 16,
-                                  color: message.isFailed
-                                      ? Colors.red
-                                      : AppColors.primary,
+                                  color: AppColors.primary,
                                 ),
                               ],
                             ],
                           ),
                         ),
-                      ],
-                    ),
-                  if (attachment != null)
-                    Padding(
-                      padding: const EdgeInsets.only(top: 5),
-                      child: Row(
-                        mainAxisSize: MainAxisSize.min,
-                        mainAxisAlignment: MainAxisAlignment.end,
-                        children: [
-                          Text(
-                            message.time,
+                      if (message.visibilityMode.toLowerCase() == 'selected')
+                        Padding(
+                          padding: const EdgeInsets.only(top: 4),
+                          child: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: const [
+                              Icon(
+                                Icons.lock_person_outlined,
+                                size: 11,
+                                color: AppColors.muted,
+                              ),
+                              SizedBox(width: 3),
+                              Text(
+                                'Selected users',
+                                style: TextStyle(
+                                  color: AppColors.muted,
+                                  fontSize: 9,
+                                  fontWeight: FontWeight.w700,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      if (message.sourceDevice != 'unknown' &&
+                          message.sourceDevice.isNotEmpty)
+                        Padding(
+                          padding: const EdgeInsets.only(top: 3),
+                          child: Text(
+                            message.sourceName.isEmpty
+                                ? 'via ${cleanMojibakeText(message.sourceDevice)}'
+                                : 'via ${cleanMojibakeText(message.sourceDevice)} - ${cleanMojibakeText(message.sourceName)}',
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
                             style: const TextStyle(
                               color: AppColors.muted,
-                              fontSize: 10,
-                            ),
-                          ),
-                          if (message.isMe) ...[
-                            const SizedBox(width: 3),
-                            Icon(
-                              message.isRead
-                                  ? Icons.done_all_rounded
-                                  : Icons.done_rounded,
-                              size: 16,
-                              color: AppColors.primary,
-                            ),
-                          ],
-                        ],
-                      ),
-                    ),
-                  if (message.visibilityMode.toLowerCase() == 'selected')
-                    Padding(
-                      padding: const EdgeInsets.only(top: 4),
-                      child: Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: const [
-                          Icon(
-                            Icons.lock_person_outlined,
-                            size: 11,
-                            color: AppColors.muted,
-                          ),
-                          SizedBox(width: 3),
-                          Text(
-                            'Selected users',
-                            style: TextStyle(
-                              color: AppColors.muted,
                               fontSize: 9,
-                              fontWeight: FontWeight.w700,
                             ),
                           ),
-                        ],
-                      ),
-                    ),
-                  if (message.sourceDevice != 'unknown' &&
-                      message.sourceDevice.isNotEmpty)
-                    Padding(
-                      padding: const EdgeInsets.only(top: 3),
-                      child: Text(
-                        message.sourceName.isEmpty
-                            ? 'via ${cleanMojibakeText(message.sourceDevice)}'
-                            : 'via ${cleanMojibakeText(message.sourceDevice)} - ${cleanMojibakeText(message.sourceName)}',
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: const TextStyle(
-                          color: AppColors.muted,
-                          fontSize: 9,
                         ),
-                      ),
-                    ),
-                  if (showLocationAddress &&
-                      message.locationAddress.trim().isNotEmpty)
-                    Padding(
-                      padding: const EdgeInsets.only(top: 3),
-                      child: Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          const Icon(
-                            Icons.location_on_outlined,
-                            size: 11,
-                            color: AppColors.muted,
-                          ),
-                          const SizedBox(width: 3),
-                          Flexible(
-                            child: Text(
-                              cleanMojibakeText(message.locationAddress),
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                              style: const TextStyle(
+                      if (showLocationAddress &&
+                          message.locationAddress.trim().isNotEmpty)
+                        Padding(
+                          padding: const EdgeInsets.only(top: 3),
+                          child: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              const Icon(
+                                Icons.location_on_outlined,
+                                size: 11,
                                 color: AppColors.muted,
-                                fontSize: 9,
                               ),
-                            ),
+                              const SizedBox(width: 3),
+                              Flexible(
+                                child: Text(
+                                  cleanMojibakeText(message.locationAddress),
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: const TextStyle(
+                                    color: AppColors.muted,
+                                    fontSize: 9,
+                                  ),
+                                ),
+                              ),
+                            ],
                           ),
-                        ],
-                      ),
-                    ),
-                  if (message.reaction.isNotEmpty)
-                    Container(
-                      margin: const EdgeInsets.only(top: 5),
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 7,
-                        vertical: 3,
-                      ),
-                      decoration: BoxDecoration(
-                        color: Colors.white,
-                        borderRadius: BorderRadius.circular(12),
-                        border: Border.all(color: AppColors.divider),
-                      ),
-                      child: Text(cleanMojibakeText(message.reaction)),
-                    ),
-                ],
-              ),
+                        ),
+                      if (message.reaction.isNotEmpty)
+                        Container(
+                          margin: const EdgeInsets.only(top: 5),
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 7,
+                            vertical: 3,
+                          ),
+                          decoration: BoxDecoration(
+                            color: Colors.white,
+                            borderRadius: BorderRadius.circular(12),
+                            border: Border.all(color: AppColors.divider),
+                          ),
+                          child: Text(cleanMojibakeText(message.reaction)),
+                        ),
+                    ],
+                  ),
                 ),
               ),
             ),
@@ -7060,7 +7119,6 @@ class _ForwardTargetSheetState extends State<_ForwardTargetSheet> {
   }
 }
 
-
 void _applyComposerFormatting(
   TextEditingController controller,
   String prefix,
@@ -7152,7 +7210,8 @@ Widget _composerContextMenu(
   TextEditingController controller,
 ) {
   final anchors = editableTextState.contextMenuAnchors;
-  final selected = controller.selection.isValid && !controller.selection.isCollapsed;
+  final selected =
+      controller.selection.isValid && !controller.selection.isCollapsed;
   final items = <ContextMenuButtonItem>[
     ...editableTextState.contextMenuButtonItems,
     if (selected) ...[
@@ -7366,16 +7425,18 @@ class _MessageComposer extends StatelessWidget {
                           ),
                           IconButton(
                             tooltip: 'Format selected text',
-                            onPressed: controller.selection.isValid &&
+                            onPressed:
+                                controller.selection.isValid &&
                                     !controller.selection.isCollapsed
                                 ? () => _showComposerFormattingMenu(
-                                      context,
-                                      controller,
-                                    )
+                                    context,
+                                    controller,
+                                  )
                                 : null,
                             icon: Icon(
                               Icons.format_bold_rounded,
-                              color: controller.selection.isValid &&
+                              color:
+                                  controller.selection.isValid &&
                                       !controller.selection.isCollapsed
                                   ? AppColors.muted
                                   : AppColors.muted.withOpacity(0.45),
@@ -7585,4 +7646,3 @@ String formatFileSize(int bytes) {
   final mb = kb / 1024;
   return '${mb.toStringAsFixed(1)} MB';
 }
-

@@ -109,3 +109,17 @@
 - Status: Implemented
 - Requirement: Flow group/channel owner/admin can request adding an external user from chat UI; super admin approves/rejects in admin; approval adds external user to group/channel.
 
+
+## REQ-20260721-EXTERNAL-EMAIL-SMTP
+- Status: Implemented
+- Requirement: External users with email delivery should receive mention/welcome messages from the Flow mailbox through Skylink SMTP.
+
+## 2026-07-21 - External User Welcome Email
+- Requirement: When an admin adds or approves an external email contact for a group/channel, the external contact must receive a welcome email from the Flow mailbox, while the channel welcome message still appears in Flow.
+- Status: Implemented locally; requires deployment of admin legacy files to live admin folder.
+
+
+## 2026-07-21 - Default 2GB Storage And Usage Details
+- Requirement: All Flow users should have a default 2GB storage limit. Chat app Settings > Data and storage must show the user's limit, used storage, remaining storage, and per user/group/channel storage usage details.
+- Status: Implemented locally; deploy new PHP endpoint and patched upload/bootstrap files with the Flutter app update.
+

@@ -198,3 +198,17 @@
 ## CHG-20260720-EXTERNAL-REQUEST-ROUTE-FIX
 - Fixed admin user detail external member count regression caused by group-only metric in user file stats.
 - Registered external_requests GET route and approve/reject POST cases in legacy admin API.
+
+## CHG-20260721-EXTERNAL-EMAIL-SMTP
+- Files: server_patch/chat/external_delivery_worker.php, server_patch/chat/external_mail_config.php, server_patch/chat/send_message.php, admin/legacy_standalone/api.php
+- Change: Added native SMTP STARTTLS email delivery worker for external user delivery queue using Flow mailbox configuration. Mention/welcome email queue now spawns the worker in background.
+
+## 2026-07-21 - External Welcome Email Immediate Send
+- Files: admin/legacy_standalone/api.php, admin/legacy_standalone/external_mailer.php, admin/legacy_standalone/external_mail_config.php
+- Change: Admin add/approve external member now attempts welcome email immediately through Flow SMTP and marks the delivery queue row sent on success. Failed SMTP attempts remain queued with last_error for retry/debugging.
+
+
+## 2026-07-21 - User Storage Quota And App Usage View
+- Files: server_patch/chat/bootstrap.php, server_patch/chat/upload_file.php, server_patch/chat/storage_usage.php, lib/chat_api.dart, lib/settings/settings_screens.dart
+- Change: Added default 2GB per-user storage quota, upload-time quota enforcement, user-facing Data and Storage settings screen, and conversation-wise user/group/channel storage breakdown.
+

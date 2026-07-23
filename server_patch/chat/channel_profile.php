@@ -42,6 +42,23 @@ $timelineStmt = $pdo->prepare(
      WHERE group_id = :group_id ORDER BY created_at ASC, id ASC'
 );
 $timelineStmt->execute([':group_id' => (int)$channel['id']]);
+$tagStmt = $pdo->prepare(
+    'SELECT id, display_name, tag_name, usage_count, last_used_at
+     FROM xmpp_channel_tags
+     WHERE group_id = :group_id
+     ORDER BY usage_count DESC, COALESCE(last_used_at, created_at) DESC
+     LIMIT 20'
+);
+$tagStmt->execute([':group_id' => (int)$channel['id']]);
+$tags = array_map(static function(array $row): array {
+    return [
+        'id' => (int)($row['id'] ?? 0),
+        'name' => (string)($row['display_name'] ?? ('#' . ($row['tag_name'] ?? ''))),
+        'tag' => (string)($row['tag_name'] ?? ''),
+        'usage_count' => (int)($row['usage_count'] ?? 0),
+        'last_used_at' => (string)($row['last_used_at'] ?? ''),
+    ];
+}, $tagStmt->fetchAll(PDO::FETCH_ASSOC) ?: []);
 
 chat_json([
     'status' => true,
@@ -75,6 +92,8 @@ chat_json([
             'escalation_level' => $usage >= 100 ? 4 : ($usage >= 80 ? 3 : ($usage >= 50 ? 2 : 1)),
         ],
         'timeline' => $timelineStmt->fetchAll(PDO::FETCH_ASSOC) ?: [],
+        'tags' => $tags,
     ],
 ]);
+
 

@@ -334,7 +334,13 @@ try {
     }
     chat_diagnostic_trace((int)$session['emp_id'], $traceId, 'database', 'persist_message', (microtime(true) - $dbStarted) * 1000, 'success', ['file_size' => $fileSize]);
     $messageId = (int)($pdo->lastInsertId() ?: 0);
-    if ($visibilityMode === 'selected' && $messageId > 0) {
+    if ($isGroup && $messageId > 0 && $body !== '') {
+        try {
+            chat_record_channel_message_tags($pdo, $group, $messageId, (int)$session['emp_id'], $body);
+        } catch (Throwable $tagError) {
+            error_log('chat/send_message channel tag persistence skipped: ' . $tagError->getMessage());
+        }
+    }    if ($visibilityMode === 'selected' && $messageId > 0) {
         $recipientStmt = $pdo->prepare(
             'INSERT IGNORE INTO xmpp_message_recipients (message_id, emp_id) VALUES (:message_id, :emp_id)'
         );
@@ -348,6 +354,13 @@ try {
             chat_spawn_external_delivery_worker();
         } catch (Throwable $externalQueueError) {
             error_log('chat/send_message external delivery queue skipped: ' . $externalQueueError->getMessage());
+        }
+    }
+    if ($isGroup && $messageId > 0 && $body !== '' && $visibilityMode === 'all' && $fileUrl === '') {
+        try {
+            chat_update_channel_next_action_from_message($pdo, $group, $messageId, (int)$session['emp_id'], $body, $mentions);
+        } catch (Throwable $actionError) {
+            error_log('chat/send_message channel next action skipped: ' . $actionError->getMessage());
         }
     }
     $responsePayload = [
@@ -371,11 +384,6 @@ try {
         $responseFinished = true;
     }
     if ($isGroup && $messageId > 0 && $body !== '' && $visibilityMode === 'all' && $fileUrl === '') {
-        try {
-            chat_update_channel_next_action_from_message($pdo, $group, $messageId, (int)$session['emp_id'], $body, $mentions);
-        } catch (Throwable $actionError) {
-            error_log('chat/send_message channel next action skipped: ' . $actionError->getMessage());
-        }
         try {
             chat_try_send_ai_room_reply($pdo, $group, $messageId, $body);
         } catch (Throwable $aiError) {
@@ -427,4 +435,5 @@ chat_json([
     'xmpp_delivered' => $xmppDelivered ?? false,
     'visibility_mode' => $visibilityMode ?? 'all',
 ]);
+
 

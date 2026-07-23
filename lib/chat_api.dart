@@ -339,6 +339,12 @@ class ChannelProfile {
             .map((item) => Map<String, dynamic>.from(item))
             .toList()
       : const [];
+  List<Map<String, dynamic>> get tags => data['tags'] is List
+      ? (data['tags'] as List)
+            .whereType<Map>()
+            .map((item) => Map<String, dynamic>.from(item))
+            .toList()
+      : const [];
 }
 
 class ChatAttachment {
@@ -1549,6 +1555,7 @@ class ChatApi {
       query: {
         if (groupId > 0) 'group_id': '$groupId',
         if (jid.isNotEmpty) 'jid': jid,
+        '_ts': DateTime.now().millisecondsSinceEpoch.toString(),
       },
     );
     final channel = body['channel'];
@@ -1586,6 +1593,7 @@ class ChatApi {
       query: {
         if (groupId > 0) 'group_id': '$groupId',
         if (jid.isNotEmpty) 'jid': jid,
+        '_ts': DateTime.now().millisecondsSinceEpoch.toString(),
       },
     );
     final config = body['config'];
@@ -2034,6 +2042,7 @@ class ChatApi {
       query: {
         'view': view,
         if (jid.isNotEmpty) 'jid': jid,
+        '_ts': DateTime.now().millisecondsSinceEpoch.toString(),
         if (query.isNotEmpty) 'q': query,
         if (view == 'media') 'limit': '200',
       },

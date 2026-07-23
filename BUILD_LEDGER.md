@@ -220,3 +220,57 @@
 - Change: Removed forced scroll-anchor restore during browser text selection in lib/chat/chat_screen.dart.
 - Verification: PHP syntax checks passed for channel_action_helper.php, channel_profile.php, update_channel.php, send_message.php. Flutter analyze on edited Dart files returned no errors, only existing warnings/infos.
 - Build: flutter build web --release succeeded. Output: build/web.
+
+## 2026-07-23 11:06:49 - Channel Metadata Runtime Fix And Web Build
+- Requirement: Right-side panel must show saved channel description and automatically detected Next Action / Person / Date for messages such as @Ajith_P complete the chat application on tomorrow.
+- Root Cause: Channel metadata update relied on strict channel classification and ran after fastcgi response, so channel-* room records could remain empty when the panel refreshed.
+- Change: send_message.php now updates channel next-action metadata before returning the message response.
+- Change: channel_action_helper.php recognizes channel-* JIDs and normalizes mention variants like Ajith_P / Ajith P / Ajith Kumar P.
+- Change: channel_profile.php and update_channel.php accept channel-* room records for profile/update, and chat_api.dart adds a cache buster for profile reloads.
+- Change: chat_screen.dart no longer forces scroll-anchor jump during browser text selection.
+- Verification: PHP syntax checks passed for changed backend files. Flutter analyze on edited Dart files returned no errors, only existing warnings/infos.
+- Build: flutter build web --release succeeded. Output: build/web.
+
+## 2026-07-23 11:44:25 - Web Message Text Selection Stability
+- Requirement: Selecting partial message text in web must not scroll/jump the chat window, while native selection and Ctrl+C copy continue to work.
+- Root Cause: Flutter web text selection can trigger parent scrollable ensure-visible behavior while the chat list is still scrollable and auto-scroll timers can run.
+- Change: Added a pointer-down selection intent lock before selection starts and temporarily applies NeverScrollableScrollPhysics to the chat message list while selection is active.
+- Change: Existing native SelectableText and browser copy behavior are preserved.
+- Verification: dart format passed. flutter analyze lib/chat/chat_screen.dart returned no errors, only existing warnings/infos.
+- Build: flutter build web --release succeeded. Output: build/web.
+
+## 2026-07-23 13:15:16 +05:30 - Web Message Selection Scroll Regression Fix
+- Requirement: Message text selection and copy must continue to work, but normal chat scrolling must not be blocked and selected messages must not jump to the bottom.
+- Root Cause: The earlier fix used selection state to disable the message list scroll physics. Pointer down on selectable message text therefore turned normal scrolling off.
+- Change: Kept ScrollablePositionedList on normal ClampingScrollPhysics, separated text-selection state from list scroll physics, and retained selection state only to guard automatic bottom jumps.
+- Verification: dart format lib/chat/chat_screen.dart passed; lutter analyze lib/chat/chat_screen.dart reported no errors, only existing warnings; lutter build web --release --base-href /chat/ completed successfully.
+
+## 2026-07-23 15:43:48 +05:30 - Message Text Selection Gesture Stabilization
+- Requirement: Message text must be easy to select on the first attempt, without screen dancing, unwanted bubble menus, swipe actions, or bottom jumps.
+- Root Cause: Selectable text gestures were competing with parent message bubble long-press/right-click/swipe handlers during the first selection attempt.
+- Change: Added a short text-selection intent window, suppresses floating message menu while text selection is active, keeps list scrolling enabled, and prevents swipe gestures from interfering with active browser text selection.
+- Verification: dart format lib/chat/chat_screen.dart passed; lutter analyze lib/chat/chat_screen.dart reported no errors, only existing warnings; lutter build web --release --base-href /chat/ completed successfully.
+
+## 2026-07-23 16:15:23 +05:30 - Chat Context Preservation Rule
+- Requirement: When users interact with existing chat content, Flow must preserve their context and must not automatically move the conversation.
+- Covered Interactions: Text selection/copy, manual reading/scrolling older messages, opening image/file previews, and media/content viewing flows.
+- Change: Added a central _shouldPreserveUserContext guard in ChatScreen, marks context during user scrolls, text selection, and attachment preview opens, and blocks non-forced auto-scroll while the guard is active or the user is away from latest messages. Explicit jump-to-latest still clears the guard and moves to the bottom.
+- Verification: dart format passed for changed files; lutter analyze lib/chat/chat_screen.dart lib/attachments/attachment_widgets.dart reported no errors, only existing warnings; lutter build web --release --base-href /chat/ completed successfully.
+
+## 2026-07-23 17:30:34 +05:30 - Channel Hashtag Support
+- Requirement: Add channel-only #tag concept so channel messages can be categorized and found later.
+- Feature: Channel messages now persist detected hashtags, expose top channel tags in channel profile data, show a Tags card in the right-side channel panel, and make #tags in message text tappable to open in-chat search.
+- Change impact: Limited to channel send/profile endpoints and Flutter chat/right-panel rendering. Direct chats and normal groups do not persist channel tags.
+- Regression verification: PHP lint passed for server_patch/chat/bootstrap.php, send_message.php, channel_profile.php. Targeted Flutter analyze showed no new errors. Web release build passed at build/web.
+
+## 2026-07-23 17:49:44 +05:30 - Message Right Click Menu Restore
+- Requirement: Restore message right-click floating menu after text-selection stability changes.
+- Feature: Right-click on a chat message now opens the Flow floating message action menu even when selectable text pointer locks are active.
+- Change impact: Limited to message bubble secondary-click handling in lib/chat/chat_screen.dart. Long-press text-selection guard remains unchanged.
+- Regression verification: dart format passed. Targeted flutter analyze completed with no new errors; existing warnings remain.
+
+## 2026-07-23 17:53:58 +05:30 - Web Build After Right Click Menu Fix
+- Build: flutter build web --release --base-href /chat/
+- Result: Passed. Output generated at build/web.
+- Scope: Includes restored message right-click floating menu and channel hashtag support.
+- Notes: Flutter reported dependency update notices and wasm dry-run suggestion only; no build failure.

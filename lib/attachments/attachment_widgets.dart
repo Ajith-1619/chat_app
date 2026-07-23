@@ -53,11 +53,13 @@ import '../chat/chat_screen.dart';
 import '../attachments/attachment_widgets.dart';
 
 class AttachmentContent extends StatelessWidget {
-  const AttachmentContent({required this.attachment});
+  const AttachmentContent({required this.attachment, this.onOpen});
 
   final ChatAttachment attachment;
+  final VoidCallback? onOpen;
 
   Future<void> _open(BuildContext context) async {
+    onOpen?.call();
     await Navigator.of(context).push(
       MaterialPageRoute<void>(
         builder: (_) => AttachmentPreviewScreen(attachment: attachment),
@@ -65,11 +67,12 @@ class AttachmentContent extends StatelessWidget {
     );
   }
 
-
   Future<void> _openWith(BuildContext context) async {
     if (attachment.isRestricted) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Restricted files open only inside Flow.')),
+        const SnackBar(
+          content: Text('Restricted files open only inside Flow.'),
+        ),
       );
       return;
     }
@@ -78,10 +81,13 @@ class AttachmentContent extends StatelessWidget {
     final ok = await launchUrl(uri, mode: LaunchMode.externalApplication);
     if (!ok && context.mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('No application is available to open this file.')),
+        const SnackBar(
+          content: Text('No application is available to open this file.'),
+        ),
       );
     }
   }
+
   Future<void> _download(BuildContext context) async {
     try {
       await requestAttachmentStoragePermission(context);
@@ -190,8 +196,12 @@ class AttachmentContent extends StatelessWidget {
           _FileTile(
             attachment: attachment,
             onTap: isPendingUpload ? null : () => _open(context),
-            onDownload: attachment.isRestricted ? null : () => _download(context),
-            onOpenWith: attachment.isRestricted ? null : () => _openWith(context),
+            onDownload: attachment.isRestricted
+                ? null
+                : () => _download(context),
+            onOpenWith: attachment.isRestricted
+                ? null
+                : () => _openWith(context),
           ),
         if (attachment.caption.isNotEmpty)
           Padding(
@@ -275,7 +285,10 @@ class _FileTile extends StatelessWidget {
             else
               PopupMenuButton<String>(
                 tooltip: 'File actions',
-                icon: const Icon(Icons.more_vert_rounded, color: AppColors.primary),
+                icon: const Icon(
+                  Icons.more_vert_rounded,
+                  color: AppColors.primary,
+                ),
                 onSelected: (value) {
                   if (value == 'download') onDownload?.call();
                   if (value == 'open_with') onOpenWith?.call();
@@ -405,13 +418,15 @@ class _AttachmentPreviewScreenState extends State<AttachmentPreviewScreen> {
     }
   }
 
-
   Future<void> _openWith() async {
     if (widget.attachment.isRestricted) return;
-    final uri = Uri.tryParse(webAttachmentUrl(widget.attachment.url, widget.attachment.name));
+    final uri = Uri.tryParse(
+      webAttachmentUrl(widget.attachment.url, widget.attachment.name),
+    );
     if (uri == null) return;
     await launchUrl(uri, mode: LaunchMode.externalApplication);
   }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -1349,9 +1364,8 @@ class LivePollCard extends StatelessWidget {
                         const SizedBox(height: 3),
                         Text(
                           'Voted: $voterNames',
-                          style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                            color: AppColors.muted,
-                          ),
+                          style: Theme.of(context).textTheme.bodySmall
+                              ?.copyWith(color: AppColors.muted),
                         ),
                       ],
                       const SizedBox(height: 4),
@@ -1377,6 +1391,7 @@ class LivePollCard extends StatelessWidget {
     );
   }
 }
+
 Map<String, dynamic>? decodeLiveChecklist(String text) {
   const prefix = 'SKYLINK_CHECKLIST:';
   if (!text.startsWith(prefix)) return null;
@@ -1453,7 +1468,9 @@ class LiveChecklistCard extends StatelessWidget {
             final checkedByRaw = item['checked_by'];
             final checkedBy = checkedByRaw is List
                 ? checkedByRaw
-                : (item['updated_by'] != null && done ? [item['updated_by']] : const []);
+                : (item['updated_by'] != null && done
+                      ? [item['updated_by']]
+                      : const []);
             final checkedNames = checkedBy
                 .map(_nameFor)
                 .where((name) => name.isNotEmpty)
@@ -1478,9 +1495,9 @@ class LiveChecklistCard extends StatelessWidget {
                       padding: const EdgeInsets.only(top: 2),
                       child: Text(
                         'Checked: $checkedNames',
-                        style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                          color: AppColors.muted,
-                        ),
+                        style: Theme.of(
+                          context,
+                        ).textTheme.bodySmall?.copyWith(color: AppColors.muted),
                       ),
                     ),
                 ],
@@ -1493,6 +1510,7 @@ class LiveChecklistCard extends StatelessWidget {
     );
   }
 }
+
 String formatFileSize(int bytes) {
   if (bytes < 1024) return ' B';
   final kb = bytes / 1024;

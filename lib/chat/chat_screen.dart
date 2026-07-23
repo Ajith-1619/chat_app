@@ -267,8 +267,7 @@ class _ChatScreenState extends State<ChatScreen> {
   DateTime? _lastMessagePositionAt;
   Future<Position?>? _messagePositionFuture;
   DateTime? _textSelectionActiveUntil;
-  int? _selectionAnchorIndex;
-  double _selectionAnchorAlignment = 0;
+  DateTime? _preserveUserContextUntil;
   String _lastClipboardPasteKey = '';
   DateTime? _lastClipboardPasteAt;
   String _lastMessageAddress = '';
@@ -405,6 +404,8 @@ class _ChatScreenState extends State<ChatScreen> {
       setState(() {
         _showJumpToLatest = shouldShow;
         if (!shouldShow) _newMessageCount = 0;
+        if (shouldShow)
+          _markUserContextInteraction(duration: const Duration(seconds: 20));
       });
     }
     final firstVisible = positions
@@ -518,7 +519,7 @@ class _ChatScreenState extends State<ChatScreen> {
         .where((message) => message.id > 0 && !previousIds.contains(message.id))
         .length;
     final wasEmpty = _messages.isEmpty;
-    final viewingOlderMessages = _showJumpToLatest;
+    final viewingOlderMessages = _shouldPreserveUserContext;
     setState(() {
       _messages
         ..clear()
@@ -4396,15 +4397,28 @@ class _ChatScreenState extends State<ChatScreen> {
     }
   }
 
-  bool get _isTextSelectionActive {
+  bool get _isTextSelectionScrollLocked {
     final selectionUntil = _textSelectionActiveUntil;
-    return browserHasActiveTextSelection() ||
-        (selectionUntil != null && DateTime.now().isBefore(selectionUntil));
+    return selectionUntil != null && DateTime.now().isBefore(selectionUntil);
+  }
+
+  bool get _isTextSelectionActive {
+    return browserHasActiveTextSelection() || _isTextSelectionScrollLocked;
+  }
+
+  bool get _shouldPreserveUserContext {
+    final preserveUntil = _preserveUserContextUntil;
+    return _showJumpToLatest ||
+        _isTextSelectionActive ||
+        (preserveUntil != null && DateTime.now().isBefore(preserveUntil));
   }
 
   void _scrollToBottom({bool force = false, bool instant = false}) {
-    if (!force && _isTextSelectionActive) return;
-    if (force) _textSelectionActiveUntil = null;
+    if (!force && _shouldPreserveUserContext) return;
+    if (force) {
+      _textSelectionActiveUntil = null;
+      _preserveUserContextUntil = null;
+    }
     _scrollToBottomWhenReady(force: force, instant: instant, attemptsLeft: 10);
   }
 
@@ -4415,7 +4429,7 @@ class _ChatScreenState extends State<ChatScreen> {
   }) {
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
-      if (!force && _isTextSelectionActive) return;
+      if (!force && _shouldPreserveUserContext) return;
       if (_itemScrollController.isAttached && _messages.isNotEmpty) {
         _itemScrollController.scrollTo(
           index: _messages.length - 1,
@@ -4443,39 +4457,26 @@ class _ChatScreenState extends State<ChatScreen> {
     });
   }
 
-  void _markTextSelectionActive() {
-    _textSelectionActiveUntil = DateTime.now().add(const Duration(seconds: 12));
-    final positions = _itemPositionsListener.itemPositions.value;
-    if (positions.isEmpty) return;
-    final visible =
-        positions
-            .where(
-              (position) =>
-                  position.itemTrailingEdge > 0 && position.itemLeadingEdge < 1,
-            )
-            .toList()
-          ..sort((a, b) => a.itemLeadingEdge.compareTo(b.itemLeadingEdge));
-    if (visible.isEmpty) return;
-    final anchor = visible.first;
-    _selectionAnchorIndex = anchor.index;
-    _selectionAnchorAlignment = anchor.itemLeadingEdge
-        .clamp(0.0, 1.0)
-        .toDouble();
-    // Keep browser text selection stable; do not force-scroll the selected bubble.
+  void _markTextSelectionPointerIntent() {
+    _markTextSelectionLock(const Duration(milliseconds: 1500));
   }
 
-  void _restoreSelectionAnchor({int attemptsLeft = 4}) {
-    if (!mounted || !_isTextSelectionActive) return;
-    final index = _selectionAnchorIndex;
-    if (index == null || index < 0 || index >= _messages.length) return;
-    _itemScrollController.jumpTo(
-      index: index,
-      alignment: _selectionAnchorAlignment,
-    );
-    if (attemptsLeft > 0) {
-      Future<void>.delayed(const Duration(milliseconds: 32), () {
-        _restoreSelectionAnchor(attemptsLeft: attemptsLeft - 1);
-      });
+  void _markTextSelectionActive() {
+    _markTextSelectionLock(const Duration(milliseconds: 900));
+  }
+
+  void _markTextSelectionLock(Duration duration) {
+    _textSelectionActiveUntil = DateTime.now().add(duration);
+    _markUserContextInteraction(duration: duration);
+  }
+
+  void _markUserContextInteraction({
+    Duration duration = const Duration(seconds: 8),
+  }) {
+    final until = DateTime.now().add(duration);
+    final current = _preserveUserContextUntil;
+    if (current == null || until.isAfter(current)) {
+      _preserveUserContextUntil = until;
     }
   }
 
@@ -4490,8 +4491,8 @@ class _ChatScreenState extends State<ChatScreen> {
     );
   }
 
-  Future<void> _searchMessages() async {
-    final controller = TextEditingController();
+  Future<void> _searchMessages({String initialQuery = ''}) async {
+    final controller = TextEditingController(text: initialQuery);
     final selected = await showDialog<int>(
       context: context,
       builder: (dialogContext) => StatefulBuilder(
@@ -4550,6 +4551,11 @@ class _ChatScreenState extends State<ChatScreen> {
     );
     controller.dispose();
     if (selected != null) _jumpToMessage(selected);
+  }
+
+  Future<void> _openHashtagSearch(String tag) async {
+    final normalized = tag.startsWith('#') ? tag : '#' + tag;
+    await _searchMessages(initialQuery: normalized);
   }
 
   String _infoText(Map<String, dynamic> data, List<String> keys) {
@@ -5155,96 +5161,119 @@ class _ChatScreenState extends State<ChatScreen> {
                                 style: TextStyle(color: AppColors.muted),
                               ),
                             )
-                          : ScrollablePositionedList.builder(
-                              key: ValueKey('chat-list-' + widget.chat.jid),
-                              initialScrollIndex: _messages.isEmpty
-                                  ? 0
-                                  : _messages.length - 1,
-                              initialAlignment: 1.0,
-                              itemScrollController: _itemScrollController,
-                              itemPositionsListener: _itemPositionsListener,
-                              padding: const EdgeInsets.fromLTRB(
-                                14,
-                                18,
-                                14,
-                                18,
-                              ),
-                              itemCount: _messages.length,
-                              itemBuilder: (_, index) {
-                                final message = _messages[index];
-                                final previous = index > 0
-                                    ? _messages[index - 1]
-                                    : null;
-                                final showDate =
-                                    previous == null ||
-                                    !_sameMessageDay(
-                                      previous.createdAt,
-                                      message.createdAt,
-                                    );
-                                return _MessageBubble(
-                                  key: _messageKeys.putIfAbsent(
-                                    message.id,
-                                    () => GlobalKey(),
-                                  ),
-                                  message: message,
-                                  showSender: widget.chat.isGroup,
-                                  showLocationAddress: _canViewMessageLocations,
-                                  participantNames: _participantNamesForMessage(
-                                    message,
-                                  ),
-                                  showChecklistPollDetails: message.isMe,
-                                  replyMessage: _messageById(message.replyToId),
-                                  dateLabel: showDate
-                                      ? _messageDateLabel(message.createdAt)
-                                      : null,
-                                  onReplyTap: message.replyToId > 0
-                                      ? () => _jumpToMessage(message.replyToId)
-                                      : null,
-                                  selected: _selectedMessageIds.contains(
-                                    message.id,
-                                  ),
-                                  onTap: () {
-                                    if (_selectedMessageIds.isNotEmpty) {
-                                      _toggleMessageSelection(message);
-                                    }
-                                  },
-                                  onLongPressStart: (details) =>
-                                      _showFloatingMessageMenu(
-                                        message,
-                                        details.globalPosition,
-                                      ),
-                                  onSecondaryTapDown: (details) =>
-                                      _showFloatingMessageMenu(
-                                        message,
-                                        details.globalPosition,
-                                      ),
-                                  onSwipeReply: _isSystemNotification
-                                      ? null
-                                      : () => setState(() {
-                                          _selectedMessageIds.clear();
-                                          _replyingTo = message;
-                                          _replyQuote = '';
-                                        }),
-                                  onSwipeBack:
-                                      _showEmojiPicker ||
-                                          MediaQuery.sizeOf(context).width >=
-                                              900
-                                      ? null
-                                      : () {
-                                          if (_selectedMessageIds.isNotEmpty) {
-                                            setState(_selectedMessageIds.clear);
-                                          }
-                                          Navigator.maybePop(context);
-                                        },
-                                  onTextSelectionChanged:
-                                      _markTextSelectionActive,
-                                  onMentionTap: _openMentionProfile,
-                                  onChecklistToggle: (itemIndex) =>
-                                      _toggleChecklist(message, itemIndex),
-                                  onPollVote: (optionIndex) =>
-                                      _votePoll(message, optionIndex),
-                                );
+                          : NotificationListener<ScrollNotification>(
+                              onNotification: (notification) {
+                                if (notification is UserScrollNotification ||
+                                    (notification is ScrollUpdateNotification &&
+                                        notification.dragDetails != null)) {
+                                  _markUserContextInteraction();
+                                }
+                                return false;
                               },
+                              child: ScrollablePositionedList.builder(
+                                key: ValueKey('chat-list-' + widget.chat.jid),
+                                initialScrollIndex: _messages.isEmpty
+                                    ? 0
+                                    : _messages.length - 1,
+                                initialAlignment: 1.0,
+                                itemScrollController: _itemScrollController,
+                                itemPositionsListener: _itemPositionsListener,
+                                physics: const ClampingScrollPhysics(),
+                                padding: const EdgeInsets.fromLTRB(
+                                  14,
+                                  18,
+                                  14,
+                                  18,
+                                ),
+                                itemCount: _messages.length,
+                                itemBuilder: (_, index) {
+                                  final message = _messages[index];
+                                  final previous = index > 0
+                                      ? _messages[index - 1]
+                                      : null;
+                                  final showDate =
+                                      previous == null ||
+                                      !_sameMessageDay(
+                                        previous.createdAt,
+                                        message.createdAt,
+                                      );
+                                  return _MessageBubble(
+                                    key: _messageKeys.putIfAbsent(
+                                      message.id,
+                                      () => GlobalKey(),
+                                    ),
+                                    message: message,
+                                    showSender: widget.chat.isGroup,
+                                    showLocationAddress:
+                                        _canViewMessageLocations,
+                                    participantNames:
+                                        _participantNamesForMessage(message),
+                                    showChecklistPollDetails: message.isMe,
+                                    replyMessage: _messageById(
+                                      message.replyToId,
+                                    ),
+                                    dateLabel: showDate
+                                        ? _messageDateLabel(message.createdAt)
+                                        : null,
+                                    onReplyTap: message.replyToId > 0
+                                        ? () =>
+                                              _jumpToMessage(message.replyToId)
+                                        : null,
+                                    selected: _selectedMessageIds.contains(
+                                      message.id,
+                                    ),
+                                    onTap: () {
+                                      if (_selectedMessageIds.isNotEmpty) {
+                                        _toggleMessageSelection(message);
+                                      }
+                                    },
+                                    onLongPressStart: (details) {
+                                      if (_isTextSelectionActive) return;
+                                      _showFloatingMessageMenu(
+                                        message,
+                                        details.globalPosition,
+                                      );
+                                    },
+                                    onSecondaryTapDown: (details) {
+                                      _showFloatingMessageMenu(
+                                        message,
+                                        details.globalPosition,
+                                      );
+                                    },
+                                    onSwipeReply: _isSystemNotification
+                                        ? null
+                                        : () => setState(() {
+                                            _selectedMessageIds.clear();
+                                            _replyingTo = message;
+                                            _replyQuote = '';
+                                          }),
+                                    onSwipeBack:
+                                        _showEmojiPicker ||
+                                            MediaQuery.sizeOf(context).width >=
+                                                900
+                                        ? null
+                                        : () {
+                                            if (_selectedMessageIds
+                                                .isNotEmpty) {
+                                              setState(
+                                                _selectedMessageIds.clear,
+                                              );
+                                            }
+                                            Navigator.maybePop(context);
+                                          },
+                                    onTextSelectionPointerDown:
+                                        _markTextSelectionPointerIntent,
+                                    onTextSelectionChanged:
+                                        _markTextSelectionActive,
+                                    onMentionTap: _openMentionProfile,
+                                    onHashtagTap: _openHashtagSearch,
+                                    onChecklistToggle: (itemIndex) =>
+                                        _toggleChecklist(message, itemIndex),
+                                    onPollVote: (optionIndex) =>
+                                        _votePoll(message, optionIndex),
+                                  );
+                                },
+                              ),
                             ),
                     ),
                   ),
@@ -6232,10 +6261,12 @@ class _MessageBubble extends StatelessWidget {
     this.onReplyTap,
     this.dateLabel,
     this.onMentionTap,
+    this.onHashtagTap,
     this.onSwipeReply,
     this.onSwipeBack,
     this.onChecklistToggle,
     this.onPollVote,
+    this.onTextSelectionPointerDown,
     this.onTextSelectionChanged,
     this.participantNames = const {},
     this.showChecklistPollDetails = false,
@@ -6252,10 +6283,12 @@ class _MessageBubble extends StatelessWidget {
   final VoidCallback? onReplyTap;
   final String? dateLabel;
   final ValueChanged<String>? onMentionTap;
+  final ValueChanged<String>? onHashtagTap;
   final VoidCallback? onSwipeReply;
   final VoidCallback? onSwipeBack;
   final ValueChanged<int>? onChecklistToggle;
   final ValueChanged<int>? onPollVote;
+  final VoidCallback? onTextSelectionPointerDown;
   final VoidCallback? onTextSelectionChanged;
   final Map<int, String> participantNames;
   final bool showChecklistPollDetails;
@@ -6480,7 +6513,10 @@ class _MessageBubble extends StatelessWidget {
                           ),
                         ),
                       if (attachment != null)
-                        AttachmentContent(attachment: attachment)
+                        AttachmentContent(
+                          attachment: attachment,
+                          onOpen: onTextSelectionPointerDown,
+                        )
                       else if (contactCard != null)
                         ContactMessageCard(data: contactCard)
                       else if (checklist != null)
@@ -6505,6 +6541,9 @@ class _MessageBubble extends StatelessWidget {
                             _CollapsibleMessageText(
                               text: cleanMojibakeText(message.text),
                               onMentionTap: onMentionTap,
+                              onHashtagTap: onHashtagTap,
+                              onSelectionPointerDown:
+                                  onTextSelectionPointerDown,
                               onSelectionChanged: onTextSelectionChanged,
                             ),
                             const SizedBox(height: 3),
@@ -6675,11 +6714,15 @@ class _CollapsibleMessageText extends StatefulWidget {
   const _CollapsibleMessageText({
     required this.text,
     this.onMentionTap,
+    this.onHashtagTap,
+    this.onSelectionPointerDown,
     this.onSelectionChanged,
   });
 
   final String text;
   final ValueChanged<String>? onMentionTap;
+  final ValueChanged<String>? onHashtagTap;
+  final VoidCallback? onSelectionPointerDown;
   final VoidCallback? onSelectionChanged;
 
   @override
@@ -6718,21 +6761,27 @@ class _CollapsibleMessageTextState extends State<_CollapsibleMessageText> {
           children: [
             ValueListenableBuilder<double>(
               valueListenable: appMessageScale,
-              builder: (context, _, _) => SelectableText.rich(
-                _formattedMessageSpan(
-                  widget.text,
-                  Theme.of(context),
-                  onMentionTap: widget.onMentionTap,
+              builder: (context, _, _) => Listener(
+                behavior: HitTestBehavior.translucent,
+                onPointerDown: (_) => widget.onSelectionPointerDown?.call(),
+                child: SelectableText.rich(
+                  _formattedMessageSpan(
+                    widget.text,
+                    Theme.of(context),
+                    onMentionTap: widget.onMentionTap,
+                    onHashtagTap: widget.onHashtagTap,
+                  ),
+                  maxLines: collapsed ? _collapsedLines : null,
+                  scrollPhysics: const NeverScrollableScrollPhysics(),
+                  onSelectionChanged: (selection, cause) {
+                    if (!selection.isCollapsed)
+                      widget.onSelectionChanged?.call();
+                  },
+                  contextMenuBuilder: (context, editableTextState) =>
+                      AdaptiveTextSelectionToolbar.editableText(
+                        editableTextState: editableTextState,
+                      ),
                 ),
-                maxLines: collapsed ? _collapsedLines : null,
-                scrollPhysics: const NeverScrollableScrollPhysics(),
-                onSelectionChanged: (selection, cause) {
-                  if (!selection.isCollapsed) widget.onSelectionChanged?.call();
-                },
-                contextMenuBuilder: (context, editableTextState) =>
-                    AdaptiveTextSelectionToolbar.editableText(
-                      editableTextState: editableTextState,
-                    ),
               ),
             ),
             if (collapsible)
@@ -6757,6 +6806,7 @@ TextSpan _formattedMessageSpan(
   String text,
   ThemeData theme, {
   ValueChanged<String>? onMentionTap,
+  ValueChanged<String>? onHashtagTap,
 }) {
   text = cleanMojibakeText(text);
   final base = TextStyle(
@@ -6765,7 +6815,7 @@ TextSpan _formattedMessageSpan(
     height: 1.35,
   );
   final pattern = RegExp(
-    r'(https?:\/\/[^\s<>()]+|www\.[^\s<>()]+|\*\*[\s\S]+?\*\*|~~[\s\S]+?~~|`[^`\n]+?`|__[^_\n]+?__|\*[^*\n]+?\*|_[^_\n]+?_|\[color=#[0-9A-Fa-f]{6}\][\s\S]+?\[/color\]|^> .+$|\n> .+|@[A-Za-z0-9_]+)',
+    r'(https?:\/\/[^\s<>()]+|www\.[^\s<>()]+|\*\*[\s\S]+?\*\*|~~[\s\S]+?~~|`[^`\n]+?`|__[^_\n]+?__|\*[^*\n]+?\*|_[^_\n]+?_|\[color=#[0-9A-Fa-f]{6}\][\s\S]+?\[/color\]|^> .+$|\n> .+|#[A-Za-z0-9][A-Za-z0-9_-]{1,39}|@[A-Za-z0-9_]+)',
   );
   final spans = <InlineSpan>[];
   var offset = 0;
@@ -6845,6 +6895,19 @@ TextSpan _formattedMessageSpan(
         TextSpan(
           text: token.substring(1, token.length - 1),
           style: const TextStyle(fontStyle: FontStyle.italic),
+        ),
+      );
+    } else if (token.startsWith('#')) {
+      spans.add(
+        TextSpan(
+          text: token,
+          style: TextStyle(
+            color: theme.colorScheme.primary,
+            backgroundColor: theme.colorScheme.primary.withValues(alpha: 0.10),
+            fontWeight: FontWeight.w700,
+          ),
+          recognizer: TapGestureRecognizer()
+            ..onTap = () => onHashtagTap?.call(token),
         ),
       );
     } else if (token.startsWith('@')) {

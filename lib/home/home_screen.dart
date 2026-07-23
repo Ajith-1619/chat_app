@@ -1696,6 +1696,54 @@ class _DesktopConversationProfileState
     );
   }
 
+  Widget _channelTagsCard(
+    BuildContext context,
+    List<Map<String, dynamic>> tags,
+  ) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: Theme.of(context).colorScheme.surfaceContainerHighest,
+        borderRadius: BorderRadius.circular(8),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              const Icon(Icons.tag_rounded, color: AppColors.primary, size: 20),
+              const SizedBox(width: 12),
+              Text('Tags', style: Theme.of(context).textTheme.labelSmall),
+            ],
+          ),
+          const SizedBox(height: 10),
+          if (tags.isEmpty)
+            const Text(
+              'No tags used yet.',
+              style: TextStyle(fontWeight: FontWeight.w600),
+            )
+          else
+            Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: tags.take(12).map((tag) {
+                final name = '${tag['name'] ?? ''}'.trim();
+                final usage = int.tryParse('${tag['usage_count'] ?? 0}') ?? 0;
+                return Chip(
+                  visualDensity: VisualDensity.compact,
+                  label: Text(
+                    usage > 1 ? '$name $usage' : name,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                );
+              }).toList(),
+            ),
+        ],
+      ),
+    );
+  }
+
   Future<Map<String, dynamic>> _loadPanelData() async {
     if (!chat.isGroup) return chatApi.getUserProfile(chat.empId);
     final groupId = int.tryParse(chat.empId) ?? 0;
@@ -1724,6 +1772,7 @@ class _DesktopConversationProfileState
       'channel_next_action_date': channelProfile?.nextActionDate ?? '',
       'channel_next_action_updated_at':
           channelProfile?.nextActionUpdatedAt ?? '',
+      'channel_tags': channelProfile?.tags ?? const <Map<String, dynamic>>[],
     };
   }
 
@@ -2293,6 +2342,13 @@ class _DesktopConversationProfileState
               (profile['channel_next_action_persons'] ?? '').toString();
           final channelNextDate = (profile['channel_next_action_date'] ?? '')
               .toString();
+          final channelTags = profile['channel_tags'] is List
+              ? List<Map<String, dynamic>>.from(
+                  (profile['channel_tags'] as List).whereType<Map>().map(
+                    (item) => Map<String, dynamic>.from(item),
+                  ),
+                )
+              : const <Map<String, dynamic>>[];
           final isChannelPanel =
               chat.isChannel ||
               channelKind.trim().isNotEmpty ||
@@ -2412,6 +2468,8 @@ class _DesktopConversationProfileState
                   label: 'Next action date',
                   value: channelNextDate.trim().isEmpty ? '-' : channelNextDate,
                 ),
+                const SizedBox(height: 10),
+                _channelTagsCard(context, channelTags),
               ],
               if (chat.isGroup) ...[
                 const SizedBox(height: 12),

@@ -746,7 +746,7 @@ function chat_ejabberd_send_message(string $fromJid, string $toJid, string $body
 
 function chat_ensure_schema(PDO $pdo): void
 {
-    $schemaMarker = sys_get_temp_dir() . '/skylink_chat_schema_20260702_v6';
+    $schemaMarker = sys_get_temp_dir() . '/skylink_chat_schema_20260723_v7';
     if (is_file($schemaMarker)) return;
     $pdo->exec(
         'CREATE TABLE IF NOT EXISTS xmpp_users (
@@ -913,6 +913,32 @@ function chat_ensure_schema(PDO $pdo): void
     chat_ensure_column($pdo, 'xmpp_groups', 'wakeup_updated_at', 'DATETIME NULL AFTER wakeup_updated_by_emp_id');
     chat_ensure_column($pdo, 'xmpp_groups', 'channel_definition_id', 'INT NULL AFTER channel_kind');
     chat_ensure_column($pdo, 'xmpp_groups', 'channel_template_key', 'VARCHAR(80) NULL AFTER channel_definition_id');
+    $pdo->exec(
+        'CREATE TABLE IF NOT EXISTS xmpp_channel_tags (
+            id BIGINT AUTO_INCREMENT PRIMARY KEY,
+            group_id INT NOT NULL,
+            tag_name VARCHAR(80) NOT NULL,
+            display_name VARCHAR(80) NOT NULL,
+            created_by_emp_id INT NOT NULL,
+            usage_count INT NOT NULL DEFAULT 0,
+            last_used_at DATETIME NULL,
+            created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+            UNIQUE KEY uq_channel_tag (group_id, tag_name),
+            INDEX idx_channel_tags_group_usage (group_id, usage_count, last_used_at)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci'
+    );
+    $pdo->exec(
+        'CREATE TABLE IF NOT EXISTS xmpp_channel_message_tags (
+            message_id BIGINT NOT NULL,
+            tag_id BIGINT NOT NULL,
+            group_id INT NOT NULL,
+            created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            PRIMARY KEY (message_id, tag_id),
+            INDEX idx_channel_message_tags_tag (tag_id, message_id),
+            INDEX idx_channel_message_tags_group (group_id, message_id)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci'
+    );
     $pdo->exec(
         'CREATE TABLE IF NOT EXISTS xmpp_channel_definitions (
             id INT AUTO_INCREMENT PRIMARY KEY,
@@ -1481,3 +1507,58 @@ function chat_slug(string $name): string
     return $slug !== '' ? $slug : 'group-' . date('Ymd-His');
 }
 
+
+function chat_is_channel_group(array $group): bool
+{
+    $type = strtolower(trim((string)($group['group_type'] ?? '')));
+    $jid = strtolower(trim((string)($group['room_jid'] ?? '')));
+    $name = trim((string)($group['room_name'] ?? ''));
+    return $type === 'channel' || str_starts_with($jid, 'channel-') || str_starts_with($name, '#');
+}
+
+function chat_extract_channel_tags(string $body): array
+{
+    if ($body === '') return [];
+    preg_match_all('/(^|[^A-Za-z0-9_])#([A-Za-z0-9][A-Za-z0-9_-]{1,39})/u', $body, $matches);
+    $tags = [];
+    foreach (($matches[2] ?? []) as $raw) {
+        $tag = strtolower(trim((string)$raw));
+        $tag = preg_replace('/[^a-z0-9_-]+/', '', $tag) ?: '';
+        if ($tag !== '' && strlen($tag) <= 40) $tags[$tag] = $tag;
+    }
+    return array_values($tags);
+}
+
+function chat_record_channel_message_tags(PDO $pdo, array $group, int $messageId, int $actorEmpId, string $body): void
+{
+    if ($messageId <= 0 || empty($group['id']) || !chat_is_channel_group($group)) return;
+    $tags = chat_extract_channel_tags($body);
+    if (!$tags) return;
+    $insertTag = $pdo->prepare(
+        'INSERT INTO xmpp_channel_tags (group_id, tag_name, display_name, created_by_emp_id, usage_count, last_used_at)
+         VALUES (:group_id, :tag_name, :display_name, :created_by, 1, NOW())
+         ON DUPLICATE KEY UPDATE usage_count = usage_count + 1, last_used_at = NOW(), updated_at = NOW()'
+    );
+    $findTag = $pdo->prepare('SELECT id FROM xmpp_channel_tags WHERE group_id = :group_id AND tag_name = :tag_name LIMIT 1');
+    $linkTag = $pdo->prepare(
+        'INSERT IGNORE INTO xmpp_channel_message_tags (message_id, tag_id, group_id)
+         VALUES (:message_id, :tag_id, :group_id)'
+    );
+    foreach ($tags as $tag) {
+        $insertTag->execute([
+            ':group_id' => (int)$group['id'],
+            ':tag_name' => $tag,
+            ':display_name' => '#' . $tag,
+            ':created_by' => $actorEmpId,
+        ]);
+        $findTag->execute([':group_id' => (int)$group['id'], ':tag_name' => $tag]);
+        $tagId = (int)($findTag->fetchColumn() ?: 0);
+        if ($tagId > 0) {
+            $linkTag->execute([
+                ':message_id' => $messageId,
+                ':tag_id' => $tagId,
+                ':group_id' => (int)$group['id'],
+            ]);
+        }
+    }
+}

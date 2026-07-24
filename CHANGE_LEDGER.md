@@ -266,3 +266,37 @@
 - Feature: Right-click on a chat message now opens the Flow floating message action menu even when selectable text pointer locks are active.
 - Change impact: Limited to message bubble secondary-click handling in lib/chat/chat_screen.dart. Long-press text-selection guard remains unchanged.
 - Regression verification: dart format passed. Targeted flutter analyze completed with no new errors; existing warnings remain.
+
+## 2026-07-24 10:37:38 +05:30 - Chat Text Selection Mode Root Fix
+- Requirement: Permanently stop chat jumping/flickering while selecting message text.
+- Root cause: History refresh/polling and scroll-position listeners could call setState and replace the message list while browser text selection handles were active; scroll-to-bottom logic then fought the active viewport.
+- Change: Added explicit Selection Mode in lib/chat/chat_screen.dart. Selection Mode captures bottom state and visible anchor, queues history refresh results, blocks message-list rebuilds/scroll listener UI changes/presence/location UI updates during selection, and merges queued history only after selection ends.
+- Merge behavior: If the user was at bottom before selection, queued messages merge and the chat returns to bottom. If reading older content, queued messages merge while restoring the captured visible message anchor.
+- Verification: dart format passed; targeted flutter analyze completed with no new errors; web release build passed at build/web.
+
+## 2026-07-24 11:04:49 +05:30 - External API Planning Documentation
+- Requirement: Investigate Unauthorized errors for task creation from external systems and plan external API access for Flow.
+- Root cause: Existing app APIs require Flow session auth via chat_require_user(), so external portals/Postman calls without session return Unauthorized.
+- Deliverables: Created docs/external_api/README.md, docs/external_api/ENDPOINT_CATALOG.md, and docs/external_api/TASK_API_DRAFT.md.
+- Decision: Keep internal app APIs session-protected; add a versioned external API layer with bearer API keys, scopes, audit logs, rate limits, and stable endpoint paths.
+- Build: Documentation-only change; no Flutter/PHP build required.
+
+## 2026-07-24 11:28:40 +05:30 - Module Versioned External API Documentation
+- Requirement: Define all Flow external APIs using module-first versioned paths such as chat/v1, users/v1, groups/v1, and channels/v1.
+- Deliverables: Added VERSIONED_API_ROUTES.md, CHAT_V1.md, USERS_V1.md, GROUPS_V1.md, CHANNELS_V1.md, TASKS_REMINDERS_NOTIFICATIONS_V1.md, and FILES_ATTENDANCE_LOCATION_V1.md under docs/external_api.
+- Change impact: Documentation-only; no runtime code changed. Existing session-protected app APIs remain unchanged.
+- Decision: External platform APIs should use /router_login/api/{module}/v1/{resource}, bearer API keys, scopes, idempotency keys, rate limits, and audit logs.
+- Build: Not required for documentation-only update.
+
+## 2026-07-24 11:53:02 - server_patch/api external APIs
+- Added server_patch/api/_shared/bootstrap.php for CORS, Bearer/X-Flow-Api-Key auth, scope checks, audit logging, idempotency table schema, and module dispatch.
+- Added module v1 index.php files and .htaccess routing.
+- Added CLI API client helper: server_patch/api/_shared/create_client.php.
+
+
+## 2026-07-24 12:18:16 - Extended API Handlers
+- Added server_patch/api/_shared/extended.php.
+- Updated server_patch/api/_shared/bootstrap.php dispatcher/scopes to use extended handlers.
+- Updated server_patch/api/.htaccess to allow hyphenated modules.
+- Updated server_patch/api/README.md with expanded endpoint catalogue.
+

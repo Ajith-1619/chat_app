@@ -228,6 +228,7 @@ class _ChatScreenState extends State<ChatScreen> {
   final List<_PendingChatMessage> _pendingOutgoing = [];
   Timer? _pollTimer;
   Timer? _draftTimer;
+  Timer? _selectionModeTimer;
   bool _hasText = false;
   bool _isLoading = true;
   bool _isSending = false;
@@ -268,6 +269,11 @@ class _ChatScreenState extends State<ChatScreen> {
   Future<Position?>? _messagePositionFuture;
   DateTime? _textSelectionActiveUntil;
   DateTime? _preserveUserContextUntil;
+  bool _selectionModeActive = false;
+  bool _selectionModeWasAtBottom = false;
+  int _selectionModeAnchorMessageId = 0;
+  double _selectionModeAnchorLeadingEdge = 0;
+  List<ApiMessage>? _queuedSelectionHistory;
   String _lastClipboardPasteKey = '';
   DateTime? _lastClipboardPasteAt;
   String _lastMessageAddress = '';
@@ -364,7 +370,7 @@ class _ChatScreenState extends State<ChatScreen> {
         _savedReadMessageId =
             int.tryParse('${position['message_id'] ?? 0}') ?? 0;
         _returnReadMessageId = _savedReadMessageId;
-        if (mounted) setState(() {});
+        if (mounted && !_selectionModeActive) setState(() {});
       }
     } catch (error) {
       // Conversation state can synchronize on the next refresh.
@@ -382,6 +388,7 @@ class _ChatScreenState extends State<ChatScreen> {
   void dispose() {
     _pollTimer?.cancel();
     _draftTimer?.cancel();
+    _selectionModeTimer?.cancel();
     _liveLocationTimer?.cancel();
     _saveVisibleReadPosition();
     _itemPositionsListener.itemPositions.removeListener(_trackScrollPosition);
@@ -392,7 +399,94 @@ class _ChatScreenState extends State<ChatScreen> {
     super.dispose();
   }
 
+  bool get _isAtConversationBottom {
+    if (_messages.isEmpty) return true;
+    final positions = _itemPositionsListener.itemPositions.value;
+    if (positions.isEmpty) return !_showJumpToLatest;
+    final lastVisible = positions
+        .where((position) => position.itemTrailingEdge > 0)
+        .map((position) => position.index)
+        .fold<int>(0, (max, index) => index > max ? index : max);
+    return lastVisible >= _messages.length - 2 && !_showJumpToLatest;
+  }
+
+  void _captureSelectionModeAnchor() {
+    _selectionModeAnchorMessageId = 0;
+    _selectionModeAnchorLeadingEdge = 0;
+    final positions =
+        _itemPositionsListener.itemPositions.value
+            .where((position) => position.itemTrailingEdge > 0)
+            .toList()
+          ..sort((a, b) => a.itemLeadingEdge.compareTo(b.itemLeadingEdge));
+    if (positions.isEmpty || _messages.isEmpty) return;
+    final anchor = positions.firstWhere(
+      (position) => position.itemLeadingEdge >= 0,
+      orElse: () => positions.first,
+    );
+    if (anchor.index >= 0 && anchor.index < _messages.length) {
+      _selectionModeAnchorMessageId = _messages[anchor.index].id;
+      _selectionModeAnchorLeadingEdge = anchor.itemLeadingEdge.clamp(0.0, 1.0);
+    }
+  }
+
+  void _restoreSelectionModeAnchor() {
+    if (_selectionModeWasAtBottom || _selectionModeAnchorMessageId <= 0) return;
+    if (!_itemScrollController.isAttached) return;
+    final anchorIndex = _messages.indexWhere(
+      (message) => message.id == _selectionModeAnchorMessageId,
+    );
+    if (anchorIndex < 0) return;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted || !_itemScrollController.isAttached) return;
+      _itemScrollController.scrollTo(
+        index: anchorIndex,
+        duration: Duration.zero,
+        curve: Curves.linear,
+        alignment: _selectionModeAnchorLeadingEdge,
+      );
+    });
+  }
+
+  void _enterSelectionMode() {
+    if (!mounted) return;
+    if (!_selectionModeActive) {
+      _selectionModeWasAtBottom = _isAtConversationBottom;
+      _captureSelectionModeAnchor();
+      _selectionModeActive = true;
+    }
+    _startSelectionModeMonitor();
+  }
+
+  void _startSelectionModeMonitor() {
+    _selectionModeTimer ??= Timer.periodic(
+      const Duration(milliseconds: 220),
+      (_) => _maybeFinishSelectionMode(),
+    );
+  }
+
+  void _maybeFinishSelectionMode() {
+    if (!_selectionModeActive || !mounted) return;
+    if (_isTextSelectionActive) return;
+    _finishSelectionMode();
+  }
+
+  void _finishSelectionMode() {
+    if (!_selectionModeActive) return;
+    final queuedHistory = _queuedSelectionHistory;
+    _queuedSelectionHistory = null;
+    _selectionModeActive = false;
+    _selectionModeTimer?.cancel();
+    _selectionModeTimer = null;
+    _textSelectionActiveUntil = null;
+    _preserveUserContextUntil = null;
+    if (queuedHistory != null) {
+      _applyHistory(queuedHistory, fromSelectionQueue: true);
+      _restoreSelectionModeAnchor();
+    }
+  }
+
   void _trackScrollPosition() {
+    if (_selectionModeActive) return;
     final positions = _itemPositionsListener.itemPositions.value;
     if (positions.isEmpty || _messages.isEmpty) return;
     final lastVisible = positions
@@ -467,8 +561,15 @@ class _ChatScreenState extends State<ChatScreen> {
     }
   }
 
-  void _applyHistory(List<ApiMessage> history) {
+  void _applyHistory(
+    List<ApiMessage> history, {
+    bool fromSelectionQueue = false,
+  }) {
     if (!mounted) return;
+    if (_selectionModeActive && !fromSelectionQueue) {
+      _queuedSelectionHistory = history;
+      return;
+    }
     final historyMessages = history.map((message) {
       final attachment = message.attachment;
       return ChatMessage(
@@ -519,7 +620,9 @@ class _ChatScreenState extends State<ChatScreen> {
         .where((message) => message.id > 0 && !previousIds.contains(message.id))
         .length;
     final wasEmpty = _messages.isEmpty;
-    final viewingOlderMessages = _shouldPreserveUserContext;
+    final viewingOlderMessages = fromSelectionQueue
+        ? !_selectionModeWasAtBottom
+        : _shouldPreserveUserContext;
     setState(() {
       _messages
         ..clear()
@@ -539,7 +642,7 @@ class _ChatScreenState extends State<ChatScreen> {
     } else if (wasEmpty) {
       // The message list is initially built at the latest item via initialScrollIndex.
     } else if (!viewingOlderMessages && addedCount > 0) {
-      _scrollToBottom();
+      _scrollToBottom(force: fromSelectionQueue && _selectionModeWasAtBottom);
     }
   }
 
@@ -548,7 +651,8 @@ class _ChatScreenState extends State<ChatScreen> {
     _presenceRequestActive = true;
     try {
       final presence = await chatApi.getPresence(widget.chat.jid);
-      if (mounted) setState(() => _presence = presence);
+      if (mounted && !_selectionModeActive)
+        setState(() => _presence = presence);
     } catch (error) {
       // Keep the most recently known presence.
     } finally {
@@ -562,7 +666,7 @@ class _ChatScreenState extends State<ChatScreen> {
     if (groupId <= 0) return;
     try {
       final result = await chatApi.getGroupMembers(groupId);
-      if (mounted) {
+      if (mounted && !_selectionModeActive) {
         setState(() {
           _groupMembers = result.members;
           _groupRole = result.currentRole;
@@ -596,7 +700,8 @@ class _ChatScreenState extends State<ChatScreen> {
       final enabled =
           visibility['enabled'] == true ||
           '${visibility['enabled'] ?? ''}' == '1';
-      if (mounted) setState(() => _canViewMessageLocations = enabled);
+      if (mounted && !_selectionModeActive)
+        setState(() => _canViewMessageLocations = enabled);
     } catch (error) {
       // Message info must stay usable even if permission lookup fails.
     }
@@ -4409,6 +4514,7 @@ class _ChatScreenState extends State<ChatScreen> {
   bool get _shouldPreserveUserContext {
     final preserveUntil = _preserveUserContextUntil;
     return _showJumpToLatest ||
+        _selectionModeActive ||
         _isTextSelectionActive ||
         (preserveUntil != null && DateTime.now().isBefore(preserveUntil));
   }
@@ -4458,16 +4564,19 @@ class _ChatScreenState extends State<ChatScreen> {
   }
 
   void _markTextSelectionPointerIntent() {
+    _enterSelectionMode();
     _markTextSelectionLock(const Duration(milliseconds: 1500));
   }
 
   void _markTextSelectionActive() {
+    _enterSelectionMode();
     _markTextSelectionLock(const Duration(milliseconds: 900));
   }
 
   void _markTextSelectionLock(Duration duration) {
     _textSelectionActiveUntil = DateTime.now().add(duration);
     _markUserContextInteraction(duration: duration);
+    _startSelectionModeMonitor();
   }
 
   void _markUserContextInteraction({

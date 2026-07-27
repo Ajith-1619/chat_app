@@ -1,6 +1,7 @@
 <?php
 declare(strict_types=1);
 require_once __DIR__ . '/bootstrap.php';
+require_once __DIR__ . '/PluginEventBus.php';
 
 $session = chat_require_user();
 $input = json_decode(file_get_contents('php://input') ?: '{}', true);
@@ -142,6 +143,17 @@ try {
         ':to' => $roomJid,
         ':body' => $systemBody,
     ]);
+    if ($action === 'add') {
+        flow_plugin_emit($pdo, 'member.added', [
+            'event_id' => 'member-added-' . $groupId . '-' . $empId . '-' . time(),
+            'actor_emp_id' => (int)$session['emp_id'],
+            'group_id' => $groupId,
+            'room_jid' => $roomJid,
+            'member_emp_id' => $empId,
+            'role' => 'member',
+            'show_history' => $showHistory,
+        ]);
+    }
     chat_json(['status' => true, 'action' => $action, 'emp_id' => $empId]);
 } catch (Throwable $e) {
     error_log('chat/manage_group failed: ' . $e->getMessage());

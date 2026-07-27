@@ -264,3 +264,162 @@
 - Runtime schema guards were added for new external helper tables and location columns.
 - Known limitation: external file upload uses base64 JSON transport first; multipart can be added later without changing route names.
 
+
+## 2026-07-24 12:34:54 - API Docs Regression Note
+- No runtime code changed for this documentation task.
+- Documentation uses live base URL requested by user.
+
+
+## 2026-07-24 12:49:18 - Plugin System Regression
+- Core messenger logic remains generic; no plugin-specific behavior embedded in send/create/member code.
+- Plugin exceptions are caught and logged separately so core chat operations continue.
+- Risk: same-request PHP sandbox cannot hard-timeout CPU-bound plugins; future async worker recommended for heavy plugins.
+
+
+## 2026-07-24 13:10:00 - Chat Selection Regression Note
+- Expected preserved behavior: opening a chat can still land on the latest message because no selection freeze is active at initial load.
+- Expected fixed behavior: selecting/copying message text should not trigger pending forced auto-scroll or delayed retry jumps.
+- Remaining manual check: verify web browser text drag selection and normal chat scrolling together on the deployed build.
+
+## 2026-07-24 14:34:05 +05:30 - Web Build Regression Check
+- Verification: Web release build completed successfully after chat selection freeze changes.
+- Risk: Manual browser validation still needed for message text selection stability on the deployed web build.
+
+## 2026-07-24 14:53:05 +05:30 - Chat Scroll Selection Regression
+- Verification: dart format passed; flutter analyze .\\lib\\chat\\chat_screen.dart completed with existing lint warnings only.
+- Expected behavior: normal message click no longer freezes/changes scroll state; selecting text still preserves viewport; jump-to-latest button state refreshes after selection.
+
+## 2026-07-24 14:58:22 +05:30 - History Limit Regression
+- Verification: php -l passed for server_patch/chat/history.php.
+- Risk: Returning more history can increase payload size for very active groups; full paginated load-older is recommended as the next improvement.
+
+## 2026-07-24 15:08:16 +05:30 - Web Build Regression Check
+- Verification: Web release build completed after chat selection fix and history limit patch.
+- Manual checks recommended: web chat text selection, jump-to-latest button, old group history loading after server history.php upload.
+
+## 2026-07-24 - Chat Selection Regression Verification
+- Scope: sent/received text bubbles, long/formatted messages, Read more, action menu, scrolling, queued history updates.
+- Verification: dart format passed. flutter analyze lib/chat/chat_screen.dart completed with no compile errors; 48 existing warnings/infos remain in the large chat file unrelated to this change.
+- Manual acceptance still needed in Chrome: drag-select message text, Ctrl+C, paste, menu actions, scroll.
+
+## 2026-07-24 15:55:18 - Regression Verification
+- Verified message text rendering still uses SelectableText.rich.
+- Verified right-click context menu handler remains enabled through onSecondaryTapDown.
+- Verified mobile/touch swipe reply and long-press actions remain enabled because the new guard applies only Web/Desktop plain text bubbles outside message-selection mode.
+- Ran dart format and flutter analyze for lib/chat/chat_screen.dart; analyzer reports existing warnings/info only, no compile errors from this change.
+
+
+## 2026-07-24 15:55:36 +05:30 - Regression Check: Chat Text Selection
+- Scope: Sent/received text bubbles, formatted text, long messages/read more, right-click message actions, attachments, scrolling.
+- Risk mitigated: Parent GestureDetector no longer competes with SelectableText mouse drag on web/desktop plain text bubbles.
+- Verification: dart format passed; flutter analyze .\\lib\\chat\\chat_screen.dart completed with existing warnings/info only and no new compile errors from this change.
+
+
+## 2026-07-24 16:03:47 +05:30 - Web Build Regression Check
+- Scope: Full Flutter web compilation after chat text selection fix.
+- Result: Passed; build/web generated successfully.
+- Manual checks pending: Chrome text selection, Ctrl+C, jump-to-latest button, message actions, scrolling.
+
+## 2026-07-24 16:20:07 +05:30 - Web Build Verification
+- Scope: Full Flutter web release compile after chat history spinner fix.
+- Result: Passed; build/web generated successfully.
+- Manual checks pending: open chat history, message text selection, Ctrl+C copy, scrolling, jump-to-latest button.
+
+## 2026-07-24 16:45:46 +05:30 - Regression Verification
+- Area: Chat message selection, chat scrolling, jump-to-latest, message action menu.
+- Result: Automated build passed. Manual browser verification still recommended on live deployment with long/short sent and received messages.
+- Risk: Existing analyzer warnings remain unrelated to this scoped change.
+
+## 2026-07-24 17:24:54 +05:30 - Regression Verification
+- Area: Home chat list, channel filter, recent chat API.
+- Result: PHP syntax passed; Dart analyzer has no compile errors for changed files. Existing analyzer warnings remain unrelated.
+- Manual checks: Channel list should show badge only when next_action_persons is present; personal chats/groups without channel next action remain unchanged.
+
+## 2026-07-24 17:31:47 +05:30 - Web Build Regression Check
+- Area: Flutter web build output.
+- Result: Release build passed with no build errors.
+- Manual check pending: Verify channel list badge rendering with live next_action_persons/next_action_date data.
+
+## 2026-07-24 18:00:10 +05:30 - Release Regression Verification
+- Area: Android release build and draft deployment.
+- Result: flutter build apk --release passed; PHP register script syntax passed; uploaded APK URL returned HTTP 200; draft registration returned release_id 33.
+- Manual check: Employee 302 should approve from Release Management before production rollout.
+
+## 2026-07-24 - AI API Room Toggle Regression Notes
+- Verified: PHP lint passed for server_patch/chat/ai_access.php.
+- Verified: flutter analyze on changed Dart files reported no compile errors; existing warnings/info remain.
+- Risk: Live server must receive chat/ai_access.php before deployed web/app can call the endpoint.
+
+
+## 2026-07-25 - Web Build Verification
+- Verified: Flutter web release compilation completed successfully.
+- Risk: Manual browser smoke test not run in this turn.
+
+
+## 2026-07-25 - AI API Access Page Verification
+- Verified: PHP lint passed before upload.
+- Verified: Live endpoint reachable and protected by authentication.
+- Manual app check pending: open AI API menu while logged in as 302 and refresh if cached.
+
+
+## 2026-07-25 - AI Access Regression Verification
+- Verified: PHP lint passed for AI access endpoints.
+- Verified: Live endpoints return HTTP 401 without session, confirming protected endpoint availability.
+- Verified: Flutter analyzer found no new compile errors in changed files; existing warnings remain.
+- Pending: Web build/deploy required for live UI menu update.
+
+
+## 2026-07-25 - Regression Verification: Channel/Folders/Reply
+- Verified: Changed Dart files analyze without compile errors.
+- Preserved: Existing chat actions, folder create/delete/reorder, and chat opening flows remain in place.
+- Pending manual check: Mobile manage channel sheet with live channel metadata; folder edit UX; reply jump highlight in browser/app.
+
+## 2026-07-25 - Regression Verification: Latency Patch
+- Verified: Backend PHP syntax is valid.
+- Verified: Dart API client has no compile errors.
+- Risk: Live server must allow PHP CLI exec or run ai_room_worker.php through a queue/cron for @ai replies after this async change.
+- Manual check pending: send normal text, send @ai message in enabled channel, confirm normal send returns faster and AI reply appears shortly after.
+
+## 2026-07-25 - Web Build After Latency Patch
+- Verified: Web release compilation passed.
+- Pending manual smoke test: login, chat list, open chat, send message, AI room reply, folders/channel manage views.
+
+## 2026-07-25 - Regression Verification: Chat Folders
+- Verified: Existing filter strip keeps default filters and appends custom folders.
+- Verified: Folder edit/delete/reorder calls the same save path, now backend-backed.
+- Risk: Live app will fail folder load/save until chat_folders.php is deployed to server_patch/chat live path.
+- Manual pending: Create folder, reorder, refresh/rebuild, confirm order and membership persist.
+
+## 2026-07-25 - Mobile Composer Responsive Cleanup
+- Verified: Composer still uses the same send, long-press send target, schedule, voice, attach, emoji, and text controller callbacks.
+- Preserved: Formatting actions remain available from the composer text selection context menu after selecting text.
+- Pending manual check: Install/run APK on narrow and normal Android phones, type long text, confirm composer remains compact and send/voice/attach still work.
+
+
+## 2026-07-25 - Enter To Send User Setting
+- Verified: Default remains Enter-to-send for existing users because missing preference defaults to true.
+- Verified: Shift/Ctrl+Enter newline path is preserved when Enter-to-send is enabled.
+- Verified: Send button path is unchanged and still sends regardless of keyboard preference.
+- Pending manual check: Toggle setting in Appearance, test Enter and Shift/Ctrl+Enter on web/desktop/APK hardware keyboard and Android soft keyboard send action.
+
+
+## 2026-07-25 - v2.0.6 Web APK Build And Android Draft
+- Verified: flutter analyze .\\lib\\main.dart passed with no issues.
+- Verified: Flutter web release build passed.
+- Verified: Flutter Android release APK build passed.
+- Verified: register_draft_2_0_6.php PHP syntax passed and live execution returned release_id=34.
+- Pending manual smoke: login, chat open/send, composer Enter setting, file send/download, task screen, and 302 approval flow.
+
+
+## 2026-07-27 - Regression Verification: Full View Image Preview
+- Verified: Audio, location, PDF, office, text, and binary preview branches were not changed.
+- Verified: The image preview still uses the existing attachment bytes path and broken-image fallback.
+- Preserved: Attachment preview screen structure, download action, and non-image preview flows remain unchanged.
+- Pending manual check: Open an image in web/APK, zoom in/out, pan across the image, and confirm the image is no longer trapped inside a small box.
+
+## 2026-07-27 - Regression Verification: Android Public Download Visibility
+- Verified: Existing web download flow remains unchanged.
+- Verified: Restricted files still block download and remain in-app only.
+- Verified: Normal attachment download callers and saved-message download callers still use the same chat API path and success snackbar flow.
+- Pending manual check: On Android, download an image and confirm it appears in Gallery/Pictures; download a document and confirm it appears in Files > Downloads/Skylink.
+- Environment blocker: Native compile was not fully verified locally because the machine does not have JAVA_HOME/java configured for Gradle.

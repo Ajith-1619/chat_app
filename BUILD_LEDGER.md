@@ -312,3 +312,164 @@
 - Build type: PHP server patch only.
 - Verification: php -l passed for all server_patch/api PHP files after expanded endpoint work.
 
+
+## 2026-07-24 12:34:54 - Documentation Update
+- Build type: Documentation only; no Flutter/PHP build required.
+- Verification: Documentation generated from current server_patch/api endpoint list.
+
+
+## 2026-07-24 12:49:18 - Plugin System Verification
+- Build type: PHP server patch only; no Flutter build required.
+- Verification: php -l passed for PluginEventBus, example plugin, hook integration files, and API shared files.
+
+
+## 2026-07-24 13:10:00 - Chat Selection Patch Verification
+- Build type: Flutter source patch only; no web/APK build requested.
+- Verification: flutter analyze was attempted but timed out after 124 seconds before returning results.
+- Follow-up verification: flutter analyze .\lib\chat\chat_screen.dart completed in 7.2s with existing lint warnings/info only; no syntax/build-breaking error from the selection freeze patch.
+
+## 2026-07-24 14:34:05 +05:30 - Web Release Build
+- Build command: flutter build web --release
+- Result: Passed.
+- Output path: build\\web.
+- Notes: Flutter reported dependency update notices only; Wasm dry run succeeded.
+
+## 2026-07-24 14:53:05 +05:30 - Chat Selection Patch Check
+- Build type: Source patch only; no web/APK build requested.
+- Verification: dart format passed. flutter analyze .\\lib\\chat\\chat_screen.dart returned existing lint warnings/info but no new compile error from this patch.
+
+## 2026-07-24 14:58:22 +05:30 - History PHP Patch Verification
+- Build type: PHP server patch only; no Flutter build required.
+- Verification: C:\\xampp\\php\\php.exe -l .\\server_patch\\chat\\history.php passed.
+
+## 2026-07-24 15:08:16 +05:30 - Web Release Build
+- Build command: flutter build web --release
+- Result: Passed.
+- Output path: build\\web.
+- Notes: Dependency update notices only; Wasm dry run succeeded.
+
+## 2026-07-24 - Source Fix Only
+- Build: Not run; user requested implementation/analyze only for the message selection issue.
+- Validation: flutter analyze lib/chat/chat_screen.dart completed; no build artifacts produced.
+
+## 2026-07-24 15:55:18 - Validation Only
+- Build not requested for this fix.
+- Validation: dart format .\\lib\\chat\\chat_screen.dart succeeded; flutter analyze .\\lib\\chat\\chat_screen.dart completed with 48 pre-existing warnings/info and no new compile errors.
+
+
+## 2026-07-24 15:55:36 +05:30 - Chat Selection Source Verification
+- Build type: Flutter source patch only; no web/APK build requested in this turn.
+- Verification: dart format .\\lib\\chat\\chat_screen.dart passed.
+- Verification: flutter analyze .\\lib\\chat\\chat_screen.dart returned existing warnings/info; no syntax or build-breaking errors introduced by the selection fix.
+
+
+## 2026-07-24 16:03:47 +05:30 - Web Release Build
+- Command: flutter build web --release
+- Result: Passed.
+- Output: build/web
+- Notes: Flutter reported dependency update notices and Wasm dry run success; no build errors.
+
+## 2026-07-24 16:20:07 +05:30 - Web Release Build
+- Command: flutter build web --release
+- Result: Passed.
+- Output: build/web
+- Notes: Built after chat loading spinner/text selection fixes. Flutter showed dependency update notices and Wasm dry run success only.
+
+## 2026-07-24 16:45:46 +05:30 - Web Release Build
+- Command: flutter build web --release
+- Result: Passed.
+- Output: build/web
+- Scope: Refreshed web build after chat text selection root fix.
+- Notes: Flutter dependency update notices and Wasm dry run success only.
+
+## 2026-07-24 17:24:54 +05:30 - Source Verification Only
+- Build type: No web/APK build requested.
+- Verification: dart format passed for changed Dart files; php -l passed for recent_chats.php; flutter analyze returned existing warnings/info only and no compile errors.
+
+## 2026-07-24 17:31:47 +05:30 - Web Release Build
+- Command: flutter build web --release
+- Result: Passed.
+- Output: build/web
+- Scope: Web build refreshed after channel next-action badge implementation.
+- Notes: Flutter dependency update notices and Wasm dry run success only.
+
+## 2026-07-24 18:00:10 +05:30 - Android APK Release Build
+- Command: flutter build apk --release
+- Result: Passed.
+- Version: 2.0.5+28
+- Local artifact: release/Skylink-Chat-v2.0.5.apk
+- Size: 66,371,349 bytes
+- SHA256: 5F687D21B339FE53B1390A9D61158B81C5DF927243B2991BF95162D6BD5BED09
+- Live draft URL: https://dns.watchtower247.in/router_login/downloads/Skylink-Chat-v2.0.5.apk
+- Draft release id: 33
+
+## 2026-07-24 - AI API Room Toggle
+- Build: Not requested/run for this change.
+- Validation: flutter analyze scoped to changed Dart files; PHP lint passed.
+
+
+## 2026-07-25 - Web Build
+- Build: flutter build web --release --base-href /chat/
+- Status: Passed
+- Output: build/web
+- Notes: Wasm dry run succeeded; dependency update notices only.
+
+
+## 2026-07-25 - AI Access Endpoint Server Patch
+- Build: Not required.
+- Deployment: ai_access.php uploaded to live chat backend.
+- Verification: Public unauthenticated request returns HTTP 401, confirming endpoint exists and enforces session.
+
+
+## 2026-07-25 - AI Access Management
+- Build: Not run in this change.
+- Backend: Live endpoint patch deployed.
+- Next: Run web build/deploy to expose API Access menu in live drawer.
+
+
+## 2026-07-25 - UI Metadata/Folders Update
+- Build: Not run; user requested implementation only.
+- Validation: flutter analyze .\lib\chat\chat_screen.dart .\lib\home\home_screen.dart completed with no compile errors; existing warnings/info remain.
+
+## 2026-07-25 - Performance Patch
+- Build: Not run; user requested latency check/update, not release build.
+- Validation: php -l passed for send_message.php and ai_room_worker.php; flutter analyze lib/chat_api.dart had no compile errors.
+
+## 2026-07-25 - Web Build After Latency Patch
+- Build: flutter build web --release --base-href /chat/
+- Status: Passed.
+- Output: build/web.
+- Notes: Dependency update notices only; icon tree-shaking completed; Wasm dry run succeeded.
+
+## 2026-07-25 - DB Chat Folders
+- Build: Not run.
+- Validation: php -l server_patch/chat/chat_folders.php passed; flutter analyze scoped to changed Dart files had no compile errors.
+
+## 2026-07-25 - Mobile Composer Responsive Cleanup
+- Build: Not run; user requested implementation/update only.
+- Validation: dart format passed; flutter analyze .\lib\chat\chat_screen.dart completed with no compile errors. Existing analyzer warnings/info remain in this large file.
+
+
+## 2026-07-25 - Enter To Send User Setting
+- Build: Not run; user requested implementation/update only.
+- Validation: flutter analyze on changed Dart files completed with no compile errors. Existing warnings/info remain.
+
+
+## 2026-07-25 - v2.0.6 Web APK Build And Android Draft
+- Version: 2.0.6+29.
+- Web build: Passed. Output: build/web. ZIP: release/Skylink-Chat-Web-v2.0.6.zip.
+- APK build: Passed. APK: release/Skylink-Chat-v2.0.6.apk (66,551,717 bytes).
+- APK SHA256: 909109EFF3D156CF29B0FC7F9D4965F7E52649F065F8D5A5D9E61EA03AFA4CFF.
+- Web ZIP SHA256: 0D7522C2791BE94D2D8E3CB5B024B936C1AAA3B9C47573EF1CA7D7AB0CA7919F.
+- Uploaded APK URL: https://dns.watchtower247.in/router_login/downloads/Skylink-Chat-v2.0.6.apk.
+- Live APK HEAD check: HTTP 200, 66,551,717 bytes.
+- Draft registration: android draft release_id=34; approval required from employee 302.
+
+
+## 2026-07-27 - Full View Image Preview
+- Build: Not run; user requested implementation/update only.
+- Validation: dart format passed; flutter analyze .\lib\attachments\attachment_widgets.dart completed with no compile errors. Existing warnings/info remain in this large file.
+
+## 2026-07-27 - Android Public Download Visibility
+- Build: Not run; user requested implementation/update only.
+- Validation: dart format passed; flutter analyze on changed Dart files completed with no new compile errors. Native Android compile verification was attempted but local Gradle is blocked because JAVA_HOME/java is not configured.

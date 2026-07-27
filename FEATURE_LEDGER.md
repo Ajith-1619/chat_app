@@ -1,4 +1,4 @@
-﻿
+
 ## FEATURE-RELEASE-MANAGEMENT-DRAFT-ANDROID-2.0.4
 - Date: 2026-07-15
 - Area: Release Management
@@ -159,3 +159,99 @@
 - Added modules: search/v1, saved/v1, ai/v1, external-users/v1, storage/v1, polls/v1, checklists/v1.
 - Expanded chat/group/channel/files/location/attendance/releases handlers with action endpoints.
 
+
+## 2026-07-24 12:34:54 - External API Documentation Catalogue
+- Documented auth, scopes, standard responses, JID formats, Postman setup, and all implemented module endpoint examples.
+
+
+## 2026-07-24 12:49:18 - Plugin Hooks And SDK
+- Added FlowPluginEventBus with hook registry, permission/data declarations, plugin event/error/artifact logging, and safe execution wrappers.
+- Added auto-translate example plugin using message.received only through hook system.
+
+
+## 2026-07-24 13:10:00 - Chat Selection Freeze Refinement
+- Refined web chat selection mode to block pending forced auto-scroll callbacks while a message text selection is active.
+- Extended the initial selection lock window so first-drag text selection is less likely to be interrupted by polling or delayed scroll retries.
+
+## 2026-07-24 14:53:05 +05:30 - Web Message Selection Interaction
+- Message text now starts selection freeze on drag movement instead of every pointer down/click.
+- Selection finish now recalculates scroll position so the jump-to-latest button can reappear after selection mode ends.
+
+## 2026-07-24 - Selectable Chat Bubble Text
+- Feature: Web/Desktop chat bubbles use SelectableText.rich with parent swipe/long-press gestures disabled only for plain text bubbles on pointer platforms.
+- Preserved: Mobile long press/swipe, right-click menu, attachments, read more, formatted spans, message info and actions.
+
+## 2026-07-24 15:55:18 - Chat Text Selection
+- Feature: Native-style selectable message text on Web/Desktop.
+- Behavior: Text selection and Ctrl+C are prioritized for plain text bubbles while existing right-click message actions remain available; mobile swipe and long-press behavior is preserved.
+
+
+## 2026-07-24 15:55:36 +05:30 - Feature Update: Native Message Text Selection
+- Feature: Chat message bubbles now allow native SelectableText drag selection on web/desktop for sent, received, formatted, and long messages.
+- Preserved: Right-click actions, attachments, previews, read more, and mobile long-press/swipe behavior.
+
+
+## 2026-07-24 16:45:46 +05:30 - Chat Selection Stability
+- Feature: Chat message text selection and copy on Flutter Web/Desktop.
+- Status: Updated. Parent bubble gestures no longer compete with selectable message text; manual chat scrolling remains enabled.
+
+## 2026-07-24 17:24:54 +05:30 - Channel Operational Badge
+- Feature: Channel list next-action person badge.
+- Status: Added to home/channel list UI and wired to recent chat API metadata.
+
+## 2026-07-24 18:00:10 +05:30 - Release Management
+- Feature: Android draft release flow.
+- Status: v2.0.5+28 APK built, uploaded, and registered as Draft for 302 approval.
+
+## 2026-07-24 - AI API User Room Controls
+- Added Flutter AI API screen for assigned users.
+- Added backend endpoint patch chat/ai_access.php for access checks and room AI enable/disable.
+
+
+## 2026-07-25 - AI API Access Management
+- Added API Access management screen for employee 302.
+- Added user assignment endpoint for AI access.
+- Updated AI API room endpoint so users require explicit assignment before seeing AI API menu.
+
+
+## 2026-07-25 - Channel Profile And Folder Management
+- Feature: Mobile channel profile now exposes operational metadata from ChannelProfile.
+- Feature: Chat folders screen now shows default filters (All, Unread, Online, Personal, Groups, Channels, Starred) and supports editing custom folders.
+- Feature: Reply-message jump now temporarily highlights the target bubble.
+
+## 2026-07-25 - Performance Stabilization
+- Feature: Reduced Android history prefetch burst size and frequency.
+- Feature: Cached diagnostic app/device metadata per API client session.
+- Feature: Moved AI room reply generation out of synchronous send-message response path.
+
+## 2026-07-25 - Persistent Chat Folders
+- Feature: Chat folders are loaded/saved through backend API instead of local SharedPreferences.
+- Feature: Folder edit/delete/reorder saves to DB and appears in the main filter strip after default filters.
+- Feature: Existing local folders migrate once to DB when backend has no folders.
+
+## 2026-07-25 - Mobile Composer Responsive Cleanup
+- Feature: Mobile chat composer now uses compact responsive sizing for small screens.
+- Feature: Composer visible B button removed; formatting remains available through the text selection context menu.
+- Feature: Mobile multiline composer growth is capped lower to avoid oversized input area while typing.
+
+
+## 2026-07-25 - Enter To Send User Setting
+- Feature: Added Appearance setting named Enter sends message.
+- Feature: Composer keyboard behavior now follows the saved user preference in SharedPreferences.
+- Feature: Open chat composer reacts through appEnterToSend ValueNotifier without requiring app restart.
+
+
+## 2026-07-25 - v2.0.6 Web APK Build And Android Draft
+- Feature: Release artifacts refreshed for v2.0.6+29.
+- Feature: Android release build is staged as Development/Draft with rollout 0% and force update disabled.
+- Feature: Web build output refreshed under build/web and packaged as release ZIP.
+
+
+## 2026-07-27 - Full View Image Preview
+- Feature: Image attachment preview now uses a full-viewport viewer with black backdrop instead of a centered boxed preview.
+- Feature: Pinch/zoom and pan now operate against the full preview area for a more natural media-viewer experience.
+
+## 2026-07-27 - Android Public Download Visibility
+- Feature: Android attachment downloads now save to public Pictures/Skylink, Movies/Skylink, Music/Skylink, or Downloads/Skylink based on file type.
+- Feature: Saved-message downloads now use the same permission and public-save flow as normal chat attachments.
+- Feature: Modern Android devices avoid the old misleading app-storage fallback warning when public save does not need runtime storage permission.

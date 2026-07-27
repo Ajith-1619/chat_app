@@ -247,6 +247,8 @@ class _ChatScreenState extends State<ChatScreen> {
   int _savedReadMessageId = 0;
   int _returnReadMessageId = 0;
   int _newMessageCount = 0;
+  int _highlightedMessageId = 0;
+  Timer? _highlightTimer;
   bool _didJumpToInitialMessage = false;
   List<GroupMember> _groupMembers = [];
   String _groupRole = '';
@@ -396,6 +398,7 @@ class _ChatScreenState extends State<ChatScreen> {
     _speechToText.stop();
     unregisterClipboardMediaHandler(_handleClipboardMediaPaste);
     _messageController.dispose();
+    _highlightTimer?.cancel();
     super.dispose();
   }
 
@@ -465,9 +468,22 @@ class _ChatScreenState extends State<ChatScreen> {
   }
 
   void _maybeFinishSelectionMode() {
-    if (!_selectionModeActive || !mounted) return;
-    if (_isTextSelectionActive) return;
-    _finishSelectionMode();
+    if (!mounted) return;
+    if (_isTextSelectionScrollLocked) return;
+    if (_selectionModeActive) {
+      _finishSelectionMode();
+      return;
+    }
+    final queuedHistory = _queuedSelectionHistory;
+    _queuedSelectionHistory = null;
+    _selectionModeTimer?.cancel();
+    _selectionModeTimer = null;
+    _textSelectionActiveUntil = null;
+    if (queuedHistory != null) {
+      _applyHistory(queuedHistory, fromSelectionQueue: true);
+      _restoreSelectionModeAnchor();
+    }
+    _trackScrollPosition();
   }
 
   void _finishSelectionMode() {
@@ -486,7 +502,7 @@ class _ChatScreenState extends State<ChatScreen> {
   }
 
   void _trackScrollPosition() {
-    if (_selectionModeActive) return;
+    if (_isSelectionFreezeActive) return;
     final positions = _itemPositionsListener.itemPositions.value;
     if (positions.isEmpty || _messages.isEmpty) return;
     final lastVisible = positions
@@ -566,7 +582,9 @@ class _ChatScreenState extends State<ChatScreen> {
     bool fromSelectionQueue = false,
   }) {
     if (!mounted) return;
-    if (_selectionModeActive && !fromSelectionQueue) {
+    if (!fromSelectionQueue &&
+        _messages.isNotEmpty &&
+        (_selectionModeActive || _isTextSelectionScrollLocked)) {
       _queuedSelectionHistory = history;
       return;
     }
@@ -4511,6 +4529,17 @@ class _ChatScreenState extends State<ChatScreen> {
     return browserHasActiveTextSelection() || _isTextSelectionScrollLocked;
   }
 
+  bool get _isSelectionFreezeActive =>
+      _selectionModeActive || _isTextSelectionScrollLocked;
+
+  void _beginTextSelectionDrag() {
+    _markTextSelectionLock(const Duration(seconds: 2));
+  }
+
+  void _endTextSelectionDrag() {
+    _markTextSelectionLock(const Duration(milliseconds: 250));
+  }
+
   bool get _shouldPreserveUserContext {
     final preserveUntil = _preserveUserContextUntil;
     return _showJumpToLatest ||
@@ -4520,11 +4549,12 @@ class _ChatScreenState extends State<ChatScreen> {
   }
 
   void _scrollToBottom({bool force = false, bool instant = false}) {
-    if (!force && _shouldPreserveUserContext) return;
     if (force) {
       _textSelectionActiveUntil = null;
       _preserveUserContextUntil = null;
     }
+    if (_isSelectionFreezeActive) return;
+    if (!force && _shouldPreserveUserContext) return;
     _scrollToBottomWhenReady(force: force, instant: instant, attemptsLeft: 10);
   }
 
@@ -4563,11 +4593,6 @@ class _ChatScreenState extends State<ChatScreen> {
     });
   }
 
-  void _markTextSelectionPointerIntent() {
-    _enterSelectionMode();
-    _markTextSelectionLock(const Duration(milliseconds: 1500));
-  }
-
   void _markTextSelectionActive() {
     _enterSelectionMode();
     _markTextSelectionLock(const Duration(milliseconds: 900));
@@ -4592,12 +4617,19 @@ class _ChatScreenState extends State<ChatScreen> {
   void _jumpToMessage(int messageId) {
     final index = _messages.indexWhere((message) => message.id == messageId);
     if (index < 0 || !_itemScrollController.isAttached) return;
+    _highlightTimer?.cancel();
+    setState(() => _highlightedMessageId = messageId);
     _itemScrollController.scrollTo(
       index: index,
       duration: const Duration(milliseconds: 400),
       curve: Curves.easeOut,
       alignment: 0.22,
     );
+    _highlightTimer = Timer(const Duration(seconds: 3), () {
+      if (mounted && _highlightedMessageId == messageId) {
+        setState(() => _highlightedMessageId = 0);
+      }
+    });
   }
 
   Future<void> _searchMessages({String initialQuery = ''}) async {
@@ -5287,6 +5319,8 @@ class _ChatScreenState extends State<ChatScreen> {
                                 initialAlignment: 1.0,
                                 itemScrollController: _itemScrollController,
                                 itemPositionsListener: _itemPositionsListener,
+                                // Keep list scrolling normal; message text owns its
+                                // own drag gestures on web/desktop.
                                 physics: const ClampingScrollPhysics(),
                                 padding: const EdgeInsets.fromLTRB(
                                   14,
@@ -5331,6 +5365,8 @@ class _ChatScreenState extends State<ChatScreen> {
                                     selected: _selectedMessageIds.contains(
                                       message.id,
                                     ),
+                                    highlighted:
+                                        _highlightedMessageId == message.id,
                                     onTap: () {
                                       if (_selectedMessageIds.isNotEmpty) {
                                         _toggleMessageSelection(message);
@@ -5371,7 +5407,9 @@ class _ChatScreenState extends State<ChatScreen> {
                                             Navigator.maybePop(context);
                                           },
                                     onTextSelectionPointerDown:
-                                        _markTextSelectionPointerIntent,
+                                        _beginTextSelectionDrag,
+                                    onTextSelectionPointerUp:
+                                        _endTextSelectionDrag,
                                     onTextSelectionChanged:
                                         _markTextSelectionActive,
                                     onMentionTap: _openMentionProfile,
@@ -5503,38 +5541,42 @@ class _ChatScreenState extends State<ChatScreen> {
               ),
             )
           else
-            _MessageComposer(
-              controller: _messageController,
-              onSend: () => _sendMessage(),
-              onSendLongPress: widget.chat.isGroup
-                  ? _showSendTargetOptions
-                  : null,
-              onSendLater: _scheduleDraftMessage,
-              onVoiceRecord: _toggleVoiceRecording,
-              isRecordingVoice: _isRecordingVoice,
-              onAttach: _pickAndSendAttachment,
-              isUploading: _isUploading,
-              uploadProgress: _uploadProgress,
-              showEmojiPicker: _showEmojiPicker,
-              onEmojiToggle: () =>
-                  setState(() => _showEmojiPicker = !_showEmojiPicker),
-              onEmojiSelected: (emoji) {
-                final value = _messageController.value;
-                final selection = value.selection.isValid
-                    ? value.selection
-                    : TextSelection.collapsed(offset: value.text.length);
-                final text = value.text.replaceRange(
-                  selection.start,
-                  selection.end,
-                  emoji,
-                );
-                _messageController.value = TextEditingValue(
-                  text: text,
-                  selection: TextSelection.collapsed(
-                    offset: selection.start + emoji.length,
-                  ),
-                );
-              },
+            ValueListenableBuilder<bool>(
+              valueListenable: appEnterToSend,
+              builder: (context, enterToSend, _) => _MessageComposer(
+                controller: _messageController,
+                enterToSend: enterToSend,
+                onSend: () => _sendMessage(),
+                onSendLongPress: widget.chat.isGroup
+                    ? _showSendTargetOptions
+                    : null,
+                onSendLater: _scheduleDraftMessage,
+                onVoiceRecord: _toggleVoiceRecording,
+                isRecordingVoice: _isRecordingVoice,
+                onAttach: _pickAndSendAttachment,
+                isUploading: _isUploading,
+                uploadProgress: _uploadProgress,
+                showEmojiPicker: _showEmojiPicker,
+                onEmojiToggle: () =>
+                    setState(() => _showEmojiPicker = !_showEmojiPicker),
+                onEmojiSelected: (emoji) {
+                  final value = _messageController.value;
+                  final selection = value.selection.isValid
+                      ? value.selection
+                      : TextSelection.collapsed(offset: value.text.length);
+                  final text = value.text.replaceRange(
+                    selection.start,
+                    selection.end,
+                    emoji,
+                  );
+                  _messageController.value = TextEditingValue(
+                    text: text,
+                    selection: TextSelection.collapsed(
+                      offset: selection.start + emoji.length,
+                    ),
+                  );
+                },
+              ),
             ),
         ],
       ),
@@ -5953,6 +5995,56 @@ class _ChatScreenState extends State<ChatScreen> {
               textAlign: TextAlign.center,
             ),
             const SizedBox(height: 18),
+            if (widget.chat.isChannel)
+              FutureBuilder<ChannelProfile>(
+                future: chatApi.getChannelProfile(
+                  groupId: groupId,
+                  jid: widget.chat.jid,
+                ),
+                builder: (context, snapshot) {
+                  final profile = snapshot.data;
+                  if (snapshot.connectionState != ConnectionState.done &&
+                      profile == null) {
+                    return const Padding(
+                      padding: EdgeInsets.only(bottom: 12),
+                      child: LinearProgressIndicator(minHeight: 2),
+                    );
+                  }
+                  return Column(
+                    children: [
+                      _ChannelProfileTile(
+                        icon: Icons.description_outlined,
+                        label: 'Description',
+                        value: (profile?.description ?? '').trim().isEmpty
+                            ? 'No description added.'
+                            : profile!.description,
+                      ),
+                      _ChannelProfileTile(
+                        icon: Icons.task_alt_rounded,
+                        label: 'Next action',
+                        value: (profile?.nextActionText ?? '').trim().isEmpty
+                            ? 'No next action detected.'
+                            : profile!.nextActionText,
+                      ),
+                      _ChannelProfileTile(
+                        icon: Icons.people_alt_outlined,
+                        label: 'Next action person',
+                        value: (profile?.nextActionPersons ?? '').trim().isEmpty
+                            ? 'Mention a person to assign clearly.'
+                            : profile!.nextActionPersons,
+                      ),
+                      _ChannelProfileTile(
+                        icon: Icons.event_available_outlined,
+                        label: 'Next action date',
+                        value: (profile?.nextActionDate ?? '').trim().isEmpty
+                            ? '-'
+                            : profile!.nextActionDate,
+                      ),
+                      const SizedBox(height: 8),
+                    ],
+                  );
+                },
+              ),
             ListTile(
               leading: const Icon(Icons.people_outline_rounded),
               title: Text('${_groupMembers.length} members'),
@@ -6356,6 +6448,29 @@ class _TaskPeoplePicker extends StatelessWidget {
   }
 }
 
+class _ChannelProfileTile extends StatelessWidget {
+  const _ChannelProfileTile({
+    required this.icon,
+    required this.label,
+    required this.value,
+  });
+
+  final IconData icon;
+  final String label;
+  final String value;
+
+  @override
+  Widget build(BuildContext context) {
+    return ListTile(
+      dense: true,
+      contentPadding: EdgeInsets.zero,
+      leading: Icon(icon, color: AppColors.primary),
+      title: Text(label),
+      subtitle: Text(value, maxLines: 4, overflow: TextOverflow.ellipsis),
+    );
+  }
+}
+
 class _MessageBubble extends StatelessWidget {
   const _MessageBubble({
     super.key,
@@ -6364,6 +6479,7 @@ class _MessageBubble extends StatelessWidget {
     required this.showLocationAddress,
     required this.onLongPressStart,
     required this.selected,
+    this.highlighted = false,
     required this.onTap,
     required this.onSecondaryTapDown,
     this.replyMessage,
@@ -6376,6 +6492,7 @@ class _MessageBubble extends StatelessWidget {
     this.onChecklistToggle,
     this.onPollVote,
     this.onTextSelectionPointerDown,
+    this.onTextSelectionPointerUp,
     this.onTextSelectionChanged,
     this.participantNames = const {},
     this.showChecklistPollDetails = false,
@@ -6387,6 +6504,7 @@ class _MessageBubble extends StatelessWidget {
   final ChatMessage? replyMessage;
   final GestureLongPressStartCallback onLongPressStart;
   final bool selected;
+  final bool highlighted;
   final VoidCallback onTap;
   final GestureTapDownCallback onSecondaryTapDown;
   final VoidCallback? onReplyTap;
@@ -6398,6 +6516,7 @@ class _MessageBubble extends StatelessWidget {
   final ValueChanged<int>? onChecklistToggle;
   final ValueChanged<int>? onPollVote;
   final VoidCallback? onTextSelectionPointerDown;
+  final VoidCallback? onTextSelectionPointerUp;
   final VoidCallback? onTextSelectionChanged;
   final Map<int, String> participantNames;
   final bool showChecklistPollDetails;
@@ -6420,6 +6539,17 @@ class _MessageBubble extends StatelessWidget {
       screenWidth * (screenWidth >= 900 ? 0.62 : 0.82),
       screenWidth >= 900 ? 560.0 : screenWidth * 0.82,
     );
+    final desktopTextSelection =
+        kIsWeb ||
+        defaultTargetPlatform == TargetPlatform.windows ||
+        defaultTargetPlatform == TargetPlatform.macOS ||
+        defaultTargetPlatform == TargetPlatform.linux;
+    final selectableTextBubble =
+        attachment == null &&
+        contactCard == null &&
+        checklist == null &&
+        poll == null;
+    final letTextOwnMouseDrag = desktopTextSelection && selectableTextBubble;
     if (message.isSystem) {
       return Column(
         children: [
@@ -6456,21 +6586,24 @@ class _MessageBubble extends StatelessWidget {
       children: [
         if (dateLabel != null) _DateChip(label: dateLabel!),
         GestureDetector(
-          onTap: onTap,
-          onLongPressStart: onLongPressStart,
+          onTap: letTextOwnMouseDrag ? null : onTap,
+          onLongPressStart: letTextOwnMouseDrag ? null : onLongPressStart,
           onSecondaryTapDown: onSecondaryTapDown,
-          onHorizontalDragEnd: (details) {
-            final velocity = details.primaryVelocity ?? 0;
-            if (velocity > 450) {
-              onSwipeReply?.call();
-            } else if (velocity < -450 &&
-                attachment == null &&
-                contactCard == null &&
-                checklist == null &&
-                poll == null) {
-              onSwipeBack?.call();
-            }
-          },
+          // Web/desktop text selection must own mouse drags that start on text.
+          onHorizontalDragEnd: letTextOwnMouseDrag
+              ? null
+              : (details) {
+                  final velocity = details.primaryVelocity ?? 0;
+                  if (velocity > 450) {
+                    onSwipeReply?.call();
+                  } else if (velocity < -450 &&
+                      attachment == null &&
+                      contactCard == null &&
+                      checklist == null &&
+                      poll == null) {
+                    onSwipeBack?.call();
+                  }
+                },
           child: Align(
             alignment: message.isMe
                 ? Alignment.centerRight
@@ -6489,6 +6622,8 @@ class _MessageBubble extends StatelessWidget {
                   decoration: BoxDecoration(
                     color: selected
                         ? colors.primary.withValues(alpha: dark ? 0.36 : 0.24)
+                        : highlighted
+                        ? const Color(0xFFFFF4B8)
                         : isTaggedOrReplied
                         ? (dark
                               ? colors.secondaryContainer.withValues(
@@ -6508,7 +6643,9 @@ class _MessageBubble extends StatelessWidget {
                       bottomLeft: Radius.circular(message.isMe ? 17 : 4),
                       bottomRight: Radius.circular(message.isMe ? 4 : 17),
                     ),
-                    border: isTaggedOrReplied
+                    border: highlighted
+                        ? Border.all(color: const Color(0xFFFFB020), width: 2)
+                        : isTaggedOrReplied
                         ? Border.all(
                             color: dark
                                 ? colors.secondary
@@ -6653,6 +6790,7 @@ class _MessageBubble extends StatelessWidget {
                               onHashtagTap: onHashtagTap,
                               onSelectionPointerDown:
                                   onTextSelectionPointerDown,
+                              onSelectionPointerUp: onTextSelectionPointerUp,
                               onSelectionChanged: onTextSelectionChanged,
                             ),
                             const SizedBox(height: 3),
@@ -6825,6 +6963,7 @@ class _CollapsibleMessageText extends StatefulWidget {
     this.onMentionTap,
     this.onHashtagTap,
     this.onSelectionPointerDown,
+    this.onSelectionPointerUp,
     this.onSelectionChanged,
   });
 
@@ -6832,6 +6971,7 @@ class _CollapsibleMessageText extends StatefulWidget {
   final ValueChanged<String>? onMentionTap;
   final ValueChanged<String>? onHashtagTap;
   final VoidCallback? onSelectionPointerDown;
+  final VoidCallback? onSelectionPointerUp;
   final VoidCallback? onSelectionChanged;
 
   @override
@@ -6873,6 +7013,8 @@ class _CollapsibleMessageTextState extends State<_CollapsibleMessageText> {
               builder: (context, _, _) => Listener(
                 behavior: HitTestBehavior.translucent,
                 onPointerDown: (_) => widget.onSelectionPointerDown?.call(),
+                onPointerUp: (_) => widget.onSelectionPointerUp?.call(),
+                onPointerCancel: (_) => widget.onSelectionPointerUp?.call(),
                 child: SelectableText.rich(
                   _formattedMessageSpan(
                     widget.text,
@@ -7332,50 +7474,6 @@ Future<void> _applyComposerColor(
   _applyComposerFormatting(controller, '[color=$picked]', '[/color]');
 }
 
-Future<void> _showComposerFormattingMenu(
-  BuildContext context,
-  TextEditingController controller,
-) async {
-  if (!controller.selection.isValid || controller.selection.isCollapsed) return;
-  final action = await showMenu<String>(
-    context: context,
-    position: const RelativeRect.fromLTRB(80, 520, 16, 80),
-    items: const [
-      PopupMenuItem(value: 'bold', child: Text('Bold')),
-      PopupMenuItem(value: 'italic', child: Text('Italic')),
-      PopupMenuItem(value: 'underline', child: Text('Underline')),
-      PopupMenuItem(value: 'strike', child: Text('Strikethrough')),
-      PopupMenuItem(value: 'mono', child: Text('Monospace')),
-      PopupMenuItem(value: 'quote', child: Text('Quote')),
-      PopupMenuItem(value: 'color', child: Text('Text color')),
-    ],
-  );
-  if (action == null) return;
-  switch (action) {
-    case 'bold':
-      _applyComposerFormatting(controller, '**', '**');
-      break;
-    case 'italic':
-      _applyComposerFormatting(controller, '*', '*');
-      break;
-    case 'underline':
-      _applyComposerFormatting(controller, '__', '__');
-      break;
-    case 'strike':
-      _applyComposerFormatting(controller, '~~', '~~');
-      break;
-    case 'mono':
-      _applyComposerFormatting(controller, '`', '`');
-      break;
-    case 'quote':
-      _applyComposerFormatting(controller, '> ', '');
-      break;
-    case 'color':
-      await _applyComposerColor(context, controller);
-      break;
-  }
-}
-
 Widget _composerContextMenu(
   BuildContext context,
   EditableTextState editableTextState,
@@ -7447,6 +7545,7 @@ Widget _composerContextMenu(
 class _MessageComposer extends StatelessWidget {
   const _MessageComposer({
     required this.controller,
+    required this.enterToSend,
     required this.onSend,
     this.onSendLongPress,
     required this.onSendLater,
@@ -7461,6 +7560,7 @@ class _MessageComposer extends StatelessWidget {
   });
 
   final TextEditingController controller;
+  final bool enterToSend;
   final VoidCallback onSend;
   final VoidCallback? onSendLongPress;
   final VoidCallback onSendLater;
@@ -7479,6 +7579,69 @@ class _MessageComposer extends StatelessWidget {
       animation: controller,
       builder: (context, _) {
         final hasText = controller.text.trim().isNotEmpty;
+        final screenWidth = MediaQuery.sizeOf(context).width;
+        final compactComposer = screenWidth < 420;
+        final mobileComposer = screenWidth < 600;
+        final outerHorizontalPadding = compactComposer ? 6.0 : 10.0;
+        final outerTopPadding = compactComposer ? 5.0 : 7.0;
+        final outerBottomPadding = compactComposer ? 6.0 : 8.0;
+        final inputVerticalPadding = compactComposer ? 8.0 : 10.0;
+        final inputIconExtent = compactComposer ? 38.0 : 42.0;
+        final actionButtonSize = compactComposer ? 44.0 : 50.0;
+        final actionGap = compactComposer ? 6.0 : 8.0;
+        final maxComposerLines = mobileComposer ? 3 : 5;
+
+        Widget composerIconButton({
+          required String tooltip,
+          required VoidCallback? onPressed,
+          required Widget icon,
+        }) {
+          return IconButton(
+            tooltip: tooltip,
+            onPressed: onPressed,
+            constraints: BoxConstraints.tightFor(
+              width: inputIconExtent,
+              height: inputIconExtent,
+            ),
+            padding: EdgeInsets.zero,
+            visualDensity: VisualDensity.compact,
+            icon: icon,
+          );
+        }
+
+        Widget roundActionButton({
+          required String tooltip,
+          required VoidCallback? onTap,
+          VoidCallback? onLongPress,
+          required Color color,
+          required IconData icon,
+          Key? key,
+        }) {
+          return Material(
+            color: color,
+            shape: const CircleBorder(),
+            elevation: 2,
+            child: InkWell(
+              key: key,
+              onTap: onTap,
+              onLongPress: onLongPress,
+              customBorder: const CircleBorder(),
+              child: Tooltip(
+                message: tooltip,
+                child: SizedBox(
+                  width: actionButtonSize,
+                  height: actionButtonSize,
+                  child: Icon(
+                    icon,
+                    color: Colors.white,
+                    size: compactComposer ? 21 : 23,
+                  ),
+                ),
+              ),
+            ),
+          );
+        }
+
         return Column(
           mainAxisSize: MainAxisSize.min,
           children: [
@@ -7490,10 +7653,10 @@ class _MessageComposer extends StatelessWidget {
             Container(
               color: Theme.of(context).colorScheme.surfaceContainer,
               padding: EdgeInsets.fromLTRB(
-                10,
-                7,
-                10,
-                MediaQuery.paddingOf(context).bottom + 8,
+                outerHorizontalPadding,
+                outerTopPadding,
+                outerHorizontalPadding,
+                MediaQuery.paddingOf(context).bottom + outerBottomPadding,
               ),
               child: Row(
                 crossAxisAlignment: CrossAxisAlignment.end,
@@ -7514,12 +7677,13 @@ class _MessageComposer extends StatelessWidget {
                       child: Row(
                         crossAxisAlignment: CrossAxisAlignment.end,
                         children: [
-                          IconButton(
+                          composerIconButton(
                             tooltip: 'Emoji',
                             onPressed: onEmojiToggle,
-                            icon: const Icon(
+                            icon: Icon(
                               Icons.sentiment_satisfied_alt_rounded,
                               color: AppColors.muted,
+                              size: compactComposer ? 21 : 22,
                             ),
                           ),
                           Expanded(
@@ -7534,6 +7698,9 @@ class _MessageComposer extends StatelessWidget {
                                     event.logicalKey ==
                                         LogicalKeyboardKey.numpadEnter;
                                 if (!isEnter) {
+                                  return KeyEventResult.ignored;
+                                }
+                                if (!enterToSend) {
                                   return KeyEventResult.ignored;
                                 }
                                 final insertNewLine =
@@ -7571,8 +7738,18 @@ class _MessageComposer extends StatelessWidget {
                                 key: const Key('messageField'),
                                 controller: controller,
                                 minLines: 1,
-                                maxLines: 5,
+                                maxLines: maxComposerLines,
                                 keyboardType: TextInputType.multiline,
+                                textInputAction: enterToSend
+                                    ? TextInputAction.send
+                                    : TextInputAction.newline,
+                                onSubmitted: enterToSend
+                                    ? (_) {
+                                        if (hasText) {
+                                          onSend();
+                                        }
+                                      }
+                                    : null,
                                 textCapitalization:
                                     TextCapitalization.sentences,
                                 contextMenuBuilder:
@@ -7582,11 +7759,12 @@ class _MessageComposer extends StatelessWidget {
                                           editableTextState,
                                           controller,
                                         ),
-                                decoration: const InputDecoration(
+                                decoration: InputDecoration(
                                   hintText: 'Message',
                                   filled: false,
+                                  isDense: true,
                                   contentPadding: EdgeInsets.symmetric(
-                                    vertical: 13,
+                                    vertical: inputVerticalPadding,
                                   ),
                                   border: InputBorder.none,
                                   enabledBorder: InputBorder.none,
@@ -7595,98 +7773,61 @@ class _MessageComposer extends StatelessWidget {
                               ),
                             ),
                           ),
-                          IconButton(
-                            tooltip: 'Format selected text',
-                            onPressed:
-                                controller.selection.isValid &&
-                                    !controller.selection.isCollapsed
-                                ? () => _showComposerFormattingMenu(
-                                    context,
-                                    controller,
-                                  )
-                                : null,
-                            icon: Icon(
-                              Icons.format_bold_rounded,
-                              color:
-                                  controller.selection.isValid &&
-                                      !controller.selection.isCollapsed
-                                  ? AppColors.muted
-                                  : AppColors.muted.withOpacity(0.45),
-                            ),
-                          ),
-                          IconButton(
+                          // Formatting stays in the text selection menu. Keeping a
+                          // permanent bold button here made the APK composer too wide.
+                          composerIconButton(
                             tooltip: 'Schedule message',
                             onPressed: hasText ? onSendLater : null,
                             icon: Icon(
                               Icons.schedule_send_rounded,
                               color: hasText
                                   ? AppColors.muted
-                                  : AppColors.muted.withOpacity(0.45),
+                                  : AppColors.muted.withValues(alpha: 0.45),
+                              size: compactComposer ? 21 : 22,
                             ),
                           ),
-                          IconButton(
+                          composerIconButton(
                             tooltip: 'Attach',
                             onPressed: isUploading ? null : onAttach,
                             icon: isUploading
                                 ? const SizedBox(
-                                    width: 20,
-                                    height: 20,
+                                    width: 18,
+                                    height: 18,
                                     child: CircularProgressIndicator(
                                       strokeWidth: 2,
                                     ),
                                   )
-                                : const Icon(
+                                : Icon(
                                     Icons.attach_file_rounded,
                                     color: AppColors.muted,
+                                    size: compactComposer ? 21 : 22,
                                   ),
                           ),
                         ],
                       ),
                     ),
                   ),
-                  const SizedBox(width: 8),
-                  Material(
+                  SizedBox(width: actionGap),
+                  roundActionButton(
+                    tooltip: isRecordingVoice
+                        ? 'Stop voice recording'
+                        : 'Voice message',
+                    onTap: onVoiceRecord,
                     color: AppColors.primary,
-                    shape: const CircleBorder(),
-                    elevation: 2,
-                    child: InkWell(
-                      onTap: onVoiceRecord,
-                      customBorder: const CircleBorder(),
-                      child: SizedBox(
-                        width: 50,
-                        height: 50,
-                        child: Icon(
-                          isRecordingVoice
-                              ? Icons.stop_rounded
-                              : Icons.mic_rounded,
-                          color: Colors.white,
-                          size: 23,
-                        ),
-                      ),
-                    ),
+                    icon: isRecordingVoice
+                        ? Icons.stop_rounded
+                        : Icons.mic_rounded,
                   ),
-                  const SizedBox(width: 8),
-                  Material(
+                  SizedBox(width: actionGap),
+                  roundActionButton(
+                    key: const Key('sendButton'),
+                    tooltip: 'Send',
+                    onTap: hasText ? onSend : null,
+                    onLongPress: hasText ? onSendLongPress : null,
                     color: hasText
                         ? AppColors.primary
-                        : AppColors.primary.withOpacity(0.45),
-                    shape: const CircleBorder(),
-                    elevation: 2,
-                    child: InkWell(
-                      key: const Key('sendButton'),
-                      onTap: hasText ? onSend : null,
-                      onLongPress: hasText ? onSendLongPress : null,
-                      customBorder: const CircleBorder(),
-                      child: const SizedBox(
-                        width: 50,
-                        height: 50,
-                        child: Icon(
-                          Icons.send_rounded,
-                          color: Colors.white,
-                          size: 23,
-                        ),
-                      ),
-                    ),
+                        : AppColors.primary.withValues(alpha: 0.45),
+                    icon: Icons.send_rounded,
                   ),
                 ],
               ),

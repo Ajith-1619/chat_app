@@ -1,4 +1,4 @@
-﻿import 'dart:async';
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 import 'dart:math';
@@ -56,6 +56,7 @@ final chatApi = sharedChatApi;
 final appThemeMode = ValueNotifier<ThemeMode>(ThemeMode.light);
 final appMessageScale = ValueNotifier<double>(1.0);
 final appChatDensity = ValueNotifier<double>(1.0);
+final appEnterToSend = ValueNotifier<bool>(true);
 
 final appThemeName = ValueNotifier<String>('flow_blue');
 
@@ -175,6 +176,11 @@ FlowThemeSpec flowThemeById(String id) => flowThemeSpecs.firstWhere(
 
 Future<void> requestAttachmentStoragePermission(BuildContext context) async {
   if (kIsWeb || !Platform.isAndroid) return;
+  try {
+    final sdkInt =
+        await androidPlatform.invokeMethod<int>("getAndroidSdkInt") ?? 0;
+    if (sdkInt >= 29) return;
+  } catch (_) {}
   final status = await ph.Permission.storage.status;
   if (status.isGranted) return;
   final result = await ph.Permission.storage.request();
@@ -182,7 +188,7 @@ Future<void> requestAttachmentStoragePermission(BuildContext context) async {
     ScaffoldMessenger.of(context).showSnackBar(
       const SnackBar(
         content: Text(
-          'Storage permission denied. Files will be saved in app storage.',
+          "Storage permission denied. Older Android versions may save downloads inside app storage only.",
         ),
       ),
     );
@@ -219,7 +225,6 @@ Future<void> logout(BuildContext context) async {
     }
   }
 }
-
 
 class AppColors {
   static const primary = Color(0xFF2864DC);
@@ -317,10 +322,7 @@ ThemeData buildFlowTheme(FlowThemeSpec spec, Brightness brightness) {
       textStyle: TextStyle(color: onSurface),
     ),
     textTheme: TextTheme(
-      headlineLarge: TextStyle(
-        color: onSurface,
-        fontWeight: FontWeight.w800,
-      ),
+      headlineLarge: TextStyle(color: onSurface, fontWeight: FontWeight.w800),
       titleLarge: TextStyle(color: onSurface, fontWeight: FontWeight.w700),
       titleMedium: TextStyle(color: onSurface, fontWeight: FontWeight.w700),
       bodyLarge: TextStyle(color: onSurface),
@@ -337,10 +339,14 @@ ThemeData buildFlowTheme(FlowThemeSpec spec, Brightness brightness) {
     chipTheme: ChipThemeData(
       backgroundColor: surfaceHigh,
       selectedColor: spec.primary.withValues(alpha: dark ? 0.32 : 0.14),
-      secondarySelectedColor: spec.primary.withValues(alpha: dark ? 0.32 : 0.14),
+      secondarySelectedColor: spec.primary.withValues(
+        alpha: dark ? 0.32 : 0.14,
+      ),
       labelStyle: TextStyle(color: onSurface),
       secondaryLabelStyle: TextStyle(color: onSurface),
-      side: BorderSide(color: dark ? const Color(0xFF30394A) : AppColors.divider),
+      side: BorderSide(
+        color: dark ? const Color(0xFF30394A) : AppColors.divider,
+      ),
     ),
     inputDecorationTheme: InputDecorationTheme(
       filled: true,
@@ -356,7 +362,9 @@ ThemeData buildFlowTheme(FlowThemeSpec spec, Brightness brightness) {
       ),
       enabledBorder: OutlineInputBorder(
         borderRadius: BorderRadius.circular(16),
-        borderSide: BorderSide(color: dark ? const Color(0xFF30394A) : AppColors.divider),
+        borderSide: BorderSide(
+          color: dark ? const Color(0xFF30394A) : AppColors.divider,
+        ),
       ),
       focusedBorder: OutlineInputBorder(
         borderRadius: BorderRadius.circular(16),
@@ -708,8 +716,4 @@ class _SessionGateState extends State<_SessionGate> {
     }
     return LoginScreen(initialEmployeeId: _employeeId, initialError: _error);
   }
-
-
-
-
 }

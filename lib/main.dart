@@ -1,4 +1,4 @@
-﻿import 'dart:async';
+import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/foundation.dart';
@@ -26,17 +26,20 @@ Future<void> main() async {
     'dark' => ThemeMode.dark,
     'system' => ThemeMode.system,
     'light' => ThemeMode.light,
-    _ => preferences.getBool('dark_mode') == true
-        ? ThemeMode.dark
-        : ThemeMode.light,
+    _ =>
+      preferences.getBool('dark_mode') == true
+          ? ThemeMode.dark
+          : ThemeMode.light,
   };
   appThemeName.value = preferences.getString('theme_name') ?? 'flow_blue';
   appMessageScale.value = preferences.getDouble('message_scale') ?? 1.0;
   appChatDensity.value = preferences.getDouble('chat_density') ?? 1.0;
+  appEnterToSend.value = preferences.getBool('enter_to_send') ?? true;
   appShowAvatars.value = preferences.getBool('show_avatars') ?? true;
   appCollapseLongMessages.value =
       preferences.getBool('collapse_long_messages') ?? true;
-  appWorkspaceMode.value = preferences.getString('workspace_mode') ?? 'three_pane';
+  appWorkspaceMode.value =
+      preferences.getString('workspace_mode') ?? 'three_pane';
   try {
     await LocationTrackingService.instance.initialize();
   } catch (error) {
@@ -49,4 +52,3 @@ Future<void> main() async {
   }
   runApp(const SkylinkApp());
 }
-

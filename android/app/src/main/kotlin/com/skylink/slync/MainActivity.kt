@@ -1,12 +1,18 @@
 package com.skylink.slync
 
 import android.app.Activity
+import android.content.ContentValues
 import android.content.Intent
+import android.media.MediaScannerConnection
+import android.os.Build
+import android.os.Environment
 import android.provider.ContactsContract
+import android.provider.MediaStore
 import android.provider.Settings
 import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodChannel
+import java.io.File
 
 class MainActivity : FlutterActivity() {
     private val contactPickRequestCode = 4207
@@ -24,8 +30,129 @@ class MainActivity : FlutterActivity() {
                     result.success(null)
                 }
                 "pickContact" -> pickContact(result)
+                "getAndroidSdkInt" -> result.success(Build.VERSION.SDK_INT)
+                "savePublicDownload" -> savePublicDownload(
+                    call.argument<String>("sourcePath"),
+                    call.argument<String>("fileName"),
+                    call.argument<String>("mimeType"),
+                    call.argument<String>("mediaType"),
+                    result,
+                )
                 else -> result.notImplemented()
             }
+        }
+    }
+
+    private fun savePublicDownload(
+        sourcePath: String?,
+        fileName: String?,
+        mimeType: String?,
+        mediaType: String?,
+        result: MethodChannel.Result,
+    ) {
+        val source = sourcePath?.let { File(it) }
+        val safeName = fileName?.trim().orEmpty()
+        if (source == null || !source.exists()) {
+            result.error("missing_source", "Downloaded file was not found.", null)
+            return
+        }
+        if (safeName.isEmpty()) {
+            result.error("missing_name", "Downloaded file name is missing.", null)
+            return
+        }
+        try {
+            val resolvedMime = mimeType?.takeIf { it.isNotBlank() } ?: "application/octet-stream"
+            val resolvedType = mediaType?.takeIf { it.isNotBlank() } ?: "file"
+            val savedPath = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                saveToMediaStore(source, safeName, resolvedMime, resolvedType)
+            } else {
+                saveToLegacyPublicDirectory(source, safeName, resolvedMime, resolvedType)
+            }
+            result.success(savedPath)
+        } catch (error: Exception) {
+            result.error("save_failed", "Unable to save the download publicly.", error.message)
+        }
+    }
+
+    private fun saveToMediaStore(
+        source: File,
+        fileName: String,
+        mimeType: String,
+        mediaType: String,
+    ): String {
+        val (collection, relativePath) = mediaStoreTargetFor(mediaType)
+        val values = ContentValues().apply {
+            put(MediaStore.MediaColumns.DISPLAY_NAME, fileName)
+            put(MediaStore.MediaColumns.MIME_TYPE, mimeType)
+            put(MediaStore.MediaColumns.RELATIVE_PATH, relativePath)
+            put(MediaStore.MediaColumns.IS_PENDING, 1)
+        }
+        val resolver = applicationContext.contentResolver
+        val uri = resolver.insert(collection, values)
+            ?: throw IllegalStateException("MediaStore insert failed.")
+        resolver.openOutputStream(uri)?.use { output ->
+            source.inputStream().use { input ->
+                input.copyTo(output)
+            }
+        } ?: throw IllegalStateException("Unable to open MediaStore output stream.")
+        values.clear()
+        values.put(MediaStore.MediaColumns.IS_PENDING, 0)
+        resolver.update(uri, values, null, null)
+        return "$relativePath/$fileName"
+    }
+
+    private fun saveToLegacyPublicDirectory(
+        source: File,
+        fileName: String,
+        mimeType: String,
+        mediaType: String,
+    ): String {
+        val (baseDirectory, _) = legacyTargetFor(mediaType)
+        val targetDir = File(
+            Environment.getExternalStoragePublicDirectory(baseDirectory),
+            "Skylink"
+        )
+        if (!targetDir.exists()) {
+            targetDir.mkdirs()
+        }
+        val targetFile = File(targetDir, fileName)
+        source.copyTo(targetFile, overwrite = true)
+        MediaScannerConnection.scanFile(
+            applicationContext,
+            arrayOf(targetFile.absolutePath),
+            arrayOf(mimeType),
+            null,
+        )
+        return targetFile.absolutePath
+    }
+
+    private fun mediaStoreTargetFor(mediaType: String): Pair<android.net.Uri, String> {
+        return when (mediaType.lowercase()) {
+            "image" -> Pair(
+                MediaStore.Images.Media.EXTERNAL_CONTENT_URI,
+                Environment.DIRECTORY_PICTURES + "/Skylink",
+            )
+            "video" -> Pair(
+                MediaStore.Video.Media.EXTERNAL_CONTENT_URI,
+                Environment.DIRECTORY_MOVIES + "/Skylink",
+            )
+            "audio" -> Pair(
+                MediaStore.Audio.Media.EXTERNAL_CONTENT_URI,
+                Environment.DIRECTORY_MUSIC + "/Skylink",
+            )
+            else -> Pair(
+                MediaStore.Downloads.EXTERNAL_CONTENT_URI,
+                Environment.DIRECTORY_DOWNLOADS + "/Skylink",
+            )
+        }
+    }
+
+    private fun legacyTargetFor(mediaType: String): Pair<String, String> {
+        return when (mediaType.lowercase()) {
+            "image" -> Pair(Environment.DIRECTORY_PICTURES, "Skylink")
+            "video" -> Pair(Environment.DIRECTORY_MOVIES, "Skylink")
+            "audio" -> Pair(Environment.DIRECTORY_MUSIC, "Skylink")
+            else -> Pair(Environment.DIRECTORY_DOWNLOADS, "Skylink")
         }
     }
 

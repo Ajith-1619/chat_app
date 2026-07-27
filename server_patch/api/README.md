@@ -5,7 +5,7 @@ Deploy this folder to `/var/www/html/router_login/api/`.
 Base URL:
 
 ```text
-https://chat.skylinkonline.net/router_login/api/{module}/v1/{resource}
+https://dns.watchtower247.in/router_login/api/{module}/v1/{resource}
 ```
 
 Authentication:

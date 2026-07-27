@@ -113,6 +113,7 @@ try {
     }
     $stmt = $pdo->prepare(
         'SELECT g.id, g.room_name, g.room_jid, g.avatar_url, g.group_type, g.channel_kind, g.created_at,
+                g.next_action_text, g.next_action_persons, g.next_action_date,
                 COALESCE(pref.is_pinned, 0) AS is_pinned,
                 COALESCE(pref.is_starred, 0) AS is_starred,
                 COALESCE(gr.last_read_message_id, 0) AS last_read_message_id,
@@ -161,6 +162,9 @@ try {
             'avatar_url' => chat_public_upload_url((string)($row['avatar_url'] ?? '')),
             'designation' => (($row['group_type'] ?? 'group') === 'channel') ? ucfirst(str_replace('_', ' ', (string)($row['channel_kind'] ?? 'operational'))) . ' channel' : 'Group conversation',
             'channel_kind' => (string)($row['channel_kind'] ?? ''),
+            'next_action_text' => (string)($row['next_action_text'] ?? ''),
+            'next_action_persons' => (string)($row['next_action_persons'] ?? ''),
+            'next_action_date' => (string)($row['next_action_date'] ?? ''),
             'last' => chat_push_preview(
                 (string)($row['last_body'] ?? 'Group chat'),
                 (string)($row['last_file_name'] ?? '')
@@ -181,5 +185,6 @@ usort($groups, static function(array $a, array $b): int {
     return strtotime((string)($b['time'] ?? '')) <=> strtotime((string)($a['time'] ?? ''));
 });
 chat_json(['status' => true, 'chats' => $groups]);
+
 
 

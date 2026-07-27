@@ -1,6 +1,7 @@
 <?php
 declare(strict_types=1);
 require_once __DIR__ . '/bootstrap.php';
+require_once __DIR__ . '/PluginEventBus.php';
 
 $session = chat_require_user();
 $pdo = chat_db();
@@ -139,6 +140,29 @@ try {
         ':metadata' => json_encode(['definition_id' => $definitionId, 'template_key' => $channelKind], JSON_UNESCAPED_SLASHES),
     ]);
     $pdo->commit();
+    flow_plugin_emit($pdo, 'channel.created', [
+        'event_id' => 'channel-created-' . $channelId,
+        'actor_emp_id' => (int)$session['emp_id'],
+        'channel' => [
+            'id' => $channelId,
+            'room_name' => '#' . $name,
+            'room_jid' => $roomJid,
+            'group_type' => 'channel',
+            'channel_kind' => $channelKind,
+            'description' => $description,
+        ],
+    ]);
+    foreach ($members as $memberId) {
+        flow_plugin_emit($pdo, 'member.added', [
+            'event_id' => 'member-added-' . $channelId . '-' . $memberId,
+            'actor_emp_id' => (int)$session['emp_id'],
+            'group_id' => $channelId,
+            'room_jid' => $roomJid,
+            'group_type' => 'channel',
+            'member_emp_id' => $memberId,
+            'role' => $memberId === (int)$session['emp_id'] ? 'owner' : 'member',
+        ]);
+    }
     chat_json([
         'status' => true,
         'group_id' => $channelId,

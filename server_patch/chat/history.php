@@ -7,6 +7,7 @@ $traceId = trim((string)($_SERVER['HTTP_X_SKYLINK_TRACE_ID'] ?? 'history-' . bin
 $traceStarted = microtime(true);
 $peer = trim((string)($_GET['jid'] ?? ''));
 $targetMessageId = max(0, (int)($_GET['target_message_id'] ?? 0));
+$historyLimit = max(50, min(1000, (int)($_GET['limit'] ?? 1000)));
 $targetMessageFilterSql = $targetMessageId > 0 ? 'AND id <= :target_message_id' : '';
 $peek = (string)($_GET['peek'] ?? '') === '1';
 $readLatitude = isset($_GET['read_latitude']) && is_numeric($_GET['read_latitude']) ? (float)$_GET['read_latitude'] : null;
@@ -60,7 +61,7 @@ try {
                    AND (deleted_at IS NULL OR deleted_at = \'0000-00-00 00:00:00\')
                    ' . $targetMessageFilterSql . '
                  ORDER BY created_at DESC, id DESC
-                 LIMIT 200
+                 LIMIT ' . $historyLimit . '
              ) latest_messages
              ORDER BY created_at ASC, id ASC';
         $stmt = $pdo->prepare($historySql);
@@ -71,7 +72,7 @@ try {
             $historyRows = $stmt->fetchAll(PDO::FETCH_ASSOC) ?: [];
         } catch (Throwable $historyError) {
             error_log('chat/history group legacy fallback for ' . $peer . ': ' . $historyError->getMessage());
-            $fallbackSql = 'SELECT * FROM xmpp_messages WHERE to_jid = :room_jid ORDER BY id DESC LIMIT 200';
+            $fallbackSql = 'SELECT * FROM xmpp_messages WHERE to_jid = :room_jid ORDER BY id DESC LIMIT ' . $historyLimit . '';
             $fallback = $pdo->prepare($fallbackSql);
             $fallback->execute([':room_jid' => strtolower($peer)]);
             $historyRows = array_reverse($fallback->fetchAll(PDO::FETCH_ASSOC) ?: []);
@@ -194,7 +195,7 @@ try {
                AND (deleted_at IS NULL OR deleted_at = \'0000-00-00 00:00:00\')
                ' . $targetMessageFilterSql . '
              ORDER BY created_at DESC, id DESC
-             LIMIT 200
+             LIMIT ' . $historyLimit . '
          ) latest_messages
          ORDER BY created_at ASC, id ASC'
     );

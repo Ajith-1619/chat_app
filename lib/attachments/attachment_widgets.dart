@@ -489,20 +489,35 @@ class _AttachmentPreviewBody extends StatelessWidget {
   Widget build(BuildContext context) {
     switch (data.kind) {
       case _AttachmentPreviewKind.image:
-        return Center(
-          child: Padding(
-            padding: const EdgeInsets.all(18),
-            child: InteractiveViewer(
-              minScale: 0.5,
-              maxScale: 5,
-              child: Image.memory(
-                data.bytes ?? Uint8List(0),
-                fit: BoxFit.contain,
-                errorBuilder: (_, _, _) =>
-                    const Icon(Icons.broken_image_outlined, size: 72),
+        return LayoutBuilder(
+          builder: (context, constraints) {
+            return ColoredBox(
+              color: Colors.black,
+              child: InteractiveViewer(
+                minScale: 0.5,
+                maxScale: 6,
+                boundaryMargin: const EdgeInsets.all(160),
+                child: SizedBox(
+                  width: constraints.maxWidth,
+                  height: constraints.maxHeight,
+                  // Keep the image preview viewport full-screen. Without an
+                  // explicit viewport-sized child, InteractiveViewer is bounded
+                  // by the intrinsic image size and zoom feels trapped in a box.
+                  child: Image.memory(
+                    data.bytes ?? Uint8List(0),
+                    fit: BoxFit.contain,
+                    errorBuilder: (_, _, _) => const Center(
+                      child: Icon(
+                        Icons.broken_image_outlined,
+                        color: Colors.white70,
+                        size: 72,
+                      ),
+                    ),
+                  ),
+                ),
               ),
-            ),
-          ),
+            );
+          },
         );
       case _AttachmentPreviewKind.audio:
         return _AudioAttachmentPreview(attachment: attachment);

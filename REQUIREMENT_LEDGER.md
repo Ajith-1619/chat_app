@@ -209,3 +209,97 @@
 - Requirement: Complete remaining Flow external API routes for chat actions, files, saved messages, search, storage, AI, external users, attendance, location, release actions, polls, and checklists.
 - Status: Completed expanded v1 PHP endpoint coverage under server_patch/api.
 
+
+## 2026-07-24 12:34:54 - Full External API Documentation
+- Requirement: Create full documentation for all possible external API endpoints using base URL https://dns.watchtower247.in/router_login/api/{module}/v1/{resource}.
+- Status: Completed documentation in docs/external_api/FLOW_EXTERNAL_API_DOCUMENTATION.md and copied to server_patch/api/FLOW_EXTERNAL_API_DOCUMENTATION.md.
+
+
+## 2026-07-24 12:49:18 - Flow Messenger Plugin Extension System
+- Requirement: Add plugin/extension system with hooks for message.received, message.sent, channel.created, member.added; sandbox plugin execution; separate plugin error logs; example auto-translate plugin; SDK documentation.
+- Status: Completed server-side PHP plugin event bus, manifest registration, hook triggers, example plugin, and SDK docs.
+
+
+## 2026-07-24 13:10:00 - Web Chat Text Selection Stability Follow-up
+- Requirement: Re-check the persistent web message text selection jump/dance issue and preserve user context during selection.
+- Status: Updated selection freeze guards so even forced scroll-to-bottom retries are blocked while text selection is active.
+
+## 2026-07-24 14:53:05 +05:30 - Chat Selection Jump Root Fix Follow-up
+- Requirement: Fix persistent web chat jump when clicking/selecting message text and restore jump-to-latest button visibility.
+- Status: Updated message text pointer handling so normal click does not enter selection mode; only drag selection or actual non-collapsed selection freezes the viewport.
+
+## 2026-07-24 14:58:22 +05:30 - Old Group Message History Limit
+- Requirement: Check why old messages are not visible in some groups/channels.
+- Finding: chat/history.php had a hard-coded latest 200 message cap for both group/channel and personal history.
+- Status: Updated server patch to allow up to 1000 messages per history request by default.
+
+## 2026-07-24 - Chat Web Text Selection Stability
+- Requirement: Message text inside chat bubbles must be selectable with mouse drag on Flutter Web/Desktop without triggering swipe reply, tap actions, long press menus, message selection mode, auto-scroll, or list jump.
+- Status: Implemented in chat message bubble/text selection path; pending browser acceptance check by user.
+
+## 2026-07-24 15:55:18 - Web/Desktop Message Text Selection
+- Requirement: Message bubble text must be selectable with mouse drag on Flutter Web/Desktop without triggering swipe reply, tap actions, long press menu, drag conflicts, or message selection mode.
+- Scope: Sent/received/plain/formatted/long/read-more message text in desktop web browsers.
+
+
+## 2026-07-24 15:55:36 +05:30 - Completed: Web/Desktop Message Text Selection
+- Requirement: Message text inside chat bubbles must be selectable with mouse drag on Flutter Web/Desktop without triggering swipe reply, message tap, long press menu, drag/scroll conflict, or message selection mode.
+- Status: Completed in Flutter source; production-safe minimal chat bubble gesture fix.
+
+
+## 2026-07-24 16:45:46 +05:30 - Requirement Update
+- Requirement: Message text selection on web/desktop must behave like native web text selection without moving the conversation.
+- Status: Implemented in lib/chat/chat_screen.dart and built into build/web.
+
+## 2026-07-24 17:24:54 +05:30 - Requirement Update
+- Requirement: Show next-action person badge in channel list, using YOU for the current user and urgency color based on next-action date.
+- Status: Implemented. Pending live server deployment of server_patch/chat/recent_chats.php and app build/deploy for users to see it.
+
+## 2026-07-24 18:00:10 +05:30 - Requirement Update
+- Requirement: APK build should be created for next version and staged on live server as Draft for 302 approval.
+- Status: Complete. Version 2.0.5+28 draft registered as release_id 33.
+
+## 2026-07-24 - AI API Room Toggle Access
+- Status: Implemented locally
+- Requirement: Show AI API menu only for users with AI access, list involved groups/channels, and allow toggling @ai support using default Open Router provider id 2.
+
+
+## 2026-07-25 - AI API Access Assignment Split
+- Status: Implemented locally; backend deployed.
+- Requirement: Employee 302 must see an API Access management menu. Only users enabled there should see the AI API room-toggle menu.
+
+
+## 2026-07-25 - Mobile Channel Profile, Folder Filters, Reply Highlight
+- Requirement: Mobile Manage Channel must show description, next action, next action person, and next action date; web Chat Folders must show default filters and allow editing folders; reply preview jump must highlight the target message.
+- Status: Implemented locally. Build not requested in this turn.
+
+## 2026-07-25 - Chat API Latency Review
+- Requirement: Check app/API latency and identify/fix slow paths where possible.
+- Status: Implemented local optimizations for send-message AI work, Android history prefetch bursts, and diagnostics overhead. Live backend deploy required for send-message latency improvement.
+
+## 2026-07-25 - DB-Backed Chat Folders
+- Requirement: Chat folders must not be local-only; they must persist in database per user across builds/devices, remain editable, appear with All/Unread/Online filters, and persist reorder position.
+- Status: Implemented locally. Backend endpoint must be deployed before production use.
+
+## 2026-07-25 - Mobile Composer Responsive Cleanup
+- Requirement: APK message composer must be flexible across mobile screen sizes, easier for continuous typing, and remove the always-visible B formatting icon.
+- Status: Implemented locally in lib/chat/chat_screen.dart. Build not requested in this turn.
+
+
+## 2026-07-25 - Enter To Send User Setting
+- Requirement: User must be able to enable or disable Enter-to-send from Settings. When enabled, Enter sends and Shift/Ctrl+Enter inserts a new line. When disabled, Enter inserts a new line and the send button sends.
+- Status: Implemented locally. Build not requested in this turn.
+
+
+## 2026-07-25 - v2.0.6 Web APK Build And Android Draft
+- Requirement: Build next version web and APK, then move APK to live server as Draft for employee 302 approval.
+- Status: Completed. Version bumped to 2.0.6+29; web and APK builds passed; Android draft registered as release_id=34.
+
+
+## 2026-07-27 18:35:00 +05:30 - Full View Image Preview
+- Requirement: Image attachment preview must open in a full-view viewport instead of a small boxed area, and zoom/pan must use the full available preview space.
+- Status: Implemented locally. Build not requested in this turn.
+
+## 2026-07-27 19:20:00 +05:30 - Android Public Download Visibility
+- Requirement: Mobile downloads must request storage where needed, save files/images into visible public device folders like WhatsApp/Telegram, and make the saved location clear to the user.
+- Status: Implemented locally. Build not requested in this turn.

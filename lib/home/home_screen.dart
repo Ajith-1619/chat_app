@@ -25,6 +25,8 @@ import 'package:http/http.dart' as http;
 import 'package:archive/archive.dart';
 
 import '../chat_api.dart';
+import '../ai_api_screen.dart';
+import '../ai_access_management_screen.dart';
 import '../location_tracking_service.dart';
 import '../notification_service.dart';
 import '../session_store.dart';
@@ -74,6 +76,9 @@ class ChatPreview {
     this.originalSenderName = '',
     this.originalSourceName = '',
     this.isChannel = false,
+    this.nextActionText = '',
+    this.nextActionPersons = '',
+    this.nextActionDate = '',
   });
 
   factory ChatPreview.fromContact(ChatContact contact) {
@@ -105,6 +110,9 @@ class ChatPreview {
       isStarred: contact.isStarred,
       wasMentioned: contact.wasMentioned,
       avatarUrl: contact.avatarUrl,
+      nextActionText: contact.nextActionText,
+      nextActionPersons: contact.nextActionPersons,
+      nextActionDate: contact.nextActionDate,
     );
   }
 
@@ -128,6 +136,9 @@ class ChatPreview {
   final String originalSenderName;
   final String originalSourceName;
   final bool isChannel;
+  final String nextActionText;
+  final String nextActionPersons;
+  final String nextActionDate;
 }
 
 class _InlineSearchResult {
@@ -627,42 +638,38 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   Future<void> _loadChatFolders() async {
-    final prefs = await SharedPreferences.getInstance();
-    final raw = prefs.getString(_chatFoldersStorageKey);
-    if (raw == null || raw.isEmpty) {
-      if (mounted) {
-        setState(() {
-          _chatFolders = const {};
-          _chatFolderOrder = const [];
-          _activeFolderName = '';
-        });
-      }
-      return;
-    }
+    Map<String, List<String>> folders = const {};
     try {
-      final decoded = Map<String, dynamic>.from(jsonDecode(raw) as Map);
-      final folders = decoded.map(
-        (name, values) =>
-            MapEntry(name, (values as List).map((value) => '$value').toList()),
-      );
-      if (!mounted) return;
-      setState(() {
-        _chatFolders = folders;
-        _chatFolderOrder = folders.keys.toList();
-        if (_activeFolderName.isNotEmpty &&
-            !_chatFolders.containsKey(_activeFolderName)) {
-          _activeFolderName = '';
+      folders = await sharedChatApi.getChatFolders();
+      if (folders.isEmpty) {
+        final prefs = await SharedPreferences.getInstance();
+        final raw = prefs.getString(_chatFoldersStorageKey);
+        if (raw != null && raw.isNotEmpty) {
+          final decoded = Map<String, dynamic>.from(jsonDecode(raw) as Map);
+          folders = decoded.map(
+            (name, values) => MapEntry(
+              name,
+              (values as List).map((value) => '$value').toList(),
+            ),
+          );
+          if (folders.isNotEmpty) {
+            await sharedChatApi.saveChatFolders(folders);
+            await prefs.remove(_chatFoldersStorageKey);
+          }
         }
-      });
-    } catch (_) {
-      if (mounted) {
-        setState(() {
-          _chatFolders = const {};
-          _chatFolderOrder = const [];
-          _activeFolderName = '';
-        });
       }
+    } catch (_) {
+      folders = const {};
     }
+    if (!mounted) return;
+    setState(() {
+      _chatFolders = folders;
+      _chatFolderOrder = folders.keys.toList();
+      if (_activeFolderName.isNotEmpty &&
+          !_chatFolders.containsKey(_activeFolderName)) {
+        _activeFolderName = '';
+      }
+    });
   }
 
   Widget _buildChatFilter(int filter) {
@@ -1451,6 +1458,7 @@ class _HomeScreenState extends State<HomeScreen> {
                         ),
                         child: _ChatTile(
                           chat: chat,
+                          currentUser: widget.currentUser,
                           onTap: () => _openChat(chat),
                           onLongPress: () => _showChatActions(chat),
                         ),
@@ -1573,6 +1581,7 @@ class _HomeScreenState extends State<HomeScreen> {
                                     : Colors.transparent,
                                 child: _ChatTile(
                                   chat: chat,
+                                  currentUser: widget.currentUser,
                                   onTap: () => _openChat(chat),
                                   onLongPress: () => _showChatActions(chat),
                                 ),
@@ -2979,17 +2988,23 @@ class _FilterChip extends StatelessWidget {
 class _ChatTile extends StatelessWidget {
   const _ChatTile({
     required this.chat,
+    required this.currentUser,
     required this.onTap,
     required this.onLongPress,
   });
 
   final ChatPreview chat;
+  final CurrentUser currentUser;
   final VoidCallback onTap;
   final VoidCallback onLongPress;
 
   @override
   Widget build(BuildContext context) {
     final colors = Theme.of(context).colorScheme;
+    final nextActionBadge = _ChannelNextActionBadgeData.fromChat(
+      chat: chat,
+      currentUser: currentUser,
+    );
     return Material(
       color: chat.unread > 0
           ? AppColors.primary.withValues(alpha: 0.025)
@@ -3190,6 +3205,13 @@ class _ChatTile extends StatelessWidget {
                             ),
                         ],
                       ),
+                      if (nextActionBadge != null) ...[
+                        const SizedBox(height: 7),
+                        Align(
+                          alignment: Alignment.centerLeft,
+                          child: _ChannelNextActionBadge(data: nextActionBadge),
+                        ),
+                      ],
                     ],
                   ),
                 ),
@@ -3197,6 +3219,144 @@ class _ChatTile extends StatelessWidget {
             ),
           ),
         ),
+      ),
+    );
+  }
+}
+
+class _ChannelNextActionBadgeData {
+  const _ChannelNextActionBadgeData({
+    required this.label,
+    required this.foreground,
+    required this.background,
+    required this.icon,
+  });
+
+  final String label;
+  final Color foreground;
+  final Color background;
+  final IconData icon;
+
+  static _ChannelNextActionBadgeData? fromChat({
+    required ChatPreview chat,
+    required CurrentUser currentUser,
+  }) {
+    final persons = chat.nextActionPersons.trim();
+    if (!chat.isChannel || persons.isEmpty) return null;
+    final ownerLabel = _personLabel(persons, currentUser);
+    final urgency = _nextActionUrgency(chat.nextActionDate);
+    return _ChannelNextActionBadgeData(
+      label: ownerLabel == 'YOU'
+          ? 'YOU: NEXT ACTION'
+          : '$ownerLabel: NEXT ACTION',
+      foreground: urgency.foreground,
+      background: urgency.background,
+      icon: Icons.person_outline_rounded,
+    );
+  }
+
+  static String _personLabel(String raw, CurrentUser currentUser) {
+    final normalizedRaw = _normalize(raw);
+    final emp = _normalize(currentUser.empId);
+    final jid = _normalize(currentUser.jid);
+    final name = _normalize(currentUser.name);
+    final mention = _normalize(
+      currentUser.name.replaceAll(RegExp(r'\s+'), '_'),
+    );
+    if ((emp.isNotEmpty && normalizedRaw.contains(emp)) ||
+        (jid.isNotEmpty && normalizedRaw.contains(jid)) ||
+        (name.isNotEmpty && normalizedRaw.contains(name)) ||
+        (mention.isNotEmpty && normalizedRaw.contains(mention))) {
+      return 'YOU';
+    }
+    final first = raw
+        .split(RegExp(r'[,;|\n]+'))
+        .map((part) => part.trim())
+        .firstWhere((part) => part.isNotEmpty, orElse: () => raw.trim());
+    return first.replaceFirst(RegExp(r'^@+'), '').replaceAll('_', ' ');
+  }
+
+  static String _normalize(String value) {
+    return value.trim().toLowerCase().replaceAll(RegExp(r'[^a-z0-9@]+'), '');
+  }
+
+  static _ChannelNextActionBadgeData _nextActionUrgency(String rawDate) {
+    final parsed = _parseDate(rawDate);
+    if (parsed == null) {
+      return const _ChannelNextActionBadgeData(
+        label: '',
+        foreground: Color(0xFF7C3AED),
+        background: Color(0xFFF3E8FF),
+        icon: Icons.person_outline_rounded,
+      );
+    }
+    final now = DateTime.now();
+    final today = DateTime(now.year, now.month, now.day);
+    final date = DateTime(parsed.year, parsed.month, parsed.day);
+    if (date.isBefore(today)) {
+      return const _ChannelNextActionBadgeData(
+        label: '',
+        foreground: Color(0xFFE11D48),
+        background: Color(0xFFFFEEF2),
+        icon: Icons.person_outline_rounded,
+      );
+    }
+    if (date.isAtSameMomentAs(today)) {
+      return const _ChannelNextActionBadgeData(
+        label: '',
+        foreground: Color(0xFFF97316),
+        background: Color(0xFFFFF3E8),
+        icon: Icons.person_outline_rounded,
+      );
+    }
+    return const _ChannelNextActionBadgeData(
+      label: '',
+      foreground: Color(0xFF2563EB),
+      background: Color(0xFFEFF6FF),
+      icon: Icons.person_outline_rounded,
+    );
+  }
+
+  static DateTime? _parseDate(String raw) {
+    final trimmed = raw.trim();
+    if (trimmed.isEmpty || trimmed == '-') return null;
+    return DateTime.tryParse(trimmed.replaceFirst(' ', 'T')) ??
+        DateTime.tryParse(trimmed.split(' ').first);
+  }
+}
+
+class _ChannelNextActionBadge extends StatelessWidget {
+  const _ChannelNextActionBadge({required this.data});
+
+  final _ChannelNextActionBadgeData data;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      constraints: const BoxConstraints(maxWidth: 190),
+      padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 4),
+      decoration: BoxDecoration(
+        color: data.background,
+        borderRadius: BorderRadius.circular(10),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(data.icon, size: 15, color: data.foreground),
+          const SizedBox(width: 4),
+          Flexible(
+            child: Text(
+              data.label,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(
+                color: data.foreground,
+                fontSize: 11,
+                fontWeight: FontWeight.w800,
+              ),
+            ),
+          ),
+        ],
       ),
     );
   }
@@ -3482,6 +3642,39 @@ class _AppDrawer extends StatelessWidget {
                       MaterialPageRoute<void>(
                         builder: (_) => ChatFoldersScreen(chats: chats),
                       ),
+                    );
+                  },
+                ),
+                if (currentUser.empId == '302')
+                  DrawerItem(
+                    icon: Icons.admin_panel_settings_rounded,
+                    label: 'API Access',
+                    onTap: () {
+                      Navigator.pop(context);
+                      Navigator.of(context).push(
+                        MaterialPageRoute<void>(
+                          builder: (_) => const AiAccessManagementScreen(),
+                        ),
+                      );
+                    },
+                  ),
+                FutureBuilder<bool>(
+                  future: sharedChatApi.hasAiAccess(),
+                  builder: (context, snapshot) {
+                    if (snapshot.data != true) {
+                      return const SizedBox.shrink();
+                    }
+                    return DrawerItem(
+                      icon: Icons.auto_awesome_rounded,
+                      label: 'AI API',
+                      onTap: () {
+                        Navigator.pop(context);
+                        Navigator.of(context).push(
+                          MaterialPageRoute<void>(
+                            builder: (_) => const AiApiScreen(),
+                          ),
+                        );
+                      },
                     );
                   },
                 ),
@@ -3895,24 +4088,36 @@ class _ChatFoldersScreenState extends State<ChatFoldersScreen> {
   }
 
   Future<void> _load() async {
-    final prefs = await SharedPreferences.getInstance();
-    final raw = prefs.getString(_storageKey);
-    if (raw == null || raw.isEmpty) return;
     try {
-      final decoded = Map<String, dynamic>.from(jsonDecode(raw) as Map);
-      if (mounted) {
-        setState(() {
-          _folders = decoded.map(
+      var folders = await sharedChatApi.getChatFolders();
+      if (folders.isEmpty) {
+        final prefs = await SharedPreferences.getInstance();
+        final raw = prefs.getString(_storageKey);
+        if (raw != null && raw.isNotEmpty) {
+          final decoded = Map<String, dynamic>.from(jsonDecode(raw) as Map);
+          folders = decoded.map(
             (name, values) => MapEntry(
               name,
               (values as List).map((value) => '$value').toList(),
             ),
           );
-          _folderOrder = _folders.keys.toList();
-        });
+          if (folders.isNotEmpty) {
+            await sharedChatApi.saveChatFolders(folders);
+            await prefs.remove(_storageKey);
+          }
+        }
       }
+      if (!mounted) return;
+      setState(() {
+        _folders = folders;
+        _folderOrder = folders.keys.toList();
+      });
     } catch (error) {
-      // Ignore damaged local folder preferences.
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Unable to load chat folders.')),
+        );
+      }
     }
   }
 
@@ -3923,8 +4128,88 @@ class _ChatFoldersScreenState extends State<ChatFoldersScreen> {
       if (chats != null) ordered[name] = chats;
     }
     _folders = ordered;
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setString(_storageKey, jsonEncode(_folders));
+    await sharedChatApi.saveChatFolders(_folders);
+  }
+
+  Future<void> _editFolder(String existingName) async {
+    final nameController = TextEditingController(text: existingName);
+    final selected = {...(_folders[existingName] ?? const <String>[])};
+    final saved = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => StatefulBuilder(
+        builder: (context, setDialogState) => AlertDialog(
+          title: const Text('Edit chat folder'),
+          content: SizedBox(
+            width: 430,
+            height: 480,
+            child: Column(
+              children: [
+                TextField(
+                  controller: nameController,
+                  decoration: const InputDecoration(
+                    labelText: 'Folder name',
+                    prefixIcon: Icon(Icons.folder_outlined),
+                  ),
+                ),
+                const SizedBox(height: 12),
+                Expanded(
+                  child: ListView(
+                    children: widget.chats
+                        .map(
+                          (chat) => CheckboxListTile(
+                            value: selected.contains(chat.jid),
+                            title: Text(chat.name),
+                            subtitle: Text(
+                              chat.isChannel
+                                  ? 'Channel'
+                                  : chat.isGroup
+                                  ? 'Group'
+                                  : chat.designation,
+                            ),
+                            onChanged: (value) => setDialogState(() {
+                              if (value ?? false) {
+                                selected.add(chat.jid);
+                              } else {
+                                selected.remove(chat.jid);
+                              }
+                            }),
+                          ),
+                        )
+                        .toList(),
+                  ),
+                ),
+              ],
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(dialogContext, false),
+              child: const Text('Cancel'),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.pop(dialogContext, true),
+              child: const Text('Save'),
+            ),
+          ],
+        ),
+      ),
+    );
+    final name = nameController.text.trim();
+    nameController.dispose();
+    if (saved != true || name.isEmpty) return;
+    setState(() {
+      if (name != existingName) {
+        final index = _folderOrder.indexOf(existingName);
+        _folders.remove(existingName);
+        if (index >= 0) {
+          _folderOrder[index] = name;
+        } else {
+          _folderOrder.add(name);
+        }
+      }
+      _folders[name] = selected.toList();
+    });
+    await _save();
   }
 
   Future<void> _createFolder() async {
@@ -4009,66 +4294,125 @@ class _ChatFoldersScreenState extends State<ChatFoldersScreen> {
         icon: const Icon(Icons.create_new_folder_outlined),
         label: const Text('New folder'),
       ),
-      body: _folders.isEmpty
-          ? const Center(
-              child: Text(
-                'Create folders to organise users, groups and channels.',
-              ),
-            )
-          : ReorderableListView(
-              padding: const EdgeInsets.only(bottom: 90),
-              onReorder: (oldIndex, newIndex) async {
-                setState(() {
-                  if (newIndex > oldIndex) newIndex--;
-                  final name = _folderOrder.removeAt(oldIndex);
-                  _folderOrder.insert(newIndex, name);
-                });
-                await _save();
-              },
-              children: _folderOrder.map((folderName) {
-                final folder = MapEntry(
-                  folderName,
-                  _folders[folderName] ?? const <String>[],
-                );
-                final chats = widget.chats
-                    .where((chat) => folder.value.contains(chat.jid))
-                    .toList();
-                return ExpansionTile(
-                  key: ValueKey(folder.key),
-                  leading: const Icon(Icons.folder_rounded),
-                  title: Text(
-                    folder.key,
-                    style: const TextStyle(fontWeight: FontWeight.w800),
-                  ),
-                  subtitle: Text('${chats.length} chats'),
-                  trailing: IconButton(
-                    tooltip: 'Delete folder',
-                    onPressed: () async {
+      body: Column(
+        children: [
+          Card(
+            margin: const EdgeInsets.fromLTRB(12, 12, 12, 6),
+            elevation: 0,
+            child: Column(
+              children: const [
+                ListTile(
+                  leading: Icon(Icons.forum_outlined),
+                  title: Text('All'),
+                  subtitle: Text('Default chat list filter'),
+                ),
+                ListTile(
+                  leading: Icon(Icons.mark_chat_unread_outlined),
+                  title: Text('Unread'),
+                  subtitle: Text('Chats with unread messages'),
+                ),
+                ListTile(
+                  leading: Icon(Icons.cloud_done_outlined),
+                  title: Text('Online'),
+                  subtitle: Text('Online personal chats'),
+                ),
+                ListTile(
+                  leading: Icon(Icons.person_outline_rounded),
+                  title: Text('Personal'),
+                  subtitle: Text('One-to-one conversations'),
+                ),
+                ListTile(
+                  leading: Icon(Icons.groups_outlined),
+                  title: Text('Groups'),
+                  subtitle: Text('Group conversations'),
+                ),
+                ListTile(
+                  leading: Icon(Icons.tag_rounded),
+                  title: Text('Channels'),
+                  subtitle: Text('Operational channels'),
+                ),
+                ListTile(
+                  leading: Icon(Icons.star_border_rounded),
+                  title: Text('Starred'),
+                  subtitle: Text('Starred conversations'),
+                ),
+              ],
+            ),
+          ),
+          Expanded(
+            child: _folders.isEmpty
+                ? const Center(
+                    child: Text(
+                      'Create folders to organise users, groups and channels.',
+                    ),
+                  )
+                : ReorderableListView(
+                    padding: const EdgeInsets.only(bottom: 90),
+                    onReorder: (oldIndex, newIndex) async {
                       setState(() {
-                        _folders.remove(folder.key);
-                        _folderOrder.remove(folder.key);
+                        if (newIndex > oldIndex) newIndex--;
+                        final name = _folderOrder.removeAt(oldIndex);
+                        _folderOrder.insert(newIndex, name);
                       });
                       await _save();
                     },
-                    icon: const Icon(Icons.delete_outline_rounded),
-                  ),
-                  children: chats
-                      .map(
-                        (chat) => ListTile(
-                          leading: UserAvatar(chat: chat, radius: 22),
-                          title: Text(chat.name),
-                          subtitle: Text(chat.message),
-                          onTap: () => Navigator.of(context).push(
-                            MaterialPageRoute<void>(
-                              builder: (_) => ChatScreen(chat: chat),
-                            ),
-                          ),
+                    children: _folderOrder.map((folderName) {
+                      final folder = MapEntry(
+                        folderName,
+                        _folders[folderName] ?? const <String>[],
+                      );
+                      final chats = widget.chats
+                          .where((chat) => folder.value.contains(chat.jid))
+                          .toList();
+                      return ExpansionTile(
+                        key: ValueKey(folder.key),
+                        leading: const Icon(Icons.folder_rounded),
+                        title: Text(
+                          folder.key,
+                          style: const TextStyle(fontWeight: FontWeight.w800),
                         ),
-                      )
-                      .toList(),
-                );
-              }).toList(),
-            ),
+                        subtitle: Text('${chats.length} chats'),
+                        trailing: Wrap(
+                          spacing: 4,
+                          children: [
+                            IconButton(
+                              tooltip: 'Edit folder',
+                              onPressed: () => _editFolder(folder.key),
+                              icon: const Icon(Icons.edit_outlined),
+                            ),
+                            IconButton(
+                              tooltip: 'Delete folder',
+                              onPressed: () async {
+                                setState(() {
+                                  _folders.remove(folder.key);
+                                  _folderOrder.remove(folder.key);
+                                });
+                                await _save();
+                              },
+                              icon: const Icon(Icons.delete_outline_rounded),
+                            ),
+                          ],
+                        ),
+                        children: chats
+                            .map(
+                              (chat) => ListTile(
+                                leading: UserAvatar(chat: chat, radius: 22),
+                                title: Text(chat.name),
+                                subtitle: Text(chat.message),
+                                onTap: () => Navigator.of(context).push(
+                                  MaterialPageRoute<void>(
+                                    builder: (_) => ChatScreen(chat: chat),
+                                  ),
+                                ),
+                              ),
+                            )
+                            .toList(),
+                      );
+                    }).toList(),
+                  ),
+          ),
+        ],
+      ),
     );
   }
 }
@@ -4374,6 +4718,7 @@ class _SavedMessagesScreenState extends State<SavedMessagesScreen> {
   Future<void> _downloadFile(SavedMessage item) async {
     if (!item.hasFile) return;
     try {
+      await requestAttachmentStoragePermission(context);
       final path = await chatApi.downloadAttachment(_savedAttachment(item));
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(

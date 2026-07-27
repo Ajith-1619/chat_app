@@ -1,6 +1,7 @@
 <?php
 declare(strict_types=1);
 require_once __DIR__ . '/bootstrap.php';
+require_once __DIR__ . '/PluginEventBus.php';
 require_once __DIR__ . '/ai_room_helper.php';
 require_once __DIR__ . '/channel_action_helper.php';
 
@@ -17,6 +18,15 @@ function chat_spawn_external_delivery_worker(): void
     @exec(escapeshellarg($php) . ' ' . escapeshellarg($worker) . ' 25 > /dev/null 2>&1 &');
 }
 
+function chat_spawn_ai_room_worker(int $messageId): void
+{
+    if ($messageId <= 0 || PHP_SAPI === 'cli') return;
+    $worker = __DIR__ . '/ai_room_worker.php';
+    if (!is_file($worker)) return;
+    $php = PHP_BINARY ?: 'php';
+    $cmd = escapeshellarg($php) . ' ' . escapeshellarg($worker) . ' ' . escapeshellarg((string)$messageId) . ' > /dev/null 2>&1 &';
+    @exec($cmd);
+}
 function chat_external_destination(array $contact, string $channel): string
 {
     switch ($channel) {
@@ -334,6 +344,35 @@ try {
     }
     chat_diagnostic_trace((int)$session['emp_id'], $traceId, 'database', 'persist_message', (microtime(true) - $dbStarted) * 1000, 'success', ['file_size' => $fileSize]);
     $messageId = (int)($pdo->lastInsertId() ?: 0);
+    if ($messageId > 0) {
+        flow_plugin_emit($pdo, 'message.sent', [
+            'event_id' => 'message-sent-' . $messageId,
+            'actor_emp_id' => (int)$session['emp_id'],
+            'message' => [
+                'id' => $messageId,
+                'from_jid' => $from,
+                'to_jid' => $to,
+                'body' => $body,
+                'message_type' => $fileUrl !== '' ? 'file' : ($isGroup ? 'groupchat' : 'chat'),
+                'file_name' => $fileName !== '' ? $fileName : null,
+                'visibility_mode' => $visibilityMode,
+                'created_at' => date('c'),
+            ],
+        ]);
+        flow_plugin_emit($pdo, 'message.received', [
+            'event_id' => 'message-received-' . $messageId,
+            'actor_emp_id' => (int)$session['emp_id'],
+            'recipient_scope' => $isGroup ? 'room' : 'user',
+            'message' => [
+                'id' => $messageId,
+                'from_jid' => $from,
+                'to_jid' => $to,
+                'body' => $body,
+                'message_type' => $fileUrl !== '' ? 'file' : ($isGroup ? 'groupchat' : 'chat'),
+                'created_at' => date('c'),
+            ],
+        ]);
+    }
     if ($isGroup && $messageId > 0 && $body !== '') {
         try {
             chat_record_channel_message_tags($pdo, $group, $messageId, (int)$session['emp_id'], $body);
@@ -385,9 +424,9 @@ try {
     }
     if ($isGroup && $messageId > 0 && $body !== '' && $visibilityMode === 'all' && $fileUrl === '') {
         try {
-            chat_try_send_ai_room_reply($pdo, $group, $messageId, $body);
+            chat_spawn_ai_room_worker($messageId);
         } catch (Throwable $aiError) {
-            error_log('chat/send_message ai room reply skipped: ' . $aiError->getMessage());
+            error_log('chat/send_message ai room worker skipped: ' . $aiError->getMessage());
         }
     }
     try {
@@ -435,5 +474,6 @@ chat_json([
     'xmpp_delivered' => $xmppDelivered ?? false,
     'visibility_mode' => $visibilityMode ?? 'all',
 ]);
+
 
 

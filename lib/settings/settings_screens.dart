@@ -52,7 +52,9 @@ class SettingsScreen extends StatelessWidget {
           ListTile(
             leading: const Icon(Icons.data_usage_rounded),
             title: const Text('Data and storage'),
-            subtitle: const Text('Storage limit, usage and conversation file size'),
+            subtitle: const Text(
+              'Storage limit, usage and conversation file size',
+            ),
             trailing: const Icon(Icons.chevron_right_rounded),
             onTap: () => Navigator.of(context).push(
               MaterialPageRoute<void>(
@@ -131,8 +133,8 @@ class SettingsScreen extends StatelessWidget {
       ),
     );
   }
-
 }
+
 class DataStorageSettingsScreen extends StatefulWidget {
   const DataStorageSettingsScreen({super.key});
 
@@ -197,8 +199,8 @@ class _DataStorageSettingsScreenState extends State<DataStorageSettingsScreen> {
                 Text(
                   'Storage by chat',
                   style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                        fontWeight: FontWeight.w800,
-                      ),
+                    fontWeight: FontWeight.w800,
+                  ),
                 ),
                 const SizedBox(height: 8),
                 if (conversations.isEmpty)
@@ -239,8 +241,8 @@ class _StorageQuotaCard extends StatelessWidget {
                   child: Text(
                     'Your Flow storage',
                     style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                          fontWeight: FontWeight.w800,
-                        ),
+                      fontWeight: FontWeight.w800,
+                    ),
                   ),
                 ),
                 Text(_storageLabel(used)),
@@ -261,7 +263,9 @@ class _StorageQuotaCard extends StatelessWidget {
                     limit > 0 ? _storageLabel(limit) : 'Unlimited',
                   ),
                 ),
-                Expanded(child: _StorageMiniStat('Free', _storageLabel(remaining))),
+                Expanded(
+                  child: _StorageMiniStat('Free', _storageLabel(remaining)),
+                ),
               ],
             ),
           ],
@@ -279,10 +283,26 @@ class _StorageSummaryGrid extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final items = [
-      ('Files', '${_intValue(summary['total_files'])}', Icons.attach_file_rounded),
-      ('Uploaded', _storageLabel(_intValue(summary['uploaded_bytes'])), Icons.upload_file_rounded),
-      ('Received', _storageLabel(_intValue(summary['received_bytes'])), Icons.download_rounded),
-      ('Visible data', _storageLabel(_intValue(summary['visible_bytes'])), Icons.folder_copy_outlined),
+      (
+        'Files',
+        '${_intValue(summary['total_files'])}',
+        Icons.attach_file_rounded,
+      ),
+      (
+        'Uploaded',
+        _storageLabel(_intValue(summary['uploaded_bytes'])),
+        Icons.upload_file_rounded,
+      ),
+      (
+        'Received',
+        _storageLabel(_intValue(summary['received_bytes'])),
+        Icons.download_rounded,
+      ),
+      (
+        'Visible data',
+        _storageLabel(_intValue(summary['visible_bytes'])),
+        Icons.folder_copy_outlined,
+      ),
     ];
     return LayoutBuilder(
       builder: (context, constraints) {
@@ -305,13 +325,15 @@ class _StorageSummaryGrid extends StatelessWidget {
                     children: [
                       Icon(item.$3, size: 20),
                       const SizedBox(height: 8),
-                      Text(item.$1, style: Theme.of(context).textTheme.labelMedium),
+                      Text(
+                        item.$1,
+                        style: Theme.of(context).textTheme.labelMedium,
+                      ),
                       const SizedBox(height: 4),
                       Text(
                         item.$2,
-                        style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                              fontWeight: FontWeight.w800,
-                            ),
+                        style: Theme.of(context).textTheme.titleMedium
+                            ?.copyWith(fontWeight: FontWeight.w800),
                       ),
                     ],
                   ),
@@ -439,6 +461,7 @@ String _storageLabel(int bytes) {
   }
   return '$bytes B';
 }
+
 class AppearanceSettingsScreen extends StatefulWidget {
   const AppearanceSettingsScreen({super.key});
 
@@ -454,6 +477,7 @@ class _AppearanceSettingsScreenState extends State<AppearanceSettingsScreen> {
   late double _density;
   late bool _avatars;
   late bool _collapseLongMessages;
+  late bool _enterToSend;
   late String _workspaceMode;
   String _bubble = 'rounded';
 
@@ -466,6 +490,7 @@ class _AppearanceSettingsScreenState extends State<AppearanceSettingsScreen> {
     _density = appChatDensity.value;
     _avatars = appShowAvatars.value;
     _collapseLongMessages = appCollapseLongMessages.value;
+    _enterToSend = appEnterToSend.value;
     _workspaceMode = appWorkspaceMode.value;
   }
 
@@ -476,6 +501,7 @@ class _AppearanceSettingsScreenState extends State<AppearanceSettingsScreen> {
     appChatDensity.value = _density;
     appShowAvatars.value = _avatars;
     appCollapseLongMessages.value = _collapseLongMessages;
+    appEnterToSend.value = _enterToSend;
     appWorkspaceMode.value = _workspaceMode;
     final prefs = await SharedPreferences.getInstance();
     await prefs.setString('theme_mode', _theme.name);
@@ -484,6 +510,7 @@ class _AppearanceSettingsScreenState extends State<AppearanceSettingsScreen> {
     await prefs.setDouble('chat_density', _density);
     await prefs.setBool('show_avatars', _avatars);
     await prefs.setBool('collapse_long_messages', _collapseLongMessages);
+    await prefs.setBool('enter_to_send', _enterToSend);
     await prefs.setString('workspace_mode', _workspaceMode);
     await prefs.setString('bubble_style', _bubble);
   }
@@ -551,7 +578,8 @@ class _AppearanceSettingsScreenState extends State<AppearanceSettingsScreen> {
                   return _ThemePreviewCard(
                     spec: spec,
                     selected: spec.id == _themeName,
-                    darkPreview: _theme == ThemeMode.dark ||
+                    darkPreview:
+                        _theme == ThemeMode.dark ||
                         (_theme == ThemeMode.system &&
                             MediaQuery.platformBrightnessOf(context) ==
                                 Brightness.dark),
@@ -602,6 +630,18 @@ class _AppearanceSettingsScreenState extends State<AppearanceSettingsScreen> {
               _save();
             },
           ),
+          SwitchListTile(
+            contentPadding: EdgeInsets.zero,
+            title: const Text('Enter sends message'),
+            subtitle: const Text(
+              'Turn off to make Enter add a new line. Shift/Ctrl+Enter always adds a new line when this is on.',
+            ),
+            value: _enterToSend,
+            onChanged: (value) {
+              setState(() => _enterToSend = value);
+              _save();
+            },
+          ),
           const SizedBox(height: 8),
           DropdownButtonFormField<String>(
             initialValue: _workspaceMode,
@@ -639,9 +679,11 @@ class _AppearanceSettingsScreenState extends State<AppearanceSettingsScreen> {
             spec: activeSpec,
             scale: _scale,
             density: _density,
-            dark: _theme == ThemeMode.dark ||
+            dark:
+                _theme == ThemeMode.dark ||
                 (_theme == ThemeMode.system &&
-                    MediaQuery.platformBrightnessOf(context) == Brightness.dark),
+                    MediaQuery.platformBrightnessOf(context) ==
+                        Brightness.dark),
           ),
         ],
       ),
@@ -694,7 +736,11 @@ class _ThemePreviewCard extends StatelessWidget {
                 _ThemeDot(color: bg),
                 const Spacer(),
                 if (selected)
-                  Icon(Icons.check_circle_rounded, color: spec.primary, size: 20),
+                  Icon(
+                    Icons.check_circle_rounded,
+                    color: spec.primary,
+                    size: 20,
+                  ),
               ],
             ),
             const SizedBox(height: 10),
@@ -809,8 +855,17 @@ class _AppearanceLivePreview extends StatelessWidget {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text('#watchtower flow', style: TextStyle(color: text, fontWeight: FontWeight.w800)),
-                    Text('Operational channel', style: TextStyle(color: muted, fontSize: 12 * scale)),
+                    Text(
+                      '#watchtower flow',
+                      style: TextStyle(
+                        color: text,
+                        fontWeight: FontWeight.w800,
+                      ),
+                    ),
+                    Text(
+                      'Operational channel',
+                      style: TextStyle(color: muted, fontSize: 12 * scale),
+                    ),
                   ],
                 ),
               ),
@@ -861,10 +916,23 @@ class _AppearanceLivePreview extends StatelessWidget {
               children: [
                 Icon(Icons.emoji_emotions_outlined, color: muted),
                 const SizedBox(width: 8),
-                Expanded(child: Text('Message', style: TextStyle(color: muted, fontSize: 14 * scale))),
+                Expanded(
+                  child: Text(
+                    'Message',
+                    style: TextStyle(color: muted, fontSize: 14 * scale),
+                  ),
+                ),
                 Icon(Icons.attach_file_rounded, color: muted),
                 const SizedBox(width: 8),
-                CircleAvatar(radius: 16, backgroundColor: spec.primary, child: const Icon(Icons.send_rounded, size: 16, color: Colors.white)),
+                CircleAvatar(
+                  radius: 16,
+                  backgroundColor: spec.primary,
+                  child: const Icon(
+                    Icons.send_rounded,
+                    size: 16,
+                    color: Colors.white,
+                  ),
+                ),
               ],
             ),
           ),
@@ -873,5 +941,3 @@ class _AppearanceLivePreview extends StatelessWidget {
     );
   }
 }
-
-

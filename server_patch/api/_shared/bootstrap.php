@@ -2,6 +2,7 @@
 declare(strict_types=1);
 
 require_once __DIR__ . '/../../chat/bootstrap.php';
+require_once __DIR__ . '/../../chat/PluginEventBus.php';
 if (is_file(__DIR__ . '/../../chat/SystemNotification.php')) {
     require_once __DIR__ . '/../../chat/SystemNotification.php';
 }
@@ -319,6 +320,22 @@ function flow_api_create_group_like(array $auth, string $type, array $input): ar
     foreach ($members as $empId) {
         if ($empId > 0) $ins->execute([':group_id' => $groupId, ':emp_id' => $empId, ':role' => $empId === $owner ? 'owner' : 'member']);
     }
+    flow_plugin_emit($pdo, 'channel.created', [
+        'event_id' => 'api-' . $type . '-created-' . $groupId,
+        'actor_emp_id' => (int)$auth['actor_emp_id'],
+        'channel' => ['id' => $groupId, 'room_name' => $name, 'room_jid' => $jid, 'group_type' => $type, 'channel_kind' => $kind],
+    ]);
+    foreach ($members as $memberId) {
+        flow_plugin_emit($pdo, 'member.added', [
+            'event_id' => 'api-member-added-' . $groupId . '-' . $memberId,
+            'actor_emp_id' => (int)$auth['actor_emp_id'],
+            'group_id' => $groupId,
+            'room_jid' => $jid,
+            'group_type' => $type,
+            'member_emp_id' => $memberId,
+            'role' => $memberId === $owner ? 'owner' : 'member',
+        ]);
+    }
     return flow_api_group_detail($groupId);
 }
 
@@ -357,6 +374,16 @@ function flow_api_handle_chat(array $auth, array $segments): never
             ':status' => 'sent',
         ]);
         $id = (int)$pdo->lastInsertId();
+        flow_plugin_emit($pdo, 'message.sent', [
+            'event_id' => 'api-message-sent-' . $id,
+            'actor_emp_id' => (int)$auth['actor_emp_id'],
+            'message' => ['id' => $id, 'from_jid' => $from, 'to_jid' => $to, 'body' => $body, 'message_type' => (string)($input['message_type'] ?? 'chat'), 'created_at' => date('c')],
+        ]);
+        flow_plugin_emit($pdo, 'message.received', [
+            'event_id' => 'api-message-received-' . $id,
+            'actor_emp_id' => (int)$auth['actor_emp_id'],
+            'message' => ['id' => $id, 'from_jid' => $from, 'to_jid' => $to, 'body' => $body, 'message_type' => (string)($input['message_type'] ?? 'chat'), 'created_at' => date('c')],
+        ]);
         try { chat_ejabberd_send_message($from, $to, $body); } catch (Throwable $e) {}
         flow_api_success($auth, 'chat:write', ['message' => ['id' => $id, 'from_jid' => $from, 'to_jid' => $to]], 201, 'message', (string)$id);
     }

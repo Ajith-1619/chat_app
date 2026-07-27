@@ -147,7 +147,7 @@ function flow_api_ext_chat(array $auth, array $segments): never
             $from = flow_api_jid_for_emp($pdo, (int)$auth['actor_emp_id']);
             $ins = $pdo->prepare('INSERT INTO xmpp_messages (from_jid, to_jid, body, file_url, file_name, file_type, file_size, message_type, forwarded_from_message_id, source_device, source_name, status) VALUES (:from_jid,:to_jid,:body,:file_url,:file_name,:file_type,:file_size,"chat",:forwarded,"api",:source,"sent")');
             $ins->execute([':from_jid'=>$from, ':to_jid'=>$to, ':body'=>$row['body'], ':file_url'=>$row['file_url'], ':file_name'=>$row['file_name'], ':file_type'=>$row['file_type'], ':file_size'=>(int)$row['file_size'], ':forwarded'=>$id, ':source'=>$auth['client_name']]);
-            flow_api_success($auth, 'chat:write', ['message_id' => (int)$pdo->lastInsertId(), 'forwarded_from' => $id], 201);
+            $newMessageId = (int)$pdo->lastInsertId(); flow_plugin_emit($pdo, 'message.sent', ['event_id' => 'api-message-sent-' . $newMessageId, 'actor_emp_id' => (int)$auth['actor_emp_id'], 'message' => ['id' => $newMessageId, 'from_jid' => $from, 'to_jid' => $to, 'body' => (string)$row['body'], 'message_type' => 'chat', 'created_at' => date('c')]]); flow_plugin_emit($pdo, 'message.received', ['event_id' => 'api-message-received-' . $newMessageId, 'actor_emp_id' => (int)$auth['actor_emp_id'], 'message' => ['id' => $newMessageId, 'from_jid' => $from, 'to_jid' => $to, 'body' => (string)$row['body'], 'message_type' => 'chat', 'created_at' => date('c')]]); flow_api_success($auth, 'chat:write', ['message_id' => $newMessageId, 'forwarded_from' => $id], 201);
         }
     }
     flow_api_handle_chat($auth, $segments);
@@ -219,7 +219,7 @@ function flow_api_ext_files(array $auth, array $segments): never
         $file = flow_api_ext_save_upload($input); $from = flow_api_jid_for_emp($pdo, (int)$auth['actor_emp_id']);
         $stmt = $pdo->prepare('INSERT INTO xmpp_messages (from_jid,to_jid,body,file_url,file_name,file_type,file_size,file_restricted,message_type,source_device,source_name,status) VALUES (:from,:to,:body,:url,:name,:type,:size,:restricted,:message_type,"api",:source,"sent")');
         $stmt->execute([':from'=>$from, ':to'=>$to, ':body'=>(string)($input['caption'] ?? ''), ':url'=>$file['file_url'], ':name'=>$file['file_name'], ':type'=>$file['file_type'], ':size'=>$file['file_size'], ':restricted'=>(int)($input['restricted'] ?? 0), ':message_type'=>(string)($input['message_type'] ?? 'file'), ':source'=>$auth['client_name']]);
-        flow_api_success($auth, 'files:write', ['message_id'=>(int)$pdo->lastInsertId(), 'file'=>$file], 201);
+        $messageId = (int)$pdo->lastInsertId(); flow_plugin_emit($pdo, 'message.sent', ['event_id' => 'api-message-sent-' . $messageId, 'actor_emp_id' => (int)$auth['actor_emp_id'], 'message' => ['id' => $messageId, 'from_jid' => $from, 'to_jid' => $to, 'body' => (string)($input['caption'] ?? ''), 'message_type' => (string)($input['message_type'] ?? 'file'), 'file_name' => $file['file_name'], 'created_at' => date('c')]]); flow_plugin_emit($pdo, 'message.received', ['event_id' => 'api-message-received-' . $messageId, 'actor_emp_id' => (int)$auth['actor_emp_id'], 'message' => ['id' => $messageId, 'from_jid' => $from, 'to_jid' => $to, 'body' => (string)($input['caption'] ?? ''), 'message_type' => (string)($input['message_type'] ?? 'file'), 'file_name' => $file['file_name'], 'created_at' => date('c')]]); flow_api_success($auth, 'files:write', ['message_id'=>$messageId, 'file'=>$file], 201);
     }
     flow_api_handle_simple_table($auth, 'files:read', 'xmpp_messages', 'files');
 }
@@ -327,5 +327,5 @@ function flow_api_ext_json_message(array $auth, string $prefix): never
     $body = $prefix . json_encode($input['payload'] ?? $input, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
     $pdo = flow_api_chat_db(); $from = flow_api_jid_for_emp($pdo, (int)$auth['actor_emp_id']);
     $pdo->prepare('INSERT INTO xmpp_messages (from_jid,to_jid,body,message_type,source_device,source_name,status) VALUES (:from,:to,:body,"chat","api",:source,"sent")')->execute([':from'=>$from, ':to'=>$to, ':body'=>$body, ':source'=>$auth['client_name']]);
-    flow_api_success($auth, 'chat:write', ['message_id'=>(int)$pdo->lastInsertId()], 201);
+    $messageId = (int)$pdo->lastInsertId(); flow_plugin_emit($pdo, 'message.sent', ['event_id' => 'api-message-sent-' . $messageId, 'actor_emp_id' => (int)$auth['actor_emp_id'], 'message' => ['id' => $messageId, 'from_jid' => $from, 'to_jid' => $to, 'body' => $body, 'message_type' => 'chat', 'created_at' => date('c')]]); flow_plugin_emit($pdo, 'message.received', ['event_id' => 'api-message-received-' . $messageId, 'actor_emp_id' => (int)$auth['actor_emp_id'], 'message' => ['id' => $messageId, 'from_jid' => $from, 'to_jid' => $to, 'body' => $body, 'message_type' => 'chat', 'created_at' => date('c')]]); flow_api_success($auth, 'chat:write', ['message_id'=>$messageId], 201);
 }

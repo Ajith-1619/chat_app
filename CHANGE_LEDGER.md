@@ -300,3 +300,173 @@
 - Updated server_patch/api/.htaccess to allow hyphenated modules.
 - Updated server_patch/api/README.md with expanded endpoint catalogue.
 
+
+## 2026-07-24 12:34:54 - API Docs Added
+- Added docs/external_api/FLOW_EXTERNAL_API_DOCUMENTATION.md.
+- Added server_patch/api/FLOW_EXTERNAL_API_DOCUMENTATION.md copy for server_patch deployment bundle.
+
+
+## 2026-07-24 12:49:18 - Plugin System Files
+- Added server_patch/chat/PluginEventBus.php.
+- Added server_patch/chat/plugins/auto_translate/manifest.php and Plugin.php.
+- Added hook emits in send_message.php, create_channel.php, create_group.php, manage_group.php, and external API message/group paths.
+- Added docs/plugins/FLOW_PLUGIN_SDK.md.
+
+
+## 2026-07-24 13:10:00 - Chat Selection Auto-scroll Guard
+- File: lib/chat/chat_screen.dart
+- Change: Added _isSelectionFreezeActive and blocked _scrollToBottom plus delayed scroll retries while selection mode or browser text selection is active.
+- Change: Increased selection pointer/active locks to keep the viewport stable during the first web selection drag.
+
+## 2026-07-24 14:34:05 +05:30 - Web Build Artifact Refresh
+- Change: Refreshed Flutter web release artifacts under build\\web.
+- Verification: flutter build web --release passed.
+
+## 2026-07-24 14:53:05 +05:30 - Chat Scroll Selection Fix
+- File: lib/chat/chat_screen.dart
+- Change: Added drag-threshold selection intent handling inside _CollapsibleMessageTextState.
+- Change: Removed normal-click selection freeze behavior that could trigger queued history anchor restore and move the conversation.
+- Change: Recomputed scroll button state when selection mode finishes.
+
+## 2026-07-24 14:58:22 +05:30 - History Limit Expansion
+- File: server_patch/chat/history.php
+- Change: Added historyLimit query handling with safe bounds 50-1000 and replaced hard-coded LIMIT 200 with dynamic LIMIT.
+- Impact: Group/channel/personal chats can return more old messages without changing Flutter UI.
+
+## 2026-07-24 15:08:16 +05:30 - Web Build Artifact Refresh
+- Change: Refreshed Flutter web release artifacts under build\\web.
+- Verification: flutter build web --release passed.
+
+## 2026-07-24 15:55:18 - lib/chat/chat_screen.dart
+- Changed _MessageBubble gesture routing so Web/Desktop plain text bubbles do not register parent tap, long-press, or horizontal swipe handlers while no message-action selection is active.
+- Passed message selection state into _MessageBubble so multi-select tap behavior remains available when the app is already in message selection mode.
+- Existing SelectableText.rich rendering remains intact; no chat screen rewrite was performed.
+
+
+## 2026-07-24 - Native Text Selection Freeze Fix
+- File: lib/chat/chat_screen.dart
+- Change: Separated native text selection freeze from message-action selection mode; queued history updates while native text selection is active; prevented auto-scroll during selection; kept parent horizontal swipe mobile-only for selectable text bubbles.
+- Reason: Parent gestures and message selection mode were competing with Flutter Web SelectableText, causing jumpy selection and scroll movement.
+
+## 2026-07-24 15:55:36 +05:30 - Chat Text Selection Gesture Ownership Fix
+- File: lib/chat/chat_screen.dart
+- Change: Plain text bubbles on web/desktop no longer register parent tap/long-press/horizontal-drag recognizers while not in message-selection mode, allowing SelectableText to own mouse drags.
+- Change: Async chat refresh guards now respect _isSelectionFreezeActive to avoid UI rebuilds during text selection.
+- Change: Text selection pointer warmup now triggers only after drag threshold instead of plain pointer down.
+
+
+## 2026-07-24 16:03:47 +05:30 - Web Artifact Refresh
+- Build artifacts refreshed under build/web after the chat text selection fix.
+- No source change was made during this build step.
+
+## 2026-07-24 16:45:46 +05:30 - Chat Text Selection Root Fix
+- Requirement: Web/Desktop chat message text must be selectable without jump, scroll lock, or parent gesture interference.
+- File: lib/chat/chat_screen.dart
+- Change: Plain text bubbles on web/desktop now let SelectableText own mouse drags by disabling parent tap/long-press/horizontal swipe recognizers for selectable text bubbles.
+- Change: Removed the temporary ListView physics disable that could permanently block scrolling when pointer-up was missed.
+- Change: Kept selection context freeze for incoming/history refresh without rebuilding the message list on pointer down.
+- Verification: dart format passed; flutter build web --release passed; flutter analyze had existing warnings/info only and no compile errors.
+
+## 2026-07-24 17:24:54 +05:30 - Channel Next Action List Badge
+- Requirement: Channel list rows must show the next-action person as a colored badge; current user should display as YOU; badge color should follow next-action date urgency.
+- Files: lib/chat_api.dart, lib/home/home_screen.dart, server_patch/chat/recent_chats.php
+- Change: recent_chats.php now includes next_action_text, next_action_persons, and next_action_date for group/channel previews.
+- Change: ChatContact and ChatPreview carry next-action metadata into the home/channel list.
+- Change: Channel tiles render a compact next-action person badge below the message preview, with date-based color: overdue red, today orange, future blue, no-date purple.
+- Verification: dart format passed; php -l recent_chats.php passed; flutter analyze for changed Dart files completed with existing warnings/info only and no compile errors.
+
+## 2026-07-24 17:31:47 +05:30 - Web Artifact Refresh
+- Change: Refreshed Flutter web release artifacts under build/web after the channel next-action badge update.
+- Verification: flutter build web --release passed.
+
+## 2026-07-24 18:00:10 +05:30 - Android Draft Release v2.0.5+28
+- Requirement: Build next Android APK version and move it to live server as Draft for employee 302 approval.
+- Files: pubspec.yaml, release/Skylink-Chat-v2.0.5.apk, release/Skylink-Chat-v2.0.5.apk.sha256, server_patch/register_draft_2_0_5.php
+- Change: Bumped app version from 2.0.4+27 to 2.0.5+28.
+- Change: Built release APK and copied it to release folder with SHA256 checksum.
+- Deployment: Uploaded APK, checksum, and register_draft_2_0_5.php to live server.
+- Draft registration: https://dns.watchtower247.in/router_login/register_draft_2_0_5.php returned android draft release_id=33.
+- Approval: Release remains Development/Draft with rollout 0% and force_update 0 until employee 302 approves it.
+
+## 2026-07-24 - AI API Menu and Endpoint
+- Changed: lib/ai_api_screen.dart, lib/chat_api.dart, lib/home/home_screen.dart, server_patch/chat/ai_access.php.
+- Impact: User-facing AI enable toggles for group/channel rooms; menu hidden for unassigned users.
+
+
+## 2026-07-25 - Web Build Artifact Refresh
+- Action: Rebuilt web release output in build/web for current source state.
+
+
+## 2026-07-25 - Live AI Access Endpoint Deploy
+- Action: Uploaded server_patch/chat/ai_access.php to live backend /var/www/html/router_login/chat/ai_access.php.
+- Reason: AI API side menu was visible, but the API access page could not load room/provider access because the endpoint was not available on live backend.
+
+
+## 2026-07-25 - AI API Menu Visibility Correction
+- Changed: lib/ai_access_management_screen.dart, lib/home/home_screen.dart, lib/chat_api.dart, server_patch/chat/ai_access.php, server_patch/chat/ai_user_access.php.
+- Deployment: ai_access.php and ai_user_access.php uploaded to live backend.
+
+
+## 2026-07-25 - Mobile Channel Metadata, Folder Edit, Reply Highlight
+- Files: lib/chat/chat_screen.dart, lib/home/home_screen.dart.
+- Change: Added channel profile metadata tiles in the mobile group/channel manage sheet.
+- Change: Added edit support for chat folders and visible default filter list inside folders screen.
+- Change: Added a 3-second highlight state after jumping to a replied message.
+- Verification: dart format passed; flutter analyze scoped to changed files completed with no compile errors. Existing warnings/info remain.
+
+## 2026-07-25 - Latency Optimization Patch
+- Files: lib/chat_api.dart, server_patch/chat/send_message.php, server_patch/chat/ai_room_worker.php, FLOW_PERFORMANCE_REPORT.md.
+- Change: History prefetch now throttles to once every 2 minutes and max 4 chats per burst.
+- Change: Diagnostics no longer resolve app/device metadata for every event.
+- Change: AI room replies are spawned through ai_room_worker.php instead of blocking send_message.php.
+- Verification: PHP lint passed for changed PHP files; flutter analyze on lib/chat_api.dart reported no compile errors.
+
+## 2026-07-25 - Web Build After Latency Patch
+- Action: Refreshed Flutter web release artifacts under build/web after latest performance/app updates.
+- Verification: flutter build web --release --base-href /chat/ passed.
+
+## 2026-07-25 - Chat Folder Database Persistence
+- Files: lib/chat_api.dart, lib/home/home_screen.dart, server_patch/chat/chat_folders.php.
+- Change: Added chat/chat_folders.php API and xmpp_chat_folders table creation.
+- Change: Added getChatFolders/saveChatFolders API client methods.
+- Change: Home and ChatFoldersScreen now use backend persistence; local storage is only used for one-time migration and then removed.
+- Verification: PHP lint passed; dart format passed; scoped flutter analyze has no compile errors.
+
+## 2026-07-25 - Mobile Composer Responsive Cleanup
+- Files: lib/chat/chat_screen.dart.
+- Change: Reworked _MessageComposer sizing variables for compact/mobile widths.
+- Change: Tightened icon constraints, action button sizes, padding, and TextField density.
+- Change: Removed the permanent format-bold icon and deleted the unused popup helper.
+- Verification: dart format passed; scoped flutter analyze reported no compile errors, with existing warning/info backlog remaining.
+
+
+## 2026-07-25 - Enter To Send User Setting
+- Files: lib/main.dart, lib/app/skylink_app.dart, lib/settings/settings_screens.dart, lib/chat/chat_screen.dart.
+- Change: Added appEnterToSend global preference with default true.
+- Change: Loaded/saved enter_to_send via SharedPreferences.
+- Change: Added Appearance switch for Enter sends message.
+- Change: Updated _MessageComposer hardware/software keyboard behavior for Enter, Shift+Enter, and Ctrl+Enter.
+- Verification: dart format passed; scoped flutter analyze reported no compile errors, with existing warning/info backlog remaining.
+
+
+## 2026-07-25 - v2.0.6 Web APK Build And Android Draft
+- Files: pubspec.yaml, server_patch/register_draft_2_0_6.php, tool/deploy_2_0_6.ps1, tool/deploy_2_0_6.psftp, release artifacts.
+- Change: Bumped app version from 2.0.5+28 to 2.0.6+29.
+- Build: flutter analyze .\\lib\\main.dart passed; flutter build web --release --base-href /chat/ passed; flutter build apk --release passed.
+- Artifacts: release/Skylink-Chat-v2.0.6.apk; release/Skylink-Chat-Web-v2.0.6.zip.
+- Deployment: Uploaded APK, checksum, and register_draft_2_0_6.php to live server.
+- Draft registration: https://dns.watchtower247.in/router_login/register_draft_2_0_6.php returned android draft release_id=34.
+
+
+## 2026-07-27 - Full View Image Preview
+- Files: lib/attachments/attachment_widgets.dart.
+- Change: Replaced the boxed InteractiveViewer image preview with a viewport-sized LayoutBuilder/InteractiveViewer implementation.
+- Change: Added a short code comment documenting why the child must match the full preview viewport.
+- Verification: dart format passed; scoped flutter analyze completed with no compile errors from this change. Existing file-level warnings remain.
+
+## 2026-07-27 - Android Public Download Visibility
+- Files: android/app/src/main/AndroidManifest.xml, android/app/src/main/kotlin/com/skylink/slync/MainActivity.kt, lib/chat_api.dart, lib/app/skylink_app.dart, lib/home/home_screen.dart.
+- Change: Added Android native savePublicDownload bridge and SDK query on the existing skylink/android_settings channel.
+- Change: Updated attachment download flow to save Android files/images into visible public media/download directories through MediaStore or legacy public storage.
+- Change: Added saved-message permission call before download and updated legacy-only storage permission messaging.
+- Verification: dart format passed; scoped flutter analyze reported no new compile errors in changed Dart files. Native Gradle verification could not complete locally because JAVA_HOME/java is missing on this machine.

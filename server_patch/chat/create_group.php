@@ -1,6 +1,7 @@
 <?php
 declare(strict_types=1);
 require_once __DIR__ . '/bootstrap.php';
+require_once __DIR__ . '/PluginEventBus.php';
 
 $session = chat_require_user();
 $chatPdo = chat_db();
@@ -70,6 +71,28 @@ foreach ($validMembers as $empId) {
     }
 }
 $chatPdo->commit();
+
+flow_plugin_emit($chatPdo, 'channel.created', [
+    'event_id' => 'group-created-' . $groupId,
+    'actor_emp_id' => (int)$session['emp_id'],
+    'channel' => [
+        'id' => $groupId,
+        'room_name' => $groupName,
+        'room_jid' => $roomJid,
+        'group_type' => 'group',
+    ],
+]);
+foreach ($validMembers as $memberId) {
+    flow_plugin_emit($chatPdo, 'member.added', [
+        'event_id' => 'member-added-' . $groupId . '-' . $memberId,
+        'actor_emp_id' => (int)$session['emp_id'],
+        'group_id' => $groupId,
+        'room_jid' => $roomJid,
+        'group_type' => 'group',
+        'member_emp_id' => $memberId,
+        'role' => $memberId === (int)$session['emp_id'] ? 'owner' : 'member',
+    ]);
+}
 
 chat_json([
     'status' => true,

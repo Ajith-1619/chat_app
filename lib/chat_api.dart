@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 import 'package:flutter/foundation.dart';
+import 'package:flutter/services.dart';
 import 'package:http/http.dart' as http;
 import 'package:image/image.dart' as img;
 import 'package:package_info_plus/package_info_plus.dart';
@@ -17,6 +18,7 @@ import 'web_file_actions.dart';
 const xmppDomain = 'chat.skylinkonline.net';
 const systemNotificationJid = 'notification@chat.skylinkonline.net';
 const requiredProxyVersion = '2026.06.23.2';
+const _androidStorageChannel = MethodChannel('skylink/android_settings');
 
 class ApiException implements Exception {
   const ApiException(this.message, {this.statusCode});
@@ -95,6 +97,9 @@ class ChatContact {
     this.avatarUrl = '',
     this.isPinned = false,
     this.isStarred = false,
+    this.nextActionText = '',
+    this.nextActionPersons = '',
+    this.nextActionDate = '',
   });
 
   factory ChatContact.fromJson(Map<String, dynamic> json) {
@@ -128,6 +133,9 @@ class ChatContact {
       avatarUrl: '${json['avatar_url'] ?? ''}',
       isPinned: _jsonBool(json['pinned']),
       isStarred: _jsonBool(json['starred']),
+      nextActionText: '${json['next_action_text'] ?? ''}',
+      nextActionPersons: '${json['next_action_persons'] ?? ''}',
+      nextActionDate: '${json['next_action_date'] ?? ''}',
     );
   }
 
@@ -144,6 +152,9 @@ class ChatContact {
   final String avatarUrl;
   final bool isPinned;
   final bool isStarred;
+  final String nextActionText;
+  final String nextActionPersons;
+  final String nextActionDate;
 
   bool get hasValidJid {
     return jid.toLowerCase() == systemNotificationJid ||
@@ -1004,12 +1015,16 @@ class ChatApi {
   final Map<String, String> _reverseGeocodeCache = {};
   final Map<String, ({DateTime at, List<ChatContact> users})> _userSearchCache =
       {};
+  final Set<String> _historyPrefetchInFlight = {};
+  DateTime? _lastHistoryPrefetchAt;
   final Map<String, ({DateTime at, List<Map<String, dynamic>> users})>
   _myHubDirectoryCache = {};
   ({DateTime at, Map<String, dynamic> data})? _myHubTasksCache;
   final ValueNotifier<String> connectionStatus = ValueNotifier('reconnecting');
   final List<Map<String, dynamic>> _diagnosticQueue = [];
   Timer? _diagnosticFlushTimer;
+  AppDeviceInfo? _diagnosticDeviceInfo;
+  String? _diagnosticAppVersion;
   // Hosted web builds must not depend on browser BOSH/CORS or the local
   // 127.0.0.1 development helper. Keep direct XMPP available in the bridge
   // code for local experiments, but route production web through the same
@@ -1622,6 +1637,87 @@ class ChatApi {
     await _postJson('chat/close_channel.php', {'channel_id': channelId});
   }
 
+  Future<Map<String, List<String>>> getChatFolders() async {
+    final body = await _getJson('chat/chat_folders.php');
+    final values = body['folders'];
+    final folders = <String, List<String>>{};
+    if (values is List) {
+      for (final item in values.whereType<Map>()) {
+        final name = '${item['name'] ?? ''}'.trim();
+        if (name.isEmpty) continue;
+        final rawJids = item['chat_jids'];
+        folders[name] = rawJids is List
+            ? rawJids
+                  .map((value) => '$value')
+                  .where((jid) => jid.trim().isNotEmpty)
+                  .toList()
+            : const <String>[];
+      }
+    }
+    return folders;
+  }
+
+  Future<void> saveChatFolders(Map<String, List<String>> folders) async {
+    final payload = <Map<String, dynamic>>[];
+    var order = 0;
+    for (final entry in folders.entries) {
+      final name = entry.key.trim();
+      if (name.isEmpty) continue;
+      payload.add({
+        'name': name,
+        'chat_jids': entry.value
+            .map((jid) => jid.trim().toLowerCase())
+            .where((jid) => jid.isNotEmpty)
+            .toSet()
+            .toList(),
+        'sort_order': order++,
+      });
+    }
+    await _postJson('chat/chat_folders.php', {'folders': payload});
+  }
+
+  Future<Map<String, dynamic>> getAiAccess() async {
+    return _getJson('chat/ai_access.php');
+  }
+
+  Future<bool> hasAiAccess() async {
+    final body = await getAiAccess();
+    return _jsonBool(body['has_access']);
+  }
+
+  Future<Map<String, dynamic>> getAiUserAccess({String query = ''}) async {
+    return _getJson(
+      'chat/ai_user_access.php',
+      query: {if (query.trim().isNotEmpty) 'q': query.trim()},
+    );
+  }
+
+  Future<void> setAiUserAccess({
+    required int empId,
+    required bool enabled,
+    String providerIds = '',
+    int dailyTokenLimit = 0,
+    int dailySearchLimit = 0,
+  }) async {
+    await _postJson('chat/ai_user_access.php', {
+      'emp_id': empId,
+      'enabled': enabled,
+      if (providerIds.trim().isNotEmpty) 'provider_ids': providerIds.trim(),
+      'daily_token_limit': dailyTokenLimit,
+      'daily_search_limit': dailySearchLimit,
+    });
+  }
+
+  Future<void> setAiRoomAccess({
+    required int groupId,
+    required bool enabled,
+  }) async {
+    await _postJson('chat/ai_access.php', {
+      'group_id': groupId,
+      'enabled': enabled,
+    });
+  }
+
   Future<List<ChatContact>> getArchivedChannels() async {
     final body = await _getJson('chat/archived_channels.php');
     final values = body['channels'];
@@ -1723,16 +1819,36 @@ class ChatApi {
 
   Future<void> prefetchHistories(Iterable<String> jids) async {
     if (kIsWeb) return;
-    final pending = jids
-        .where((jid) => !_historyCache.containsKey(jid.toLowerCase()))
-        .take(12)
-        .map(
+    final now = DateTime.now();
+    final last = _lastHistoryPrefetchAt;
+    if (last != null && now.difference(last) < const Duration(minutes: 2)) {
+      return;
+    }
+    final keys = <String>[];
+    for (final jid in jids) {
+      final key = jid.toLowerCase();
+      if (_historyCache.containsKey(key) ||
+          _historyPrefetchInFlight.contains(key)) {
+        continue;
+      }
+      keys.add(key);
+      if (keys.length >= 4) break;
+    }
+    if (keys.isEmpty) return;
+    _lastHistoryPrefetchAt = now;
+    _historyPrefetchInFlight.addAll(keys);
+    try {
+      await Future.wait(
+        keys.map(
           (jid) => getHistory(
             jid,
             markRead: false,
           ).catchError((_) => <ApiMessage>[]),
-        );
-    await Future.wait(pending);
+        ),
+      );
+    } finally {
+      _historyPrefetchInFlight.removeAll(keys);
+    }
   }
 
   Future<int> scheduleMessage({
@@ -2202,19 +2318,19 @@ class ChatApi {
       return fileName;
     }
     final bytes = await readAttachmentBytes(attachment);
-    Directory? directory;
-    if (!kIsWeb && Platform.isAndroid) {
-      final publicDownloads = Directory('/storage/emulated/0/Download/Skylink');
-      try {
-        if (!await publicDownloads.exists()) {
-          await publicDownloads.create(recursive: true);
-        }
-        directory = publicDownloads;
-      } catch (_) {
-        directory = null;
+    final mimeType = _resolvedAttachmentMimeType(attachment);
+    if (Platform.isAndroid) {
+      final publicPath = await _saveAndroidPublicAttachment(
+        bytes: bytes,
+        fileName: fileName,
+        mimeType: mimeType,
+        mediaType: _androidAttachmentMediaType(attachment, mimeType),
+      );
+      if (publicPath != null && publicPath.isNotEmpty) {
+        return publicPath;
       }
     }
-    directory ??=
+    final directory =
         await getDownloadsDirectory() ??
         await getApplicationDocumentsDirectory();
     final file = File(
@@ -2223,6 +2339,100 @@ class ChatApi {
     );
     await file.writeAsBytes(bytes, flush: true);
     return file.path;
+  }
+
+  String _resolvedAttachmentMimeType(ChatAttachment attachment) {
+    final mime = attachment.mimeType.trim();
+    if (mime.isNotEmpty && mime.toLowerCase() != 'file') return mime;
+    final lowerName = attachment.name.toLowerCase();
+    if (lowerName.endsWith('.jpg') ||
+        lowerName.endsWith('.jpeg') ||
+        lowerName.endsWith('.png') ||
+        lowerName.endsWith('.gif') ||
+        lowerName.endsWith('.webp')) {
+      return 'image/*';
+    }
+    if (lowerName.endsWith('.mp4') ||
+        lowerName.endsWith('.mov') ||
+        lowerName.endsWith('.mkv') ||
+        lowerName.endsWith('.webm')) {
+      return 'video/*';
+    }
+    if (lowerName.endsWith('.mp3') ||
+        lowerName.endsWith('.m4a') ||
+        lowerName.endsWith('.wav') ||
+        lowerName.endsWith('.aac') ||
+        lowerName.endsWith('.ogg')) {
+      return 'audio/*';
+    }
+    if (lowerName.endsWith('.pdf')) return 'application/pdf';
+    if (lowerName.endsWith('.txt')) return 'text/plain';
+    if (lowerName.endsWith('.csv')) return 'text/csv';
+    return 'application/octet-stream';
+  }
+
+  String _androidAttachmentMediaType(
+    ChatAttachment attachment,
+    String mimeType,
+  ) {
+    final lowerMime = mimeType.toLowerCase();
+    final lowerName = attachment.name.toLowerCase();
+    if (lowerMime.startsWith('image/') ||
+        lowerName.endsWith('.jpg') ||
+        lowerName.endsWith('.jpeg') ||
+        lowerName.endsWith('.png') ||
+        lowerName.endsWith('.gif') ||
+        lowerName.endsWith('.webp')) {
+      return 'image';
+    }
+    if (lowerMime.startsWith('video/') ||
+        lowerName.endsWith('.mp4') ||
+        lowerName.endsWith('.mov') ||
+        lowerName.endsWith('.mkv') ||
+        lowerName.endsWith('.webm')) {
+      return 'video';
+    }
+    if (lowerMime.startsWith('audio/') ||
+        lowerName.endsWith('.mp3') ||
+        lowerName.endsWith('.m4a') ||
+        lowerName.endsWith('.wav') ||
+        lowerName.endsWith('.aac') ||
+        lowerName.endsWith('.ogg')) {
+      return 'audio';
+    }
+    return 'file';
+  }
+
+  Future<String?> _saveAndroidPublicAttachment({
+    required Uint8List bytes,
+    required String fileName,
+    required String mimeType,
+    required String mediaType,
+  }) async {
+    File? tempFile;
+    try {
+      final tempDir = await getTemporaryDirectory();
+      tempFile = File(
+        '${tempDir.path}${Platform.pathSeparator}'
+        '${DateTime.now().millisecondsSinceEpoch}_$fileName',
+      );
+      await tempFile.writeAsBytes(bytes, flush: true);
+      return await _androidStorageChannel
+          .invokeMethod<String>('savePublicDownload', {
+            'sourcePath': tempFile.path,
+            'fileName': fileName,
+            'mimeType': mimeType,
+            'mediaType': mediaType,
+          });
+    } catch (_) {
+      return null;
+    } finally {
+      try {
+        if (tempFile != null && await tempFile.exists()) {
+          await tempFile.delete();
+        }
+      } catch (_) {}
+    }
   }
 
   Future<void> registerCurrentSession() async {
@@ -3517,20 +3727,19 @@ class ChatApi {
   }) async {
     if (!diagnosticsAllowed || _sessionCookie == null) return;
     try {
-      String appVersion = '';
-      try {
-        appVersion = (await PackageInfo.fromPlatform()).version;
-      } catch (_) {
-        appVersion = '';
-      }
-      final device = await DeviceService.instance.info.catchError(
-        (_) => const AppDeviceInfo(
-          id: 'web-session',
-          name: 'web browser',
-          platform: 'web',
-          source: 'web',
-        ),
-      );
+      final appVersion = _diagnosticAppVersion ??=
+          await PackageInfo.fromPlatform()
+              .then((package) => package.version)
+              .catchError((_) => '');
+      final device = _diagnosticDeviceInfo ??= await DeviceService.instance.info
+          .catchError(
+            (_) => const AppDeviceInfo(
+              id: 'web-session',
+              name: 'web browser',
+              platform: 'web',
+              source: 'web',
+            ),
+          );
       _diagnosticQueue.add({
         'trace_id': traceId,
         'category': category,

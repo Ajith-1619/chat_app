@@ -213,3 +213,106 @@
 - Decision: Add second-layer extended handlers instead of rewriting original session endpoints.
 - Reason: Keeps current app stable while exposing external portal API access with Bearer keys, scopes, and audit logging.
 
+
+## 2026-07-24 12:34:54 - API Documentation Decision
+- Decision: Keep one canonical documentation file under docs/external_api and a deploy-bundle copy under server_patch/api.
+- Reason: Developers can read docs locally while server admins can upload the API folder with documentation included.
+
+
+## 2026-07-24 12:49:18 - Plugin Architecture Decision
+- Decision: File manifest + database registry sync with hook-based dispatch and artifact outputs.
+- Reason: Keeps plugins declarative, auditable, permission-scoped, and isolated from Flow core behavior.
+
+
+## 2026-07-24 13:10:00 - Selection Freeze Decision
+- Decision: Treat text selection as a hard viewport freeze that overrides even force-scroll requests.
+- Reason: A delayed force-scroll callback can fire after the first pointer-down and move the conversation while the user is selecting text.
+
+## 2026-07-24 14:53:05 +05:30 - Pointer Intent Decision
+- Decision: Do not enter selection freeze on message text pointer-down; enter it only after drag threshold or actual selected text.
+- Reason: Normal clicks were being treated as text-selection intent, which could keep scroll tracking stale and trigger anchor restore jumps.
+
+## 2026-07-24 14:58:22 +05:30 - History Loading Decision
+- Decision: Expand server history cap immediately from fixed 200 to bounded 1000 default while keeping route compatibility.
+- Reason: The current Flutter chat screen does not implement older-message pagination, so the fixed backend cap was the fastest low-risk fix for missing old messages.
+
+## 2026-07-24 - Keep Native Text Selection Separate
+- Decision: Do not reuse Flow message-selection mode for browser/native text selection.
+- Rationale: Message-selection mode captures anchors, queues history, and can rebuild app bar/list state. Native text selection needs a lightweight freeze that preserves viewport and lets SelectableText own mouse drags.
+- Risk Control: Limited changes to lib/chat/chat_screen.dart only; mobile swipe/long-press behavior preserved.
+
+## 2026-07-24 15:55:18 - Decision
+- Decision: Fix root gesture conflict at the bubble boundary instead of rebuilding the chat list or replacing the message renderer.
+- Reason: Parent GestureDetector drag/tap recognizers were competing with SelectableText mouse selection on Web/Desktop. Disabling those parent recognizers only for selectable text bubbles is the smallest production-safe fix.
+
+
+## 2026-07-24 15:55:36 +05:30 - Decision: Let SelectableText Own Web/Desktop Drags
+- Decision: Fix the root selection conflict by removing parent bubble drag/long-press/tap recognizers from selectable text bubbles on web/desktop instead of adding another scroll workaround.
+- Rationale: Native text selection needs first ownership of mouse drag events; message actions remain available through right-click and mobile behavior remains unchanged.
+
+
+## 2026-07-24 16:45:46 +05:30 - AI Decision
+- Decision: Do not disable ListView scrolling during text selection. Let SelectableText own mouse drag gestures and freeze only background history/UI refresh effects.
+- Rationale: Disabling scroll physics caused secondary regressions where chat scrolling stopped; parent gesture removal is the smaller root fix.
+
+## 2026-07-24 17:24:54 +05:30 - AI Decision
+- Decision: Render one compact badge from next_action_persons instead of adding a new row of multiple operational chips.
+- Rationale: Matches requested image direction while keeping the chat list dense and low-risk.
+
+## 2026-07-24 18:00:10 +05:30 - AI Decision
+- Decision: Bump to 2.0.5+28 as the next Android release after existing 2.0.4+27.
+- Rationale: Keeps version sequencing consistent with the current pubspec and release folder history.
+
+## 2026-07-24 - AI API Access Design
+- Decision: Keep AI room enablement metadata-driven through flow_admin_ai_room_access and default active provider id 2, with employee 302 as built-in admin access and assigned users controlled by flow_admin_ai_user_access.
+- Reason: Avoid hardcoding AI behavior into chat rooms while letting authorized users enable @ai per group/channel.
+
+
+## 2026-07-25 - AI Access Control Model
+- Decision: Separate 302-only API Access management from user-facing AI API room toggles.
+- Decision: Remove implicit 302 AI API access; AI API menu is now assignment-driven for all users.
+- Reason: Matches product requirement that 302 grants AI API visibility to selected users only.
+
+
+## 2026-07-25 - Decision: Minimal UI Extension
+- Decision: Reuse existing ChannelProfile API for mobile manage-channel metadata instead of adding new backend calls.
+- Decision: Keep default folder filters informational in Chat Folders and add edit only to custom folders.
+- Decision: Implement reply target visibility with temporary bubble highlight after existing jump behavior.
+- Reason: Smallest low-risk change that preserves current chat and folder behavior.
+
+## 2026-07-25 - Decision: Remove Slow Work From Send Response
+- Decision: Keep core message persistence/XMPP delivery synchronous, but move AI reply generation to a worker.
+- Decision: Throttle Android background history prefetch instead of removing it entirely.
+- Reason: Preserves user-facing behavior while reducing the biggest latency and network burst risks.
+
+## 2026-07-25 - Decision: Backend-Owned Folder Preferences
+- Decision: Store chat folders as whole ordered per-user folder documents in xmpp_chat_folders rather than keeping browser/device SharedPreferences as source of truth.
+- Reason: Folder configuration must survive builds, browser cache changes, and multiple devices while keeping reorder/edit simple.
+
+## 2026-07-25 - Decision: Mobile Composer Minimal Cleanup
+- Decision: Remove only the always-visible B button instead of changing the formatting system.
+- Decision: Make composer dimensions responsive inside _MessageComposer rather than rewriting the chat footer.
+- Reason: Smallest safe fix for APK usability while preserving existing send, attachment, schedule, voice, and formatting workflows.
+
+
+## 2026-07-25 - Decision: Composer Keyboard Preference
+- Decision: Store Enter-to-send as a local per-user app preference using the existing SharedPreferences pattern.
+- Decision: Default to true to preserve current behavior and avoid surprising existing users.
+- Reason: Smallest stable change that gives user control without backend dependency or chat send-flow changes.
+
+
+## 2026-07-25 - Decision: v2.0.6 Draft Release
+- Decision: Increment to 2.0.6+29 after existing 2.0.5+28 draft.
+- Decision: Upload/register only Android APK as live Draft per request; keep web build local/package-ready without replacing live web app.
+- Reason: User requested web and APK builds, specifically APK moved to live draft for 302 approval.
+
+
+## 2026-07-27 - Decision: Full-Viewport Image Viewer
+- Decision: Fix the image preview by resizing the InteractiveViewer child to the full preview viewport instead of rewriting the attachment preview screen.
+- Decision: Keep the change image-only and leave audio/document/location preview branches untouched.
+- Reason: Smallest safe fix that resolves boxed zoom behavior without risking regressions in other attachment types.
+
+## 2026-07-27 - Decision: Public Android Downloads
+- Decision: Move Android download saving from direct path writes into a native public-save bridge using MediaStore on Android 10+ and legacy public directories on older Android versions.
+- Decision: Save images/videos/audio into media collections and general documents into Downloads so users can find them in Gallery or Files naturally.
+- Reason: Smallest reliable fix for user-visible downloads without rewriting the attachment UI or web/desktop download flows.

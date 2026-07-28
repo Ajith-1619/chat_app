@@ -292,3 +292,61 @@
 ## 2026-07-27 - Wake-up Last Message Summary
 - Feature: Wake-up notifications now append a readable last message summary for text, files, photos, videos, audio, locations, checklists, polls, and Flow MCO clarification messages.
 
+
+## FEATURE-20260728-NOTIFICATION-HISTORY-AND-BROADCAST-ACCESS
+- Date: 2026-07-28 10:25:00 +05:30
+- System Notifications now use the server history/read path on web so persisted DB notifications are visible and read-state updates run.
+- Broadcast creation entry now defers permission enforcement to the backend employee-type override instead of cached Flutter profile state.
+## FEATURE-20260728-SLASH-COMMAND-AI
+- Date: 2026-07-28 10:55:00 +05:30
+- Composer now updates slash command query state on every text change so /, /a, /ai can show the command picker.
+- Channel/group AI trigger now accepts configured trigger plus /ai and legacy @ai.
+## FEATURE-20260728-NEXT-ACTION-DATE-PARSER
+- Date: 2026-07-28 11:10:00 +05:30
+- Next action parser now understands end/last of this month, month end, end of next month, and next month end.
+- Next action date is cleared when the new actionable message does not include a date, so the right panel cannot show an old stale date.
+## FEATURE-20260728-CONTEXT-AWARE-ACTION-ENGINE
+- Date: 2026-07-28 11:35:00 +05:30
+- Added stricter actionable-message detection to avoid normal conversation becoming next action.
+- Added last-20-message context scan with up to five recent actionable messages summarized into the current next action.
+- Added previous_action_text persistence on channels and channel profile payload support.
+- Missing person/date continue to be stored as next_action_missing_fields and generate Flow MCO clarification messages.
+## 2026-07-28 - Feature: Type A Effective Group/Channel Admin
+- Type A employee access now upgrades group/channel membership authority to admin without requiring manual per-room role edits.
+- Owner role remains preserved above admin.
+- Admin employee type update promotes existing member rows to admin.
+
+## 2026-07-28 - Feature: My Activity
+- Added My Hub tile and screen for logging daily work activity.
+- Supports activity type dropdown, optional file upload, description, start/end time, and current-month history list.
+
+## 2026-07-28 - External API Channel Lifecycle
+- Feature: Versioned API now documents and supports external group/channel message send using room JID and explicit channel close/archive/unarchive actions.
+- User Value: External portals can post into Flow groups/channels and manage channel lifecycle without using internal chat UI APIs.
+
+## 2026-07-28 - Horizon
+- Feature: My Hub Horizon attendance visibility dashboard.
+- Access: Restricted to employee IDs 116, 232, 302, 428, and 553.
+- Capabilities: Today punched-in employee list, punch times, running/closed working hours, route view with start marker, last/end marker, and half-hour timeline checkpoints.
+
+## 2026-07-28 - Feature: My Hub Horizon Map Address Timeline
+- Status: Updated
+- Capability: Authorized Horizon users can open an employee route with map tiles, route markers, 30-minute checkpoints, and address-aware timeline details.
+
+## 2026-07-28 - Feature: Horizon Scoped Team Visibility
+- Status: Updated
+- Capability: Horizon supports super-admin all-employee monitoring and manager/direct-report scoped monitoring with interactive map zoom.
+
+## 2026-07-28 - Feature: Flow Command Guide
+- Status: Added
+- Capability: Group/channel users can type /help to view supported Flow slash commands and descriptions.
+
+## 2026-07-28 - Feature: Interactive Horizon Map Pan
+- Status: Added
+- Capability: Horizon route map supports pan, zoom buttons, and mouse-wheel zoom for map inspection.
+
+## FEAT-2026-07-28-MULTI-PLATFORM-DRAFT
+- Multi-platform release artifacts generated for Web, Android, and Windows.
+- Android and Windows registered as Draft releases for 302 approval.
+- Status: Complete.
+

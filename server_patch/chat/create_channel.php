@@ -93,12 +93,14 @@ try {
          VALUES (:group_id, :emp_id, :role)'
     );
     foreach ($members as $memberId) {
+        $role = $memberId === (int)$session['emp_id'] ? 'owner' : (chat_is_type_a_user($pdo, $employeePdo, $memberId) ? 'admin' : 'member');
         $memberStmt->execute([
             ':group_id' => $channelId,
             ':emp_id' => $memberId,
-            ':role' => $memberId === (int)$session['emp_id'] ? 'owner' : 'member',
+            ':role' => $role,
         ]);
         try {
+            chat_ejabberd_client()->setRoomAffiliation($slug, chat_jid($memberId), $role === 'owner' ? 'owner' : ($role === 'admin' ? 'admin' : 'member'));
             chat_ejabberd_client()->inviteToRoom($slug, chat_jid($memberId), 'Added to Skylink channel');
         } catch (Throwable $inviteError) {
             error_log('channel invite skipped: ' . $inviteError->getMessage());
@@ -160,7 +162,7 @@ try {
             'room_jid' => $roomJid,
             'group_type' => 'channel',
             'member_emp_id' => $memberId,
-            'role' => $memberId === (int)$session['emp_id'] ? 'owner' : 'member',
+            'role' => $memberId === (int)$session['emp_id'] ? 'owner' : (chat_is_type_a_user($pdo, $employeePdo, $memberId) ? 'admin' : 'member'),
         ]);
     }
     chat_json([
@@ -178,5 +180,4 @@ try {
     error_log('create channel failed: ' . $e->getMessage());
     chat_json(['status' => false, 'error' => 'Unable to create channel'], 500);
 }
-
 

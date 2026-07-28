@@ -53,16 +53,17 @@ $memberStmt = $chatPdo->prepare(
      ON DUPLICATE KEY UPDATE role = VALUES(role)'
 );
 foreach ($validMembers as $empId) {
+    $role = $empId === (int)$session['emp_id'] ? 'owner' : (chat_is_type_a_user($chatPdo, $employeePdo, $empId) ? 'admin' : 'member');
     $memberStmt->execute([
         ':group_id' => $groupId,
         ':emp_id' => $empId,
-        ':role' => $empId === (int)$session['emp_id'] ? 'owner' : 'member',
+        ':role' => $role,
     ]);
     try {
         chat_ejabberd_client()->setRoomAffiliation(
             $slug,
             chat_jid($empId),
-            $empId === (int)$session['emp_id'] ? 'owner' : 'member'
+            $role === 'owner' ? 'owner' : ($role === 'admin' ? 'admin' : 'member')
         );
         chat_ejabberd_client()->inviteToRoom($slug, chat_jid($empId), 'Skylink Messenger group invite');
     } catch (Throwable $e) {
@@ -97,7 +98,7 @@ foreach ($validMembers as $memberId) {
         'room_jid' => $roomJid,
         'group_type' => 'group',
         'member_emp_id' => $memberId,
-        'role' => $memberId === (int)$session['emp_id'] ? 'owner' : 'member',
+        'role' => $memberId === (int)$session['emp_id'] ? 'owner' : (chat_is_type_a_user($chatPdo, $employeePdo, $memberId) ? 'admin' : 'member'),
     ]);
 }
 

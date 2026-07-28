@@ -1,151 +1,235 @@
-# Flow External API v1
+# Flow External API Plan
 
-Deploy this folder to `/var/www/html/router_login/api/`.
+Date: 2026-07-24
 
-Base URL:
+## Why The Current API Shows Unauthorized
+
+Most current Flow endpoints call `chat_require_user()`. That means they expect a logged-in Flow app session, usually browser/app cookies from `chat/login.php`. External portals, Postman, CRM tools, websites, automation jobs, and partner systems do not have that Flow session, so they correctly receive:
+
+```json
+{
+  "status": false,
+  "error": "Unauthorized"
+}
+```
+
+The permanent solution is not to remove authentication from existing app APIs. The right solution is to add a dedicated external API layer with API keys, scopes, audit logs, rate limits, and stable versioned paths.
+
+## Recommended External API Base
+
+Use module-first versioned public layers:
 
 ```text
-https://dns.watchtower247.in/router_login/api/{module}/v1/{resource}
+https://chat.skylinkonline.net/router_login/api/chat/v1/
+https://chat.skylinkonline.net/router_login/api/users/v1/
+https://chat.skylinkonline.net/router_login/api/groups/v1/
+https://chat.skylinkonline.net/router_login/api/channels/v1/
 ```
 
-Authentication:
-
-```http
-Authorization: Bearer <external_api_key>
-X-Flow-Actor-Emp-Id: 302
-Content-Type: application/json
-```
-
-API keys are stored in `flow_api_clients` as SHA-256 hashes. The deployment can also expose a temporary environment key through `FLOW_EXTERNAL_API_DEV_KEY`.
-
-Modules included:
-
-- `chat/v1` - message read/send
-- `users/v1` - user directory/profile/presence
-- `groups/v1` - group list/create/update/profile/members
-- `channels/v1` - channel list/create/update/profile/members
-- `tasks/v1` - task list/create/detail/update comments
-- `reminders/v1` - reminder/follow-up list/create
-- `notifications/v1` - push/system notification create
-- `files/v1` - attachment records
-- `attendance/v1` - placeholder for deployment-specific attendance mapping
-- `location/v1` - location tracking records
-- `releases/v1` - release build records
-- `diagnostics/v1` - diagnostics records
-
-See `docs/external_api/` for request/response examples and the endpoint catalogue.
-
-## Create API Client
-
-Run this on the server after uploading the folder:
-
-```bash
-php /var/www/html/router_login/api/_shared/create_client.php \
-  --name=ExternalPortal \
-  --key='CHANGE_ME_EXTERNAL_PORTAL_KEY' \
-  --owner=302 \
-  --scopes='*'
-```
-
-Recommended production scopes can be limited, for example:
+Local/server patch folder suggestion:
 
 ```text
-chat:read,chat:write,users:read,groups:read,groups:write,channels:read,channels:write,tasks:read,tasks:write,reminders:read,reminders:write,notifications:write,files:read,location:read,releases:read,diagnostics:read
+server_patch/api/
 ```
 
-## Quick Samples
+Full route design is documented in:
 
-Create task:
+```text
+docs/external_api/VERSIONED_API_ROUTES.md
+docs/external_api/CHAT_V1.md
+docs/external_api/USERS_V1.md
+docs/external_api/GROUPS_V1.md
+docs/external_api/CHANNELS_V1.md
+docs/external_api/TASKS_REMINDERS_NOTIFICATIONS_V1.md
+docs/external_api/FILES_ATTENDANCE_LOCATION_V1.md
+```
+
+## Authentication
+
+Use bearer API keys:
 
 ```http
-POST /router_login/api/tasks/v1
-Authorization: Bearer <external_api_key>
-X-Flow-Actor-Emp-Id: 302
+Authorization: Bearer flow_xxxxx
 Content-Type: application/json
-
-{"title":"Follow up with customer","description":"Call before 5 PM","assignees":[302],"followers":[116],"priority":"high","deadline":"2026-07-24 17:00:00","vertical":"Operations"}
 ```
 
-Create group:
+Each key should have:
+
+- key id
+- key hash, never plain text after creation
+- app name
+- owner employee id
+- allowed scopes
+- allowed IPs, optional
+- active/inactive status
+- expiry date
+- created/updated timestamps
+
+## Core Tables To Add
+
+```sql
+CREATE TABLE flow_api_clients (
+  id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  client_name VARCHAR(150) NOT NULL,
+  owner_emp_id INT NOT NULL,
+  api_key_hash VARCHAR(255) NOT NULL,
+  scopes_json JSON NOT NULL,
+  allowed_ips_json JSON NULL,
+  status TINYINT NOT NULL DEFAULT 1,
+  expires_at DATETIME NULL,
+  created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  UNIQUE KEY uniq_api_key_hash (api_key_hash)
+);
+
+CREATE TABLE flow_api_audit_logs (
+  id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  client_id BIGINT UNSIGNED NULL,
+  scope VARCHAR(100) NOT NULL,
+  endpoint VARCHAR(255) NOT NULL,
+  method VARCHAR(10) NOT NULL,
+  actor_emp_id INT NULL,
+  target_type VARCHAR(80) NULL,
+  target_id VARCHAR(120) NULL,
+  request_id VARCHAR(80) NOT NULL,
+  ip_address VARCHAR(80) NULL,
+  status_code INT NOT NULL,
+  result_status VARCHAR(30) NOT NULL,
+  error_message TEXT NULL,
+  created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  KEY idx_client_created (client_id, created_at),
+  KEY idx_request_id (request_id)
+);
+```
+
+## Scope Model
+
+Use simple scopes first:
+
+```text
+chat:read
+chat:send
+chat:attachments
+groups:read
+groups:write
+channels:read
+channels:write
+tasks:read
+tasks:write
+reminders:read
+reminders:write
+attendance:read
+notifications:send
+users:read
+locations:read
+releases:read
+diagnostics:read
+```
+
+## Implementation Plan
+
+1. Add external API bootstrap
+   - `external/v1/bootstrap.php`
+   - validates bearer token
+   - loads client/scopes
+   - rejects expired/inactive keys
+   - writes audit logs
+
+2. Add stable endpoint wrappers
+   - Do not expose every internal PHP file directly.
+   - Wrap only approved actions.
+   - Keep internal app APIs unchanged.
+
+3. Start with task APIs
+   - `POST /tasks`
+   - `POST /tasks/{id}/updates`
+   - `GET /tasks`
+   - `GET /tasks/{id}`
+
+4. Add messaging APIs
+   - send text
+   - send attachment
+   - read history
+   - message info
+
+5. Add group/channel APIs
+   - create group/channel
+   - add/remove members
+   - read profile
+   - channel description/next action
+
+6. Add admin API management UI
+   - create/revoke API keys
+   - assign scopes
+   - view usage and audit logs
+
+## Response Shape
+
+All external APIs should use a consistent envelope:
+
+Success:
+
+```json
+{
+  "status": true,
+  "data": {},
+  "request_id": "req_..."
+}
+```
+
+Failure:
+
+```json
+{
+  "status": false,
+  "error": "Human readable error",
+  "code": "FLOW_ERROR_CODE",
+  "request_id": "req_..."
+}
+```
+
+## Security Rules
+
+- Never allow unauthenticated external write APIs.
+- Never store plain API keys.
+- Never expose `xmpp_password` through external APIs.
+- Enforce scopes on every endpoint.
+- Log every write action.
+- Add rate limits per client.
+- Add idempotency key support for create/send APIs.
+- Keep destructive actions out of v1 unless explicitly approved.
+
+## First Version Recommendation
+
+Build v1 in this order:
+
+1. Task create/update/read
+2. Reminder/follow-up create/read
+3. Send notification
+4. Create group/channel
+5. Send message
+6. Upload/send file
+7. Read chat history/search
+8. User directory
+9. Attendance read-only
+10. Release read-only
+
+
+
+## Group/channel message send
+
+Use the chat message endpoint for DM, group, and channel messages:
 
 ```http
-POST /router_login/api/groups/v1
-Authorization: Bearer <external_api_key>
-X-Flow-Actor-Emp-Id: 302
-Content-Type: application/json
-
-{"name":"External Portal Test","member_emp_ids":[302,116],"description":"Created through Flow external API"}
+POST https://dns.watchtower247.in/router_login/api/chat/v1/messages
 ```
 
-Send message:
+Pass the group/channel room JID in `to_jid`. Room JIDs contain `@conference.chat.skylinkonline.net`; Flow stores them as `groupchat` automatically when `message_type` is omitted.
+
+## Channel close/archive
 
 ```http
-POST /router_login/api/chat/v1/messages
-Authorization: Bearer <external_api_key>
-X-Flow-Actor-Emp-Id: 302
-Content-Type: application/json
-
-{"to_jid":"116@chat.skylinkonline.net","body":"Message from external portal"}
+POST https://dns.watchtower247.in/router_login/api/channels/v1/{channel_id}/close
+POST https://dns.watchtower247.in/router_login/api/channels/v1/{channel_id}/archive
+POST https://dns.watchtower247.in/router_login/api/channels/v1/{channel_id}/unarchive
 ```
-
-## Expanded Endpoint Coverage
-
-### Chat
-- `GET chat/v1/messages?jid=<jid>&limit=50`
-- `POST chat/v1/messages`
-- `GET chat/v1/search?q=<text>`
-- `GET chat/v1/{message_id}/info`
-- `POST chat/v1/{message_id}/edit`
-- `POST chat/v1/{message_id}/delete`
-- `POST chat/v1/{message_id}/pin`
-- `POST chat/v1/{message_id}/bookmark`
-- `POST chat/v1/{message_id}/reaction`
-- `POST chat/v1/{message_id}/forward`
-
-### Groups And Channels
-- `GET groups/v1`, `GET channels/v1`
-- `GET groups/v1/{id}`, `GET channels/v1/{id}`
-- `POST groups/v1`, `POST channels/v1`
-- `PATCH groups/v1/{id}`, `PATCH channels/v1/{id}`
-- `DELETE groups/v1/{id}`, `DELETE channels/v1/{id}`
-- `GET groups/v1/{id}/members`, `GET channels/v1/{id}/members`
-- `POST groups/v1/{id}/members`, `POST channels/v1/{id}/members`
-- `DELETE groups/v1/{id}/members/{emp_id}`
-- `POST groups/v1/{id}/members/{emp_id}/promote`
-- `GET groups/v1/{id}/wakeup`, `POST groups/v1/{id}/wakeup`
-- `POST groups/v1/{id}/external-users`
-- `GET groups/v1/{id}/ai`, `POST groups/v1/{id}/ai`
-
-### Files, Saved, Search
-- `GET files/v1`
-- `POST files/v1` with JSON `file_base64`, `file_name`, `to_jid`, optional `restricted`
-- `GET saved/v1`
-- `POST saved/v1`
-- `GET search/v1?q=<text>`
-
-### Tasks, Reminders, Notifications
-- `GET tasks/v1`, `GET tasks/v1/{id}`
-- `POST tasks/v1`
-- `POST tasks/v1/{id}/updates`
-- `GET reminders/v1`, `POST reminders/v1`
-- `POST notifications/v1`
-
-### Operations
-- `GET storage/v1?emp_id=<id>`
-- `PATCH storage/v1/{emp_id}` with `limit_mb`
-- `GET location/v1`, `POST location/v1`
-- `GET attendance/v1`, `POST attendance/v1`
-- `GET releases/v1`, `POST releases/v1`
-- `POST releases/v1/{id}/approve`
-- `POST releases/v1/{id}/rollback`
-- `GET diagnostics/v1`
-- `GET ai/v1`, `POST ai/v1`
-- `GET external-users/v1`
-- `POST external-users/v1/{request_id}/approve`
-- `POST polls/v1`
-- `POST checklists/v1`
-
-Notes:
-- These endpoints are API-key/Bearer-token based and isolated from the existing session-only `/chat` APIs.
-- File upload currently accepts base64 JSON for external integrations. Multipart upload can be added as a transport upgrade without changing route names.
-- Attendance API writes to `flow_api_attendance_events` unless deployment-specific attendance tables are mapped later.

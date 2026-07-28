@@ -1,4 +1,4 @@
-﻿# Flow External API Endpoint Catalogue
+# Flow External API Endpoint Catalogue
 
 Date: 2026-07-24
 
@@ -50,7 +50,7 @@ Examples:
 | --- | --- | --- | --- | --- |
 | Recent chats | `recent_chats.php` | GET | `GET /conversations` | `chat:read` |
 | Chat history | `history.php?jid=` | GET | `GET /conversations/{jid}/messages` | `chat:read` |
-| Send message | `send_message.php` | POST | `POST /messages` | `chat:send` |
+| Send DM/group/channel message | `send_message.php` | POST | `POST /chat/v1/messages` | `chat:send` |
 | Send attachment | `upload_file.php` + `send_message.php` | POST | `POST /attachments` then `POST /messages` | `chat:attachments` |
 | Delete/unsend | `delete_message.php` | POST | `POST /messages/{id}/delete` | `chat:send` |
 | Edit message | `edit_message.php` | POST | `PATCH /messages/{id}` | `chat:send` |
@@ -72,7 +72,9 @@ Examples:
 | Group profile | `group_profile.php` | POST | `PATCH /groups/{id}/profile` | `groups:write` |
 | Channel profile | `channel_profile.php` | GET | `GET /channels/{id}` | `channels:read` |
 | Update channel | `update_channel.php` | POST | `PATCH /channels/{id}` | `channels:write` |
-| Close channel | `close_channel.php` | POST | `POST /channels/{id}/close` | `channels:write` |
+| Close channel | `close_channel.php` | POST | `POST /channels/v1/{id}/close` | `channels:write` |
+| Archive channel | `archived_channels.php` | POST | `POST /channels/v1/{id}/archive` | `channels:write` |
+| Unarchive channel | `archived_channels.php` | POST | `POST /channels/v1/{id}/unarchive` | `channels:write` |
 | Archived channels | `archived_channels.php` | GET | `GET /channels/archived` | `channels:read` |
 | Channel definitions | `channel_definitions.php` | GET | `GET /channel-definitions` | `channels:read` |
 | Channel relationships | `channel_relationship.php` | GET/POST | `GET/POST /channel-relationships` | `channels:write` |

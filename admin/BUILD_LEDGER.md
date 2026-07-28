@@ -180,3 +180,8 @@
 - Build: Not run; implementation-only request.
 - Validation: php -l server_patch/chat/external_user_request.php, group_members.php, admin API/controller; node --check admin/public/admin/app.js; targeted dart analyze changed Dart files.
 
+
+## BUILD-20260728-ADMIN-USER-TYPE-DETAIL-FIX
+- Timestamp: 2026-07-28 12:20:00 +05:30
+- Build: Not run; admin PHP/JS fix only.
+- Verification: PHP lint and JS syntax check passed.

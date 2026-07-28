@@ -279,6 +279,50 @@ function chat_require_group_channel_creator(PDO $chatPdo, PDO $employeePdo, int 
         ], 403);
     }
 }
+
+function chat_is_type_a_user(PDO $chatPdo, PDO $employeePdo, int $empId): bool
+{
+    return chat_employee_type($chatPdo, $employeePdo, $empId) === 'A';
+}
+
+function chat_effective_group_role(PDO $chatPdo, PDO $employeePdo, int $empId, string $storedRole): string
+{
+    $role = strtolower(trim($storedRole)) ?: 'member';
+    if ($role === 'owner') return 'owner';
+    return chat_is_type_a_user($chatPdo, $employeePdo, $empId) ? 'admin' : $role;
+}
+
+function chat_sync_type_a_group_admin(PDO $chatPdo, PDO $employeePdo, int $empId, ?int $groupId = null): bool
+{
+    if ($empId <= 0 || !chat_is_type_a_user($chatPdo, $employeePdo, $empId)) return false;
+    $params = [':emp_id' => $empId];
+    $where = 'emp_id = :emp_id AND role = \'member\'';
+    if ($groupId !== null && $groupId > 0) {
+        $where .= ' AND group_id = :group_id';
+        $params[':group_id'] = $groupId;
+    }
+    try {
+        $stmt = $chatPdo->prepare("UPDATE xmpp_group_members SET role = 'admin' WHERE {$where}");
+        $stmt->execute($params);
+        return $stmt->rowCount() > 0;
+    } catch (Throwable $e) {
+        error_log('Type A group admin sync failed: ' . $e->getMessage());
+        return false;
+    }
+}
+
+function chat_sync_type_a_group_admins(PDO $chatPdo, PDO $employeePdo, int $groupId): void
+{
+    try {
+        $stmt = $chatPdo->prepare("SELECT emp_id FROM xmpp_group_members WHERE group_id = :group_id AND role = 'member'");
+        $stmt->execute([':group_id' => $groupId]);
+        foreach (($stmt->fetchAll(PDO::FETCH_COLUMN) ?: []) as $empId) {
+            chat_sync_type_a_group_admin($chatPdo, $employeePdo, (int)$empId, $groupId);
+        }
+    } catch (Throwable $e) {
+        error_log('Type A group admin bulk sync failed: ' . $e->getMessage());
+    }
+}
 function chat_jid(int $empId): string
 {
     return $empId . '@' . SKYCHAT_DOMAIN;

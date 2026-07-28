@@ -123,3 +123,7 @@
 - Requirement: All Flow users should have a default 2GB storage limit. Chat app Settings > Data and storage must show the user's limit, used storage, remaining storage, and per user/group/channel storage usage details.
 - Status: Implemented locally; deploy new PHP endpoint and patched upload/bootstrap files with the Flutter app update.
 
+
+## REQ-2026-07-28-001 - Admin user detail and employee type edit reliability
+- Status: Complete
+- Summary: Admin Users page must allow changing employee type and must keep user details loadable for all users even when optional metadata contains bad encoding or optional AI access data fails.

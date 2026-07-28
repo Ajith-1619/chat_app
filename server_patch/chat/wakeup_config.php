@@ -58,7 +58,9 @@ $stmt->execute([
 ]);
 $group = $stmt->fetch(PDO::FETCH_ASSOC);
 if (!$group) chat_json(['status' => false, 'error' => 'Conversation not found'], 404);
-$role = strtolower((string)$group['role']);
+$employeePdo = getEmployeeDB();
+chat_sync_type_a_group_admin($pdo, $employeePdo, (int)$session['emp_id'], (int)$group['id']);
+$role = chat_effective_group_role($pdo, $employeePdo, (int)$session['emp_id'], (string)$group['role']);
 $canEdit = in_array($role, ['owner', 'admin'], true);
 if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'POST') {
     if (!$canEdit) chat_json(['status' => false, 'error' => 'Only owners/admins can edit wake-up configuration'], 403);

@@ -523,3 +523,78 @@
 - Updated server_patch/chat/wakeup_helpers.php with last-message summary extraction and wake-up message body enrichment.
 - Wake-up summary fetch excludes previous wake-up reminder messages so the summary points to the latest real conversation content.
 
+
+## CHANGE-20260728-SYSTEM-NOTIFICATION-BROADCAST-FIX
+- Date: 2026-07-28 10:25:00 +05:30
+- Changed lib/chat_api.dart: removed the web-only System Notifications XMPP history shortcut so history.php loads old messages and marks them read.
+- Changed lib/home/home_screen.dart: removed stale cached-profile Broadcast gate; backend remains the source of truth for Type A permission.
+## CHANGE-20260728-SLASH-AI-COMMANDS
+- Date: 2026-07-28 10:55:00 +05:30
+- Changed lib/chat/chat_screen.dart: composer listener now tracks slash query alongside mention query.
+- Changed server_patch/chat/ai_room_helper.php: added AI trigger token fallback list for /ai and @ai.
+- Changed server_patch/chat/send_message.php: after fastcgi response close, AI reply is processed inline to avoid worker-spawn failures blocking replies.
+## CHANGE-20260728-NEXT-ACTION-DATE-PERSON-FIX
+- Date: 2026-07-28 11:10:00 +05:30
+- Changed server_patch/chat/channel_action_helper.php: added month-end date parsing and changed next_action_date update to use the new parsed value directly instead of preserving old dates.
+- Changed server_patch/chat/conversation_metadata_helper.php: aligned metadata date parsing with channel action month-end phrases.
+## CHANGE-20260728-CONTEXT-AWARE-ACTION-ENGINE
+- Date: 2026-07-28 11:35:00 +05:30
+- Changed server_patch/chat/channel_action_helper.php: stricter task detection, context collection, context summary, previous_action_text schema/update, and stale date clearing retained.
+- Changed server_patch/chat/conversation_metadata_helper.php: normal conversations now update only last_updated, actionable messages sync with refreshed channel metadata, and previous_action is synced from previous_action_text.
+- Changed server_patch/chat/channel_profile.php: returns previous_action_text for future right-panel display.
+## CHANGE-20260728-WEB-BUILD
+- Date: 2026-07-28 11:50:00 +05:30
+- Generated Flutter web release output in build/web using base href /chat/.
+## 2026-07-28 - Change: Type A Auto Admin Enforcement
+- Added chat role helpers in server_patch/chat/bootstrap.php.
+- Updated group/channel member, profile, management, creation, rename, wake-up, external request, and mention expansion flows to use effective Type A admin role.
+- Updated admin employee type save and member role update to preserve Type A admin access.
+
+## 2026-07-28 - Change: Activity Log UI/API
+- Added lib/myhub_activity_screen.dart.
+- Added ChatApi getMyHubActivities/saveMyHubActivity methods.
+- Added My Activity route in lib/home/home_screen.dart.
+- Added section=activity GET/POST support in server_patch/chat/myhub.php, saving to activity_log.
+
+## 2026-07-28 - Change: Activity Log Uses Chat DB
+- Updated server_patch/chat/myhub.php so activity_log table creation, insert, and current-month list use chat_db().
+- Task module DB access remains unchanged for task_master flows.
+
+## 2026-07-28 - Change: External API Group/Channel Send Docs And Channel Lifecycle Routes
+- Changed server_patch/api/_shared/bootstrap.php: auto-detect room JIDs containing @conference. and store API messages as groupchat when message_type is omitted.
+- Changed server_patch/api/_shared/extended.php: added POST/PATCH close, archive, and unarchive routes for group/channel handlers; DELETE remains compatibility soft-delete/archive.
+- Updated external API docs: FLOW_EXTERNAL_API_DOCUMENTATION, CHAT_V1, CHANNELS_V1, ENDPOINT_CATALOG, VERSIONED_API_ROUTES, and server_patch/api doc mirrors.
+
+## 2026-07-28 - Change: My Hub Horizon
+- Added lib/myhub_horizon_screen.dart with Horizon list and in-app route map painter.
+- Updated lib/chat_api.dart with getMyHubHorizon and getMyHubHorizonTimeline.
+- Updated lib/home/home_screen.dart to show Horizon in My Hub.
+- Updated server_patch/chat/myhub.php with section=horizon and section=horizon_timeline backend routes.
+
+## 2026-07-28 - Change: Horizon Load Failure Hardening
+- Changed server_patch/chat/myhub.php: Horizon punch list now detects punch table/columns dynamically and falls back across employee/task DB sources instead of failing the whole MyHub response.
+
+## 2026-07-28 - Change: Horizon Map Tiles And Timeline Address
+- Changed lib/myhub_horizon_screen.dart: Horizon route view now renders OpenStreetMap tiles behind the GPS route, aligns route/markers using Web Mercator coordinates, and shows Start/30 min/Last legend.
+- Changed lib/myhub_horizon_screen.dart: 30-minute timeline now prefers checkpoint time and shows address plus latitude/longitude when address is available.
+- Changed server_patch/chat/myhub.php: section=horizon_timeline now returns saved location address when present and reverse-geocodes missing checkpoint addresses via existing cached geocode helper.
+
+## 2026-07-28 - Change: Horizon Zoom And Reporting Scope
+- Changed lib/myhub_horizon_screen.dart: Horizon map now supports zoom in/out buttons and mouse-wheel zoom while keeping the OSM route overlay aligned.
+- Changed server_patch/chat/myhub.php: Horizon super users 116, 232, 302, 428, and 553 continue to see all punched-in employees.
+- Changed server_patch/chat/myhub.php: other users now see only their own punch data plus employees whose employee.reporting_to points to the viewer employee ID; timeline access enforces the same scope.
+
+## 2026-07-28 - Change: Group Channel Slash Help
+- Changed lib/chat/chat_screen.dart: added /help to Flow slash commands.
+- Changed lib/chat/chat_screen.dart: typing and sending /help in a group/channel opens a local Flow command guide with each command and usage description instead of posting noise into the chat.
+- Changed lib/chat/chat_screen.dart: /help from direct chats is handled with a snackbar explaining commands are for groups/channels.
+
+## 2026-07-28 - Change: Horizon Map Drag Pan
+- Changed lib/myhub_horizon_screen.dart: Horizon map now supports mouse/touch drag panning in addition to zoom buttons and mouse-wheel zoom.
+- Changed lib/myhub_horizon_screen.dart: route overlay, start/end markers, and checkpoint markers now share the panned world-coordinate center with the tile layer so they remain synchronized while moving the map.
+
+## CHG-2026-07-28-RELEASE-207
+- Updated pubspec version from 2.0.6+29 to 2.0.7+30.
+- Updated Windows installer packaging script to derive version from pubspec.yaml.
+- Added server_patch/register_draft_2_0_7.php and tool/deploy_2_0_7.ps1/.psftp.
+

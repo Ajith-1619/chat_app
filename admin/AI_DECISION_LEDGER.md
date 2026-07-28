@@ -75,3 +75,7 @@
 - Decision: Chat users create pending requests only; super admins approve before external contacts become active, preserving enterprise control and auditability.
 - Decision: External approved contacts are exposed as mention-only GroupMember records with role=external, avoiding creation of normal Flow/XMPP accounts.
 
+
+## DECISION-20260728-ADMIN-USER-DETAIL-RESILIENCE
+- Decision: Keep employee type stored through the existing admin override table and make optional AI access data non-blocking for user detail load.
+- Reason: User identity details are the primary admin workflow; optional AI metadata should not prevent super admins from opening or editing an employee.

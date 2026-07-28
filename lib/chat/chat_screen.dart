@@ -235,6 +235,12 @@ class _SlashCommand {
 
 const _flowSlashCommands = <_SlashCommand>[
   _SlashCommand(
+    token: '/help',
+    title: 'Help',
+    description: 'Show Flow command guide',
+    icon: Icons.help_outline_rounded,
+  ),
+  _SlashCommand(
     token: '/ai',
     title: 'AI',
     description: 'Ask Flow AI with recent context',
@@ -422,15 +428,19 @@ class _ChatScreenState extends State<ChatScreen> {
     ];
     */
     _messageController.addListener(() {
-      final hasText = _messageController.text.trim().isNotEmpty;
-      final mention = RegExp(
-        r'@([A-Za-z0-9_]*)$',
-      ).firstMatch(_messageController.text);
+      final text = _messageController.text;
+      final hasText = text.trim().isNotEmpty;
+      final mention = RegExp(r'@([A-Za-z0-9_]*)$').firstMatch(text);
       final mentionQuery = mention?.group(1)?.toLowerCase() ?? '';
-      if (hasText != _hasText || mentionQuery != _mentionQuery) {
+      final slash = RegExp(r'(?:^|\s)/([A-Za-z0-9_]*)$').firstMatch(text);
+      final slashQuery = slash?.group(1)?.toLowerCase() ?? '';
+      if (hasText != _hasText ||
+          mentionQuery != _mentionQuery ||
+          slashQuery != _slashQuery) {
         setState(() {
           _hasText = hasText;
           _mentionQuery = mention == null ? '' : mentionQuery;
+          _slashQuery = slash == null ? '' : slashQuery;
         });
       }
       _draftTimer?.cancel();
@@ -1060,6 +1070,7 @@ class _ChatScreenState extends State<ChatScreen> {
     if (_isSystemNotification) return;
     var text = _messageController.text.trim();
     if (text.isEmpty || _isSending) return;
+    if (_handleSlashHelpCommand(text)) return;
     setState(() => _isSending = true);
     if (_replyQuote.isNotEmpty) {
       text =
@@ -2350,6 +2361,84 @@ class _ChatScreenState extends State<ChatScreen> {
       if (message.id == id) return message;
     }
     return null;
+  }
+
+  bool _handleSlashHelpCommand(String text) {
+    if (text.toLowerCase() != '/help') return false;
+    _messageController.clear();
+    setState(() => _slashQuery = '');
+    if (!widget.chat.isGroup) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Flow commands are available in groups and channels.'),
+        ),
+      );
+      return true;
+    }
+    FocusScope.of(context).unfocus();
+    showModalBottomSheet<void>(
+      context: context,
+      showDragHandle: true,
+      builder: (context) => SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                'Flow commands',
+                style: Theme.of(
+                  context,
+                ).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w800),
+              ),
+              const SizedBox(height: 4),
+              Text(
+                'Use these in groups and channels to update AI and workflow metadata.',
+                style: Theme.of(
+                  context,
+                ).textTheme.bodyMedium?.copyWith(color: AppColors.muted),
+              ),
+              const SizedBox(height: 12),
+              Flexible(
+                child: ListView.separated(
+                  shrinkWrap: true,
+                  itemCount: _flowSlashCommands.length,
+                  separatorBuilder: (context, index) =>
+                      const Divider(height: 1),
+                  itemBuilder: (context, index) {
+                    final command = _flowSlashCommands[index];
+                    return ListTile(
+                      contentPadding: EdgeInsets.zero,
+                      leading: CircleAvatar(
+                        backgroundColor: AppColors.primary.withValues(
+                          alpha: 0.10,
+                        ),
+                        child: Icon(command.icon, color: AppColors.primary),
+                      ),
+                      title: Text(
+                        '${command.token} - ${command.title}',
+                        style: const TextStyle(fontWeight: FontWeight.w800),
+                      ),
+                      subtitle: Text(command.description),
+                      onTap: () {
+                        Navigator.of(context).pop();
+                        _messageController.text = '${command.token} ';
+                        _messageController.selection = TextSelection.collapsed(
+                          offset: _messageController.text.length,
+                        );
+                        setState(() => _slashQuery = '');
+                      },
+                    );
+                  },
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+    return true;
   }
 
   List<_SlashCommand> get _slashSuggestions {

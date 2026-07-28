@@ -44,19 +44,29 @@ function chat_ai_room_config(PDO $pdo, int $groupId): ?array
     return $row ?: null;
 }
 
+function chat_ai_trigger_tokens(string $trigger): array
+{
+    $primary = trim($trigger) !== '' ? trim($trigger) : '/ai';
+    $tokens = [$primary, '/ai', '@ai'];
+    return array_values(array_unique(array_filter($tokens, static fn(string $token): bool => trim($token) !== '')));
+}
+
 function chat_ai_triggered(string $body, string $trigger): bool
 {
-    $trigger = trim($trigger) !== '' ? trim($trigger) : '/ai';
-    return preg_match('/(^|\s)' . preg_quote($trigger, '/') . '(\s|$|[,:?.!])/i', $body) === 1;
+    foreach (chat_ai_trigger_tokens($trigger) as $token) {
+        if (preg_match('/(^|\s)' . preg_quote($token, '/') . '(\s|$|[,:?.!])/i', $body) === 1) return true;
+    }
+    return false;
 }
 
 function chat_ai_question(string $body, string $trigger): string
 {
-    $trigger = trim($trigger) !== '' ? trim($trigger) : '/ai';
-    $question = preg_replace('/(^|\s)' . preg_quote($trigger, '/') . '(\s|$|[,:?.!])/i', ' ', $body) ?? $body;
+    $question = $body;
+    foreach (chat_ai_trigger_tokens($trigger) as $token) {
+        $question = preg_replace('/(^|\s)' . preg_quote($token, '/') . '(\s|$|[,:?.!])/i', ' ', $question) ?? $question;
+    }
     return trim((string)$question) ?: 'Summarize the recent conversation and answer helpfully.';
 }
-
 function chat_ai_recent_context(PDO $pdo, string $roomJid, int $currentMessageId, int $limit): array
 {
     $limit = max(5, min(50, $limit));

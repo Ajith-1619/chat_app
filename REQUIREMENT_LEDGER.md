@@ -342,3 +342,69 @@
 - Requirement: Wake-up reminder messages must include the latest conversation message summary along with the existing stale/no-new-message reminder text.
 - Status: Implemented locally in backend wake-up helper. Build not required for this backend-only patch.
 
+
+## REQ-20260728-SYSTEM-NOTIFICATION-BROADCAST-FIX
+- Date: 2026-07-28 10:25:00 +05:30
+- Requirement: System Notifications must show persisted older messages and clear unread count when opened; Broadcast entry must not be blocked by stale cached user type after Type A updates.
+- Status: Implemented; validation completed with existing analyzer warnings only.
+## REQ-20260728-SLASH-AI-COMMANDS
+- Date: 2026-07-28 10:55:00 +05:30
+- Requirement: Typing / must show Flow command suggestions; /ai must trigger Flow AI, with @ai kept as a legacy fallback.
+- Status: Implemented; build not requested.
+## REQ-20260728-NEXT-ACTION-MISSING-PERSON-DATE
+- Date: 2026-07-28 11:10:00 +05:30
+- Requirement: Actionable channel messages must not retain stale next-action dates; missing assignee/person must remain a clarification requirement, and phrases like end of this month must resolve correctly.
+- Status: Implemented; build not requested.
+## REQ-20260728-CONTEXT-AWARE-ACTION-ENGINE
+- Date: 2026-07-28 11:35:00 +05:30
+- Requirement: Only truly actionable channel messages should update next/previous action metadata; missing person/date must create backend clarification; last 10-20 messages should be considered for context-aware action summary/person/date.
+- Status: Implemented; build not requested.
+## 2026-07-28 - Type A Auto Admin For Groups/Channels
+- Requirement: Type A users involved in any group/channel must automatically have admin access, even when stored membership role is member.
+- Status: Implemented in server patch/admin control paths.
+- Scope: Effective role resolution, membership sync, create/add/manage/update/wake-up/profile/mention flows.
+
+## 2026-07-28 - My Hub Activity Log
+- Requirement: Add My Hub > My Activity with daily activity form matching provided screenshot.
+- Fields: Log Type, Files, Activity Description, From time, To time.
+- Backend: Save into legacy activity_log table and show current-month logs for the logged-in user.
+- Status: Implemented.
+
+## 2026-07-28 - My Activity DB Target Correction
+- Requirement: My Hub activity_log must be stored in the XMPP/chat application database, not the task database.
+- Status: Implemented by switching activity GET/POST persistence to chat_db().
+
+## 2026-07-28 - External API Group/Channel Send And Channel Lifecycle
+- Requirement: External API documentation must clearly include group/channel message sending plus channel close/archive endpoints for external portals.
+- Status: Implemented in server_patch API and documentation.
+- Endpoints: POST /api/chat/v1/messages, POST /api/channels/v1/{channel_id}/close, POST /api/channels/v1/{channel_id}/archive, POST /api/channels/v1/{channel_id}/unarchive.
+
+## 2026-07-28 - My Hub Horizon Attendance And Route Timeline
+- Requirement: Add My Hub Horizon for employees 116, 232, 302, 428, and 553 to view all employees punched in today, punch in/out times, working hours, and per-employee route timeline from punch-in to punch-out/current time with 30-minute checkpoints.
+- Status: Implemented locally; server_patch/chat/myhub.php must be deployed for live data.
+
+## 2026-07-28 - Requirement: Horizon Map And Address Visibility
+- Status: Completed
+- Request: Horizon employee route must show a real map and the timeline must show readable addresses instead of only latitude/longitude.
+- Verification: Backend lint, Horizon screen analyzer, and web release build passed.
+
+## 2026-07-28 - Requirement: Horizon Zoom And Manager Reporting Visibility
+- Status: Completed
+- Request: Add map zoom in/out and allow non-super users to view self plus employees reporting to them through employee.reporting_to.
+- Verification: PHP lint and Horizon Flutter analyzer passed.
+
+## 2026-07-28 - Requirement: Slash Help For Groups And Channels
+- Status: Completed
+- Request: /help in groups/channels should show available slash commands such as ai and assign with descriptions.
+- Verification: Chat screen analyzer completed without new errors.
+
+## 2026-07-28 - Requirement: Horizon Map Drag Movement
+- Status: Completed
+- Request: Horizon map must move when the user mouse-click-drags the map, not only zoom around the default center.
+- Verification: Horizon Flutter analyzer passed.
+
+## REQ-2026-07-28-RELEASE-207
+- Request: Build Web, APK, and Windows next version, upload APK/Windows to live server as draft for Employee 302 approval.
+- Status: Complete.
+- Version: 2.0.7+30.
+

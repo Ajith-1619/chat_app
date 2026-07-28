@@ -11,15 +11,23 @@ if ($groupId <= 0 || $name === '' || mb_strlen($name) > 150) {
     chat_json(['status' => false, 'error' => 'Valid group name is required'], 422);
 }
 $pdo = chat_db();
+$employeePdo = getEmployeeDB();
 chat_ensure_schema($pdo);
 $stmt = $pdo->prepare(
-    'SELECT g.room_jid FROM xmpp_groups g
+    'SELECT g.room_jid, gm.role FROM xmpp_groups g
      INNER JOIN xmpp_group_members gm ON gm.group_id = g.id
-     WHERE g.id = :group_id AND gm.emp_id = :emp_id AND gm.role IN (\'owner\', \'admin\') LIMIT 1'
+     WHERE g.id = :group_id AND gm.emp_id = :emp_id LIMIT 1'
 );
 $stmt->execute([':group_id' => $groupId, ':emp_id' => (int)$session['emp_id']]);
-$roomJid = (string)($stmt->fetchColumn() ?: '');
-if ($roomJid === '') chat_json(['status' => false, 'error' => 'Only the owner or an admin can rename this group'], 403);
+$row = $stmt->fetch(PDO::FETCH_ASSOC) ?: [];
+$roomJid = (string)($row['room_jid'] ?? '');
+if ($roomJid !== '') {
+    chat_sync_type_a_group_admin($pdo, $employeePdo, (int)$session['emp_id'], $groupId);
+}
+$role = chat_effective_group_role($pdo, $employeePdo, (int)$session['emp_id'], (string)($row['role'] ?? ''));
+if ($roomJid === '' || !in_array($role, ['owner', 'admin'], true)) {
+    chat_json(['status' => false, 'error' => 'Only the owner or an admin can rename this group'], 403);
+}
 $update = $pdo->prepare('UPDATE xmpp_groups SET room_name = :name WHERE id = :group_id');
 $update->execute([':name' => $name, ':group_id' => $groupId]);
 try {

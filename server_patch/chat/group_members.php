@@ -18,6 +18,9 @@ $currentRole = (string)($memberCheck->fetchColumn() ?: '');
 if ($currentRole === '') {
     chat_json(['status' => false, 'error' => 'You are not a member of this group'], 403);
 }
+chat_sync_type_a_group_admin($chatPdo, $employeePdo, (int)$session['emp_id'], $groupId);
+$currentRole = chat_effective_group_role($chatPdo, $employeePdo, (int)$session['emp_id'], $currentRole);
+chat_sync_type_a_group_admins($chatPdo, $employeePdo, $groupId);
 
 $stmt = $chatPdo->prepare(
     'SELECT emp_id, role
@@ -86,7 +89,7 @@ foreach ($memberRows as $row) {
         'designation' => (string)($employee['designation'] ?? 'Chat user'),
         'online' => (int)($presence['is_online'] ?? 0) === 1,
         'last_seen' => (string)($presence['last_seen_at'] ?? ''),
-        'role' => (string)($row['role'] ?? 'member'),
+        'role' => chat_effective_group_role($chatPdo, $employeePdo, $empId, (string)($row['role'] ?? 'member')),
         'avatar_url' => (string)($avatarMap[$empId] ?? ''),
     ];
 }

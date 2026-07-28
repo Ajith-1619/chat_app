@@ -146,8 +146,8 @@ function chat_metadata_record_message(PDO $pdo, array $group, int $messageId, in
     $payload = ['body' => mb_substr($body, 0, 4000), 'mentions' => $mentions];
     $stmt = $pdo->prepare('INSERT INTO flow_conversation_metadata_events (conversation_jid, group_id, message_id, actor_emp_id, event_type, command_token, payload_json) VALUES (:jid, :group_id, :message_id, :actor, :event_type, :command, :payload)');
     $stmt->execute([':jid' => $jid, ':group_id' => $groupId, ':message_id' => $messageId, ':actor' => $actorEmpId, ':event_type' => $eventType, ':command' => $token !== '' ? $token : null, ':payload' => json_encode($payload, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES)]);
-    chat_metadata_upsert($pdo, $jid, $groupId, 'previous_action', 'text', $body, 'message', $messageId, $actorEmpId, 0.7);
     if (function_exists('chat_channel_action_is_task_like') && chat_channel_action_is_task_like($body)) {
+        chat_metadata_upsert($pdo, $jid, $groupId, 'previous_action', 'text', (string)($group['previous_action_text'] ?? ''), 'message', $messageId, $actorEmpId, 0.7);
         chat_metadata_upsert($pdo, $jid, $groupId, 'next_action', 'text', $body, 'message', $messageId, $actorEmpId, 0.85);
         $summary = function_exists('chat_channel_action_summary') ? chat_channel_action_summary($body) : mb_substr(trim($body), 0, 240);
         chat_metadata_upsert($pdo, $jid, $groupId, 'next_action_summary', 'text', $summary, 'message', $messageId, $actorEmpId, 0.8);
@@ -159,7 +159,17 @@ function chat_metadata_record_message(PDO $pdo, array $group, int $messageId, in
             $owner = implode(', ', array_map(static fn(array $m): string => trim((string)$m['name']) . ' (' . (int)$m['emp_id'] . ')', $persons));
         }
         chat_metadata_upsert($pdo, $jid, $groupId, 'next_action_owner', 'text', $owner !== '' ? $owner : 'Person not mentioned', 'message', $messageId, $actorEmpId, 0.75);
+    } else {
+        chat_metadata_upsert($pdo, $jid, $groupId, 'last_updated', 'datetime', date('Y-m-d H:i:s'), 'message', $messageId, $actorEmpId, 1.0);
+        return;
     }
-    chat_metadata_sync_conversation($pdo, $group, $actorEmpId, $messageId, 'message');
+    try {
+        $refresh = $pdo->prepare('SELECT * FROM xmpp_groups WHERE id = :group_id LIMIT 1');
+        $refresh->execute([':group_id' => $groupId]);
+        $freshGroup = $refresh->fetch(PDO::FETCH_ASSOC) ?: $group;
+        chat_metadata_sync_conversation($pdo, $freshGroup, $actorEmpId, $messageId, 'message');
+    } catch (Throwable $e) {
+        chat_metadata_sync_conversation($pdo, $group, $actorEmpId, $messageId, 'message');
+    }
 }
 

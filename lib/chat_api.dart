@@ -1066,7 +1066,6 @@ class ChatApi {
   String? _sessionCookie;
   String? _directorySession;
   CurrentUser? _xmppUser;
-  bool _notificationXmppConnected = false;
   String? _webEmployeeId;
   String? _webPassword;
   String? _loginEmployeeId;
@@ -1135,10 +1134,7 @@ class ChatApi {
     if (!kIsWeb || !_xmpp.isSupported || password.isEmpty) return;
     try {
       await _xmpp.connect(jid, password).timeout(const Duration(seconds: 25));
-      _notificationXmppConnected = true;
-    } catch (_) {
-      _notificationXmppConnected = false;
-    }
+    } catch (_) {}
   }
 
   Future<CurrentUser> login({
@@ -1913,19 +1909,9 @@ class ChatApi {
     int targetMessageId = 0,
   }) async {
     _validateJid(jid);
-    if (jid.toLowerCase() == systemNotificationJid &&
-        kIsWeb &&
-        _notificationXmppConnected) {
-      try {
-        final result = (await _xmpp.getHistory(
-          systemNotificationJid,
-        )).map(ApiMessage.fromJson).toList();
-        _historyCache[jid.toLowerCase()] = result;
-        return result;
-      } catch (_) {
-        // Fall back to the server history cache after XMPP/MAM failure.
-      }
-    }
+    // System Notifications are persisted by Flow's server notification pipeline.
+    // Always load them through history.php so older DB-backed notifications are
+    // included and opening the conversation clears the unread count reliably.
     if (_useDirectWebXmpp && jid.toLowerCase() != systemNotificationJid) {
       try {
         final result = (await _xmpp.getHistory(
@@ -2731,6 +2717,75 @@ class ChatApi {
       throw const ApiException('Unable to load attendance.');
     }
     return AttendanceStatus.fromJson(Map<String, dynamic>.from(attendance));
+  }
+
+  Future<Map<String, dynamic>> getMyHubActivities() async {
+    final body = await _getJson(
+      'chat/myhub.php',
+      query: {'section': 'activity'},
+    );
+    return Map<String, dynamic>.from(body);
+  }
+
+  Future<Map<String, dynamic>> getMyHubHorizon() async {
+    final body = await _getJson(
+      'chat/myhub.php',
+      query: {'section': 'horizon'},
+    );
+    return Map<String, dynamic>.from(body);
+  }
+
+  Future<Map<String, dynamic>> getMyHubHorizonTimeline(int empId) async {
+    final body = await _getJson(
+      'chat/myhub.php',
+      query: {'section': 'horizon_timeline', 'emp_id': '$empId'},
+    );
+    return Map<String, dynamic>.from(body);
+  }
+
+  Future<void> saveMyHubActivity({
+    required String logType,
+    required String description,
+    required String fromTime,
+    required String toTime,
+    required List<({String name, List<int> bytes})> files,
+  }) async {
+    final request = http.MultipartRequest(
+      'POST',
+      _uri('chat/myhub.php', query: {'section': 'activity'}),
+    );
+    request.headers.addAll(_headers());
+    request.fields.addAll({
+      'activity_log_type': logType.trim(),
+      'activity_desc': description.trim(),
+      'start_time': fromTime.trim(),
+      'end_time': toTime.trim(),
+      'activity_date': DateTime.now().toIso8601String().substring(0, 10),
+    });
+    for (final file in files) {
+      if (file.bytes.isEmpty) continue;
+      request.files.add(
+        http.MultipartFile.fromBytes(
+          'files[]',
+          file.bytes,
+          filename: file.name,
+        ),
+      );
+    }
+    final streamed = await _client
+        .send(request)
+        .timeout(const Duration(minutes: 5));
+    final response = await http.Response.fromStream(streamed);
+    _captureCookie(response);
+    final body = _decode(response);
+    if (response.statusCode < 200 ||
+        response.statusCode >= 300 ||
+        body['status'] != true) {
+      throw ApiException(
+        _errorMessage(body, fallback: 'Unable to save activity.'),
+        statusCode: response.statusCode,
+      );
+    }
   }
 
   Future<List<Map<String, dynamic>>> getMyHubDirectory({
@@ -3543,7 +3598,6 @@ class ChatApi {
   void _clearWebSession() {
     _directorySession = null;
     _xmppUser = null;
-    _notificationXmppConnected = false;
     _webEmployeeId = null;
     _webPassword = null;
     if (_xmpp.isSupported) _xmpp.disconnect();

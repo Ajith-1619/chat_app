@@ -180,6 +180,138 @@ function myhub_notify_task_participants(
     }
 }
 
+
+function myhub_activity_username(int $empId): string
+{
+    return 'Sky-' . $empId;
+}
+
+function myhub_ensure_activity_table(PDO $pdo): void
+{
+    $pdo->exec("CREATE TABLE IF NOT EXISTS activity_log (
+        id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
+        username VARCHAR(128) NOT NULL,
+        activity_date DATE NOT NULL,
+        activity_desc TEXT NOT NULL,
+        start_time TIME NOT NULL,
+        end_time TIME NOT NULL,
+        created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+        ip_address VARCHAR(45) NULL,
+        file_path VARCHAR(200) NULL,
+        activity_log_type VARCHAR(200) NULL,
+        INDEX idx_activity_user_date (username, activity_date),
+        INDEX idx_activity_created (created_at)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
+}
+
+function myhub_activity_upload_files(int $empId): string
+{
+    if (empty($_FILES)) return '';
+    $files = [];
+    foreach ($_FILES as $input) {
+        if (!is_array($input)) continue;
+        if (is_array($input['name'] ?? null)) {
+            $count = count($input['name']);
+            for ($i = 0; $i < $count; $i++) {
+                $files[] = [
+                    'name' => $input['name'][$i] ?? '',
+                    'tmp_name' => $input['tmp_name'][$i] ?? '',
+                    'error' => $input['error'][$i] ?? UPLOAD_ERR_NO_FILE,
+                    'size' => $input['size'][$i] ?? 0,
+                ];
+            }
+        } else {
+            $files[] = $input;
+        }
+    }
+    $stored = [];
+    $root = dirname(__DIR__);
+    $relativeDir = 'uploads/a';
+    $targetDir = $root . DIRECTORY_SEPARATOR . str_replace('/', DIRECTORY_SEPARATOR, $relativeDir);
+    if (!is_dir($targetDir) && !mkdir($targetDir, 0775, true) && !is_dir($targetDir)) {
+        chat_json(['status' => false, 'error' => 'Activity upload directory is unavailable.'], 500);
+    }
+    foreach ($files as $file) {
+        $error = (int)($file['error'] ?? UPLOAD_ERR_NO_FILE);
+        if ($error === UPLOAD_ERR_NO_FILE) continue;
+        if ($error !== UPLOAD_ERR_OK) {
+            chat_json(['status' => false, 'error' => 'Activity file upload failed with code ' . $error], 422);
+        }
+        $size = (int)($file['size'] ?? 0);
+        if ($size <= 0) continue;
+        $original = trim((string)($file['name'] ?? 'file'));
+        $safeName = preg_replace('/[^A-Za-z0-9._-]+/', '_', basename($original)) ?: 'file';
+        $ext = strtolower(pathinfo($safeName, PATHINFO_EXTENSION));
+        $storedName = date('Ymd_His') . '_' . bin2hex(random_bytes(5)) . ($ext !== '' ? '.' . $ext : '');
+        $target = $targetDir . DIRECTORY_SEPARATOR . $storedName;
+        if (!move_uploaded_file((string)($file['tmp_name'] ?? ''), $target)) {
+            chat_json(['status' => false, 'error' => 'Unable to save activity file.'], 500);
+        }
+        $stored[] = $relativeDir . '/' . $storedName;
+    }
+    return mb_substr(implode(',', $stored), 0, 200);
+}
+
+function myhub_activity_logs(int $empId): never
+{
+    $chatPdo = chat_db();
+    myhub_ensure_activity_table($chatPdo);
+    $username = myhub_activity_username($empId);
+    $stmt = $chatPdo->prepare(
+        "SELECT id, username, activity_date, activity_desc, start_time, end_time, created_at, updated_at, ip_address, file_path, activity_log_type
+         FROM activity_log
+         WHERE LOWER(username) = LOWER(:username)
+           AND activity_date >= DATE_FORMAT(CURDATE(), '%Y-%m-01')
+           AND activity_date < DATE_ADD(DATE_FORMAT(CURDATE(), '%Y-%m-01'), INTERVAL 1 MONTH)
+         ORDER BY activity_date DESC, start_time DESC, id DESC
+         LIMIT 200"
+    );
+    $stmt->execute([':username' => $username]);
+    chat_json([
+        'status' => true,
+        'username' => $username,
+        'logs' => $stmt->fetchAll(PDO::FETCH_ASSOC) ?: [],
+    ]);
+}
+
+function myhub_create_activity(int $empId): never
+{
+    $type = trim((string)($_POST['activity_log_type'] ?? $_POST['log_type'] ?? 'Task Update'));
+    $description = trim((string)($_POST['activity_desc'] ?? $_POST['description'] ?? ''));
+    $start = trim((string)($_POST['start_time'] ?? $_POST['from'] ?? ''));
+    $end = trim((string)($_POST['end_time'] ?? $_POST['to'] ?? ''));
+    $date = trim((string)($_POST['activity_date'] ?? date('Y-m-d')));
+    if ($description === '') chat_json(['status' => false, 'error' => 'Activity description is required.'], 422);
+    if (!preg_match('/^\d{2}:\d{2}(:\d{2})?$/', $start) || !preg_match('/^\d{2}:\d{2}(:\d{2})?$/', $end)) {
+        chat_json(['status' => false, 'error' => 'From and To time are required.'], 422);
+    }
+    if (!preg_match('/^\d{4}-\d{2}-\d{2}$/', $date)) $date = date('Y-m-d');
+    if (strlen($start) === 5) $start .= ':00';
+    if (strlen($end) === 5) $end .= ':00';
+    $filePath = myhub_activity_upload_files($empId);
+    $chatPdo = chat_db();
+    myhub_ensure_activity_table($chatPdo);
+    $stmt = $chatPdo->prepare(
+        'INSERT INTO activity_log (username, activity_date, activity_desc, start_time, end_time, ip_address, file_path, activity_log_type)
+         VALUES (:username, :activity_date, :activity_desc, :start_time, :end_time, :ip_address, :file_path, :activity_log_type)'
+    );
+    $stmt->execute([
+        ':username' => myhub_activity_username($empId),
+        ':activity_date' => $date,
+        ':activity_desc' => $description,
+        ':start_time' => $start,
+        ':end_time' => $end,
+        ':ip_address' => mb_substr((string)($_SERVER['REMOTE_ADDR'] ?? ''), 0, 45),
+        ':file_path' => $filePath !== '' ? $filePath : null,
+        ':activity_log_type' => mb_substr($type !== '' ? $type : 'Task Update', 0, 200),
+    ]);
+    chat_json([
+        'status' => true,
+        'message' => 'Activity saved.',
+        'activity_id' => (int)$chatPdo->lastInsertId(),
+    ]);
+}
 function myhub_directory(PDO $pdo): never
 {
     $query = trim((string)($_GET['q'] ?? ''));
@@ -219,6 +351,231 @@ function myhub_directory(PDO $pdo): never
     );
     $stmt->execute($params);
     chat_json(['status' => true, 'employees' => $stmt->fetchAll(PDO::FETCH_ASSOC) ?: []]);
+}
+function myhub_horizon_allowed(int $empId): bool
+{
+    return $empId > 0;
+}
+function myhub_horizon_super_admin(int $empId): bool
+{
+    return in_array($empId, [116, 232, 302, 428, 553], true);
+}
+
+function myhub_horizon_visible_emp_ids(PDO $employeePdo, int $viewerEmpId): array
+{
+    if (myhub_horizon_super_admin($viewerEmpId)) return [];
+    $visible = [$viewerEmpId];
+    try {
+        $table = myhub_first_table($employeePdo, ['employee', 'employees', 'users', 'tbl_employee']);
+        if ($table === '') return $visible;
+        $columns = myhub_columns($employeePdo, $table);
+        $idCol = myhub_first_column($columns, ['emp_id', 'employee_id', 'user_id', 'id']);
+        $reportingCol = myhub_first_column($columns, ['reporting_to', 'reporting_emp_id', 'manager_emp_id', 'manager_id', 'reports_to']);
+        if ($idCol === '' || $reportingCol === '') return $visible;
+        $stmt = $employeePdo->prepare("SELECT `{$idCol}` AS emp_id FROM `{$table}` WHERE CAST(`{$reportingCol}` AS CHAR) = :viewer_emp_id");
+        $stmt->execute([':viewer_emp_id' => (string)$viewerEmpId]);
+        foreach (($stmt->fetchAll(PDO::FETCH_COLUMN) ?: []) as $empId) {
+            $id = (int)$empId;
+            if ($id > 0) $visible[] = $id;
+        }
+    } catch (Throwable $e) {
+        error_log('MyHub Horizon reporting scope failed: ' . $e->getMessage());
+    }
+    return array_values(array_unique($visible));
+}
+
+function myhub_horizon_can_view_emp(PDO $employeePdo, int $viewerEmpId, int $targetEmpId): bool
+{
+    if (myhub_horizon_super_admin($viewerEmpId)) return true;
+    return in_array($targetEmpId, myhub_horizon_visible_emp_ids($employeePdo, $viewerEmpId), true);
+}
+
+function myhub_horizon_duration(int $seconds): string
+{
+    if ($seconds <= 0) return '00h 00m';
+    return sprintf('%02dh %02dm', intdiv($seconds, 3600), intdiv($seconds % 3600, 60));
+}
+
+function myhub_horizon_ts(array $row, string $epochCol, string $dateCol): int
+{
+    $epoch = (int)($row[$epochCol] ?? 0);
+    if ($epoch > 1) return $epoch;
+    $raw = trim((string)($row[$dateCol] ?? ''));
+    return $raw !== '' ? (strtotime($raw) ?: 0) : 0;
+}
+
+function myhub_horizon_today_punch_rows(PDO $pdo): array
+{
+    $sources = [$pdo];
+    try {
+        $taskPdo = myhub_task_db();
+        if ($taskPdo !== $pdo) $sources[] = $taskPdo;
+    } catch (Throwable $ignored) {
+    }
+    foreach ($sources as $sourcePdo) {
+        try {
+            $table = myhub_first_table($sourcePdo, ['punch', 'attendance', 'employee_punch', 'tbl_punch']);
+            if ($table === '') continue;
+            $columns = myhub_columns($sourcePdo, $table);
+            $empCol = myhub_first_column($columns, ['emp_id', 'employee_id', 'user_id']);
+            $shiftCol = myhub_first_column($columns, ['shift_id', 'shift', 'id']);
+            $inEpochCol = myhub_first_column($columns, ['punch_in', 'in_time_epoch']);
+            $outEpochCol = myhub_first_column($columns, ['punch_out', 'out_time_epoch']);
+            $inDateCol = myhub_first_column($columns, ['date_created', 'punch_in_time', 'in_time', 'created_at']);
+            $outDateCol = myhub_first_column($columns, ['out_time', 'punch_out_time', 'updated_at']);
+            $idCol = myhub_first_column($columns, ['id', 'punch_id']);
+            if ($empCol === '' || ($inEpochCol === '' && $inDateCol === '')) continue;
+            $select = [
+                ($idCol !== '' ? "`{$idCol}`" : '0') . ' AS id',
+                "`{$empCol}` AS emp_id",
+                ($shiftCol !== '' ? "`{$shiftCol}`" : "''") . ' AS shift_id',
+                ($inEpochCol !== '' ? "`{$inEpochCol}`" : '0') . ' AS punch_in',
+                ($outEpochCol !== '' ? "`{$outEpochCol}`" : '0') . ' AS punch_out',
+                ($inDateCol !== '' ? "`{$inDateCol}`" : "''") . ' AS date_created',
+                ($outDateCol !== '' ? "`{$outDateCol}`" : "''") . ' AS out_time',
+            ];
+            $dateExpr = $inDateCol !== '' ? "DATE(`{$inDateCol}`) = CURDATE()" : "FROM_UNIXTIME(`{$inEpochCol}`, '%Y-%m-%d') = CURDATE()";
+            $orderExpr = $idCol !== '' ? "`{$idCol}` DESC" : ($inDateCol !== '' ? "`{$inDateCol}` DESC" : "`{$inEpochCol}` DESC");
+            $stmt = $sourcePdo->prepare(
+                'SELECT ' . implode(', ', $select) . " FROM `{$table}` WHERE {$dateExpr} ORDER BY `{$empCol}` ASC, {$orderExpr}"
+            );
+            $stmt->execute();
+            $rows = [];
+            foreach (($stmt->fetchAll(PDO::FETCH_ASSOC) ?: []) as $row) {
+                $empId = (int)($row['emp_id'] ?? 0);
+                if ($empId <= 0 || isset($rows[$empId])) continue;
+                $rows[$empId] = $row;
+            }
+            return $rows;
+        } catch (Throwable $e) {
+            error_log('MyHub Horizon punch source failed: ' . $e->getMessage());
+        }
+    }
+    return [];
+}
+function myhub_horizon_chat_id(PDO $taskPdo, int $empId): string
+{
+    try {
+        if (myhub_first_table($taskPdo, ['tbl_location_track_inch']) === '') return (string)$empId;
+        $stmt = $taskPdo->prepare("SELECT chat_id FROM tbl_location_track_inch WHERE emp_id = :emp_id AND COALESCE(TRIM(chat_id), '') <> '' ORDER BY id DESC LIMIT 1");
+        $stmt->execute([':emp_id' => $empId]);
+        $chatId = trim((string)($stmt->fetchColumn() ?: ''));
+        return $chatId !== '' ? $chatId : (string)$empId;
+    } catch (Throwable $e) {
+        error_log('MyHub Horizon chat id failed: ' . $e->getMessage());
+        return (string)$empId;
+    }
+}
+
+function myhub_horizon_employee_map(PDO $employeePdo, array $empIds): array
+{
+    if (!$empIds) return [];
+    $people = [];
+    foreach (myhub_people($employeePdo, $empIds) as $person) {
+        $people[(int)$person['emp_id']] = $person;
+    }
+    return $people;
+}
+
+function myhub_horizon(PDO $employeePdo, int $viewerEmpId): never
+{
+    if (!myhub_horizon_allowed($viewerEmpId)) chat_json(['status' => false, 'error' => 'Horizon access is restricted.'], 403);
+    $rows = myhub_horizon_today_punch_rows($employeePdo);
+    $visibleEmpIds = myhub_horizon_visible_emp_ids($employeePdo, $viewerEmpId);
+    if ($visibleEmpIds) {
+        $rows = array_intersect_key($rows, array_fill_keys($visibleEmpIds, true));
+    }
+    $people = myhub_horizon_employee_map($employeePdo, array_keys($rows));
+    $employees = [];
+    $now = time();
+    foreach ($rows as $empId => $row) {
+        $inTs = myhub_horizon_ts($row, 'punch_in', 'date_created');
+        $outTs = myhub_horizon_ts($row, 'punch_out', 'out_time');
+        if ($inTs <= 0) continue;
+        $seconds = max(0, ($outTs > $inTs ? $outTs : $now) - $inTs);
+        $person = $people[$empId] ?? ['emp_id' => $empId, 'name' => 'Employee ' . $empId, 'designation' => ''];
+        $employees[] = [
+            'emp_id' => $empId,
+            'name' => (string)($person['name'] ?? ('Employee ' . $empId)),
+            'designation' => (string)($person['designation'] ?? ''),
+            'punch_in' => date('Y-m-d H:i:s', $inTs),
+            'punch_out' => $outTs > $inTs ? date('Y-m-d H:i:s', $outTs) : '',
+            'working_seconds' => $seconds,
+            'working_hours' => myhub_horizon_duration($seconds),
+            'status' => $outTs > $inTs ? 'Punched out' : 'Running',
+            'shift_id' => (string)($row['shift_id'] ?? ''),
+        ];
+    }
+    usort($employees, fn(array $a, array $b): int => strcmp($a['name'], $b['name']));
+    chat_json(['status' => true, 'date' => date('Y-m-d'), 'count' => count($employees), 'employees' => $employees]);
+}
+
+function myhub_horizon_timeline(PDO $employeePdo, int $viewerEmpId): never
+{
+    if (!myhub_horizon_allowed($viewerEmpId)) chat_json(['status' => false, 'error' => 'Horizon access is restricted.'], 403);
+    $targetEmpId = (int)($_GET['emp_id'] ?? 0);
+    if ($targetEmpId <= 0) chat_json(['status' => false, 'error' => 'emp_id is required.'], 422);
+    if (!myhub_horizon_can_view_emp($employeePdo, $viewerEmpId, $targetEmpId)) chat_json(['status' => false, 'error' => 'You can only view your own Horizon data and employees reporting to you.'], 403);
+    $rows = myhub_horizon_today_punch_rows($employeePdo);
+    $row = $rows[$targetEmpId] ?? null;
+    if (!$row) chat_json(['status' => false, 'error' => 'Employee has not punched in today.'], 404);
+    $inTs = myhub_horizon_ts($row, 'punch_in', 'date_created');
+    $outTs = myhub_horizon_ts($row, 'punch_out', 'out_time');
+    $endTs = $outTs > $inTs ? $outTs : time();
+    $points = [];
+    try {
+        $taskPdo = myhub_task_db();
+        $chatId = myhub_horizon_chat_id($taskPdo, $targetEmpId);
+        if (myhub_first_table($taskPdo, ['locations_test']) !== '') {
+            $locationColumns = myhub_columns($taskPdo, 'locations_test');
+            $addressCol = myhub_first_column($locationColumns, ['address', 'location_address', 'place_address', 'formatted_address']);
+            $addressSql = $addressCol !== '' ? ", `{$addressCol}` AS address" : ", '' AS address";
+            $stmt = $taskPdo->prepare(
+                'SELECT latitude, longitude, timestamp, date_created, username, ip_address' . $addressSql . '
+                 FROM locations_test
+                 WHERE user_id = :user_id
+                   AND COALESCE(latitude, "") <> ""
+                   AND COALESCE(longitude, "") <> ""
+                   AND ((date_created BETWEEN :from_dt AND :to_dt) OR (timestamp BETWEEN :from_ts AND :to_ts))
+                 ORDER BY date_created ASC, id ASC
+                 LIMIT 2000'
+            );
+            $stmt->execute([':user_id' => $chatId, ':from_dt' => date('Y-m-d H:i:s', $inTs), ':to_dt' => date('Y-m-d H:i:s', $endTs), ':from_ts' => (string)$inTs, ':to_ts' => (string)$endTs]);
+            foreach (($stmt->fetchAll(PDO::FETCH_ASSOC) ?: []) as $point) {
+                $lat = (float)($point['latitude'] ?? 0);
+                $lng = (float)($point['longitude'] ?? 0);
+                if ($lat < -90 || $lat > 90 || $lng < -180 || $lng > 180 || ($lat == 0.0 && $lng == 0.0)) continue;
+                $capturedTs = (int)($point['timestamp'] ?? 0);
+                if ($capturedTs <= 1) $capturedTs = strtotime((string)($point['date_created'] ?? '')) ?: 0;
+                $points[] = ['latitude' => $lat, 'longitude' => $lng, 'captured_at' => $capturedTs > 0 ? date('Y-m-d H:i:s', $capturedTs) : (string)($point['date_created'] ?? ''), 'address' => trim((string)($point['address'] ?? '')), 'username' => (string)($point['username'] ?? ''), 'ip_address' => (string)($point['ip_address'] ?? '')];
+            }
+        }
+    } catch (Throwable $e) {
+        error_log('MyHub Horizon locations failed: ' . $e->getMessage());
+    }
+    $halfHour = [];
+    $addressCache = [];
+    $nextCheckpoint = $inTs;
+    foreach ($points as $point) {
+        $pointTs = strtotime((string)$point['captured_at']) ?: 0;
+        if ($pointTs <= 0) continue;
+        while ($pointTs >= $nextCheckpoint) {
+            $copy = $point;
+            $copy['checkpoint_at'] = date('Y-m-d H:i:s', $nextCheckpoint);
+            if (trim((string)($copy['address'] ?? '')) === '') {
+                $key = number_format((float)$copy['latitude'], 5, '.', '') . ',' . number_format((float)$copy['longitude'], 5, '.', '');
+                if (!isset($addressCache[$key])) {
+                    $addressCache[$key] = chat_reverse_geocode_address((float)$copy['latitude'], (float)$copy['longitude']);
+                }
+                $copy['address'] = $addressCache[$key];
+            }
+            $halfHour[] = $copy;
+            $nextCheckpoint += 1800;
+        }
+    }
+    $people = myhub_horizon_employee_map($employeePdo, [$targetEmpId]);
+    $person = $people[$targetEmpId] ?? ['emp_id' => $targetEmpId, 'name' => 'Employee ' . $targetEmpId, 'designation' => ''];
+    chat_json(['status' => true, 'employee' => $person, 'punch_in' => date('Y-m-d H:i:s', $inTs), 'punch_out' => $outTs > $inTs ? date('Y-m-d H:i:s', $outTs) : '', 'working_seconds' => max(0, $endTs - $inTs), 'working_hours' => myhub_horizon_duration(max(0, $endTs - $inTs)), 'point_count' => count($points), 'points' => $points, 'half_hour_points' => $halfHour, 'start_marker' => $points[0] ?? null, 'end_marker' => $points ? $points[count($points) - 1] : null]);
 }
 
 function myhub_verticals(PDO $pdo): never
@@ -812,12 +1169,18 @@ try {
     if ($_SERVER['REQUEST_METHOD'] === 'POST' && $section === 'leave_apply') {
         myhub_apply_leave(myhub_employee_db(), $empId);
     }
+    if ($_SERVER['REQUEST_METHOD'] === 'POST' && $section === 'activity') {
+        myhub_create_activity($empId);
+    }
     match ($section) {
         'directory' => myhub_directory(myhub_employee_db()),
         'verticals' => myhub_verticals(myhub_employee_db()),
         'tasks' => myhub_tasks($empId),
         'task_detail' => myhub_task_detail($empId),
         'leave' => myhub_leave(myhub_employee_db(), $empId),
+        'activity' => myhub_activity_logs($empId),
+        'horizon' => myhub_horizon(myhub_employee_db(), $empId),
+        'horizon_timeline' => myhub_horizon_timeline(myhub_employee_db(), $empId),
         default => chat_json(['status' => false, 'error' => 'Unknown MyHub section.'], 404),
     };
 } catch (Throwable $e) {

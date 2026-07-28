@@ -194,3 +194,9 @@
 - Verified: PHP lint passed for bootstrap.php, upload_file.php and storage_usage.php. Dart format passed for settings_screens.dart and chat_api.dart. Dart analyze completed with only existing info-level suggestions in chat_api.dart and no warnings/errors for the new settings screen.
 - Risk: Production upload enforcement starts after patched server files are deployed; existing users without admin override receive the new 2GB default.
 
+
+## REGRESSION-20260728-ADMIN-USER-DETAIL
+- Date: 2026-07-28 12:20:00 +05:30
+- Checks: php -l admin/legacy_standalone/_bootstrap.php, php -l admin/legacy_standalone/api.php, and 
+ode --check admin/public/admin/app.js passed.
+- Risk: Live server must receive these updated admin files before browser testing shows the fix.

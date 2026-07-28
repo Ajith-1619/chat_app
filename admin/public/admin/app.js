@@ -1,4 +1,4 @@
-﻿const appShell = document.querySelector('.app-shell');
+const appShell = document.querySelector('.app-shell');
 const state = { view: appShell?.dataset.initialView || 'overview', q: '', modal: null, locationRefreshTimer: null, locationRefreshEmpId: null, attendanceTimer: null, locationTimeline: [] };
 const LOCATION_REFRESH_MS = 5 * 60 * 1000;
 const csrf = document.querySelector('meta[name="flow-admin-csrf"]')?.content || '';
@@ -473,6 +473,7 @@ async function openUserInline(empId) {
     wireUserMembershipLinks(pane);
     wireUserLocationRefresh(pane, empId);
     wireUserStorageLimit(pane, empId);
+    wireEmployeeType(pane, empId);
     wireUserAiAccess(pane, empId);
     scheduleUserLocationRefresh(empId, pane);
     startAttendanceTimers(pane);
@@ -980,6 +981,7 @@ async function openUserDetailModal(empId) {
     wireUserMembershipLinks();
     wireUserLocationRefresh(modalFields, empId);
     wireUserStorageLimit(modalFields, empId);
+    wireEmployeeType(modalFields, empId);
     wireUserAiAccess(modalFields, empId);
     scheduleUserLocationRefresh(empId, modalFields);
     startAttendanceTimers(modalFields);
@@ -1378,6 +1380,7 @@ function escapeHtml(value) {
 
 renderTitle();
 load();
+
 
 
 

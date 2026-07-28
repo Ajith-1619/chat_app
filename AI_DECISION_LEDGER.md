@@ -358,3 +358,58 @@
 ## 2026-07-27 - Wake-up Last Message Summary
 - Decision: Generate wake-up summaries from the latest stored message metadata/body instead of calling AI, keeping scheduled notification latency low and avoiding extra API cost.
 
+
+## DECISION-20260728-SYSTEM-NOTIFICATION-BROADCAST-FIX
+- Date: 2026-07-28 10:25:00 +05:30
+- Decision: Route System Notifications through the server history API instead of browser XMPP/MAM because server persistence is the canonical source for employee event/system notifications and read clearing.
+- Decision: Keep Broadcast Type A enforcement in the backend so admin-side employee type changes take effect without relying on stale cached client profile data.
+## DECISION-20260728-SLASH-AI-COMMANDS
+- Date: 2026-07-28 10:55:00 +05:30
+- Decision: Keep /ai as the primary trigger and retain @ai as backward-compatible fallback so existing user habits do not silently fail.
+- Decision: Process AI reply inline after response completion when available because server environments can disable/background-block exec workers.
+## DECISION-20260728-NEXT-ACTION-DATE-PERSON-FIX
+- Date: 2026-07-28 11:10:00 +05:30
+- Decision: Do not carry forward previous next_action_date when a new actionable message lacks a date, because stale metadata is more misleading than a visible clarification requirement.
+## DECISION-20260728-CONTEXT-AWARE-ACTION-ENGINE
+- Date: 2026-07-28 11:35:00 +05:30
+- Decision: Use deterministic backend heuristics over AI calls for baseline action extraction so normal messaging remains fast and reliable; AI can later enhance suggestions without blocking send.
+- Decision: Preserve user trust by not carrying stale next-action dates and by asking for missing person/date through Flow MCO clarification records.
+## 2026-07-28 - Decision: Effective Role Plus Physical Sync
+- Decision: Preserve owner role, upgrade Type A member roles to admin through an effective-role helper, and opportunistically sync DB rows where safe.
+- Reason: Keeps existing group/channel authorization simple while making Type A access consistent across old and new memberships.
+
+## 2026-07-28 - Decision: Reuse MyHub Endpoint For Activity
+- Decision: Extend chat/myhub.php with section=activity instead of adding a separate endpoint.
+- Reason: My Hub already centralizes task/leave/directory sections and authenticated session handling.
+- Legacy fit: Persisted username as Sky-{emp_id}, matching existing activity_log rows.
+
+## 2026-07-28 - Decision: Reuse Chat Message Endpoint For Group/Channel Sends
+- Decision: Keep one POST /api/chat/v1/messages endpoint for DM, group, and channel messages, using to_jid to identify the target.
+- Reason: This matches the existing message table and avoids duplicating send logic across groups/channels modules.
+- Guardrail: Room JIDs are detected by @conference. and stored as groupchat for correct client rendering.
+
+## 2026-07-28 - Decision: Horizon Map Uses In-App Route Canvas
+- Decision: Render Horizon route as an in-app line map/canvas for first implementation instead of adding a new map package or external browser dependency.
+- Reason: Keeps implementation small, stable, and usable across Web/APK/Windows while using existing captured lat/long points.
+- Future Option: Replace canvas background with OSM tiles if precise street-level route context is required.
+
+## 2026-07-28 - Decision: Horizon Map Rendering
+- Decision: Use the app's existing no-package OpenStreetMap tile approach and existing cached reverse-geocode helper rather than adding a new map package or duplicate geocoder.
+- Reason: Smaller production-safe change, no dependency churn, and consistent behavior with current attachment/location previews.
+
+## 2026-07-28 - Decision: Horizon Access Model
+- Decision: Keep the fixed super-admin allowlist for company-wide Horizon access, and add dynamic self-plus-direct-report visibility for all other employees using employee.reporting_to.
+- Reason: Matches operational hierarchy without exposing unrelated employee locations.
+
+## 2026-07-28 - Decision: Local Slash Help Sheet
+- Decision: /help opens a local command guide sheet instead of sending a help message to the conversation.
+- Reason: Reduces chat noise while keeping command discovery fast and familiar.
+
+## 2026-07-28 - Decision: Pan Offset In Web Mercator Pixels
+- Decision: Store Horizon map drag movement as a Web Mercator world-pixel offset and share it between tile rendering and route painting.
+- Reason: Keeps route markers aligned with OSM tiles without adding a heavyweight map package.
+
+## DEC-2026-07-28-RELEASE-207
+- Decision: Register Android and Windows as draft releases, not live rollout, so Employee 302 remains the production approval gate.
+- Decision: Upload web ZIP as artifact but do not overwrite live /chat web app during this draft release request.
+

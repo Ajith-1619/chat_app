@@ -1,9 +1,14 @@
 $ErrorActionPreference = 'Stop'
-$Version = '2.0.4'
 $Root = Resolve-Path (Join-Path $PSScriptRoot '..')
+$Pubspec = Join-Path $Root 'pubspec.yaml'
+$VersionLine = Select-String -LiteralPath $Pubspec -Pattern '^version:\s*([0-9]+\.[0-9]+\.[0-9]+)\+\d+' | Select-Object -First 1
+if (-not $VersionLine) {
+  throw "Unable to read semantic version from $Pubspec"
+}
+$Version = $VersionLine.Matches[0].Groups[1].Value
 $ReleaseDir = Join-Path $Root 'release'
 $WinBuild = Join-Path $Root 'build\windows\x64\runner\Release'
-$Stage = 'C:\Temp\skylink_installer_2_0_4'
+$Stage = Join-Path $env:TEMP ("skylink_installer_" + ($Version -replace '\.', '_'))
 $PayloadZip = Join-Path $Stage 'SkylinkChatPayload.zip'
 $Installer = Join-Path $Stage "Skylink-Chat-Setup-v$Version.exe"
 $FinalInstaller = Join-Path $ReleaseDir "Skylink-Chat-Setup-v$Version.exe"

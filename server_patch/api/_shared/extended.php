@@ -201,9 +201,25 @@ function flow_api_ext_groups_channels(array $auth, array $segments, string $type
             $pdo->prepare('INSERT INTO flow_api_ai_room_access (group_id, ai_key_id, enabled, daily_tokens, daily_searches, created_by_emp_id) VALUES (:gid,:key,:enabled,:tokens,:searches,:emp) ON DUPLICATE KEY UPDATE enabled=VALUES(enabled), daily_tokens=VALUES(daily_tokens), daily_searches=VALUES(daily_searches)')->execute([':gid'=>$groupId, ':key'=>(int)$input['ai_key_id'], ':enabled'=>(int)($input['enabled'] ?? 1), ':tokens'=>(int)($input['daily_tokens'] ?? 0), ':searches'=>(int)($input['daily_searches'] ?? 0), ':emp'=>(int)$auth['actor_emp_id']]);
             flow_api_success($auth, 'ai:write', ['group_id'=>$groupId, 'ai_key_id'=>(int)$input['ai_key_id']]);
         }
+        if (($method === 'POST' || $method === 'PATCH') && in_array($sub, ['archive', 'unarchive', 'close'], true)) {
+            $status = $sub === 'close' ? 'Closed' : ($sub === 'archive' ? 'Archived' : 'Open');
+            $archived = $sub === 'unarchive' ? 0 : 1;
+            $archivedSql = $archived ? 'NOW()' : 'NULL';
+            $stmt = $pdo->prepare('UPDATE xmpp_groups SET is_archived = :archived, archived_at = ' . $archivedSql . ', status = :status WHERE id = :id AND group_type = :type');
+            $stmt->execute([':archived'=>$archived, ':status'=>$status, ':id'=>$groupId, ':type'=>$type]);
+            if ($sub === 'close') {
+                try {
+                    $timeline = $pdo->prepare('INSERT INTO xmpp_channel_timeline (group_id, event_type, event_title, event_body, actor_emp_id) VALUES (:group_id, :event_type, :event_title, :event_body, :actor_emp_id)');
+                    $timeline->execute([':group_id'=>$groupId, ':event_type'=>'channel.closed', ':event_title'=>'Channel closed', ':event_body'=>'Channel closed through external API.', ':actor_emp_id'=>(int)$auth['actor_emp_id']]);
+                } catch (Throwable $e) {
+                    error_log('Flow API channel close timeline failed: ' . $e->getMessage());
+                }
+            }
+            flow_api_success($auth, $type . 's:write', ['id'=>$groupId, 'action'=>$sub, 'is_archived'=>$archived, 'status'=>$status], 200, $type, (string)$groupId);
+        }
         if ($method === 'DELETE') {
             $pdo->prepare('UPDATE xmpp_groups SET is_archived = 1, archived_at = NOW(), status = "Deleted" WHERE id = :id AND group_type = :type')->execute([':id'=>$groupId, ':type'=>$type]);
-            flow_api_success($auth, $type . 's:write', ['id'=>$groupId, 'deleted'=>true]);
+            flow_api_success($auth, $type . 's:write', ['id'=>$groupId, 'deleted'=>true, 'archived'=>true]);
         }
     }
     flow_api_handle_groups_channels($auth, $segments, $type);

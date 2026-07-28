@@ -88,10 +88,10 @@ function flow_api_create_group(PDO $chatPdo, PDO $employeePdo, array $input, int
         $groupId = (int)$chatPdo->lastInsertId();
         $memberStmt = $chatPdo->prepare('INSERT INTO xmpp_group_members (group_id, emp_id, role) VALUES (:group_id, :emp_id, :role) ON DUPLICATE KEY UPDATE role = VALUES(role)');
         foreach ($validMembers as $empId) {
-            $role = $empId === $creatorEmpId ? 'owner' : 'member';
+            $role = $empId === $creatorEmpId ? 'owner' : (chat_is_type_a_user($chatPdo, getEmployeeDB(), $empId) ? 'admin' : 'member');
             $memberStmt->execute([':group_id' => $groupId, ':emp_id' => $empId, ':role' => $role]);
             try {
-                chat_ejabberd_client()->setRoomAffiliation($slug, chat_jid($empId), $role === 'owner' ? 'owner' : 'member');
+                chat_ejabberd_client()->setRoomAffiliation($slug, chat_jid($empId), $role === 'owner' ? 'owner' : ($role === 'admin' ? 'admin' : 'member'));
                 chat_ejabberd_client()->inviteToRoom($slug, chat_jid($empId), 'Skylink Flow group invite');
             } catch (Throwable $inviteError) {
                 error_log('external create group invite skipped for ' . $empId . ': ' . $inviteError->getMessage());
@@ -183,9 +183,10 @@ function flow_api_create_channel(PDO $pdo, PDO $employeePdo, array $input, int $
         $channelId = (int)$pdo->lastInsertId();
         $memberStmt = $pdo->prepare('INSERT INTO xmpp_group_members (group_id, emp_id, role) VALUES (:group_id, :emp_id, :role) ON DUPLICATE KEY UPDATE role = VALUES(role)');
         foreach ($validMembers as $empId) {
-            $role = $empId === $creatorEmpId ? 'owner' : 'member';
+            $role = $empId === $creatorEmpId ? 'owner' : (chat_is_type_a_user($pdo, getEmployeeDB(), $empId) ? 'admin' : 'member');
             $memberStmt->execute([':group_id' => $channelId, ':emp_id' => $empId, ':role' => $role]);
             try {
+                chat_ejabberd_client()->setRoomAffiliation($slug, chat_jid($empId), $role === 'owner' ? 'owner' : ($role === 'admin' ? 'admin' : 'member'));
                 chat_ejabberd_client()->inviteToRoom($slug, chat_jid($empId), 'Added to Skylink channel');
             } catch (Throwable $inviteError) {
                 error_log('external create channel invite skipped for ' . $empId . ': ' . $inviteError->getMessage());

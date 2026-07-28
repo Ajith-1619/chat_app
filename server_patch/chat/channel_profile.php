@@ -27,6 +27,9 @@ $stmt->execute([
 ]);
 $channel = $stmt->fetch(PDO::FETCH_ASSOC);
 if (!$channel) chat_json(['status' => false, 'error' => 'Channel not found'], 404);
+$employeePdo = getEmployeeDB();
+chat_sync_type_a_group_admin($pdo, $employeePdo, (int)$session['emp_id'], (int)$channel['id']);
+$channel['role'] = chat_effective_group_role($pdo, $employeePdo, (int)$session['emp_id'], (string)$channel['role']);
 
 $created = strtotime((string)$channel['created_at']) ?: time();
 $ageSeconds = max(0, time() - $created);
@@ -76,6 +79,7 @@ chat_json([
         'created_at' => (string)$channel['created_at'],
         'target_date' => (string)($channel['target_date'] ?? ''),
         'next_action_date' => (string)($channel['next_action_date'] ?? ''),
+        'previous_action_text' => (string)($channel['previous_action_text'] ?? ''),
         'next_action_text' => (string)($channel['next_action_text'] ?? ''),
         'next_action_summary' => (string)($channel['next_action_summary'] ?? ''),
         'next_action_missing_fields' => (string)($channel['next_action_missing_fields'] ?? ''),

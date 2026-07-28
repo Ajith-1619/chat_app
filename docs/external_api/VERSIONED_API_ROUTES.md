@@ -158,7 +158,7 @@ Failure:
 
 ### Phase 3: Chat And Files
 
-- `POST /api/chat/v1/messages`
+- `POST /api/chat/v1/messages` - send direct, group, or channel messages using `to_jid`
 - `GET /api/chat/v1/conversations`
 - `GET /api/chat/v1/conversations/{jid}/messages`
 - `POST /api/files/v1/files`
@@ -170,6 +170,9 @@ Failure:
 - member management
 - channel description and next action APIs
 - channel AI access APIs
+- `POST /api/channels/v1/{channel_id}/close`
+- `POST /api/channels/v1/{channel_id}/archive`
+- `POST /api/channels/v1/{channel_id}/unarchive`
 
 ### Phase 5: Admin API Management
 

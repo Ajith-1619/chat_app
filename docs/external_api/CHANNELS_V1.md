@@ -14,7 +14,10 @@ Base:
 | POST | `/channels` | `channels:write` | Create channel |
 | GET | `/channels/{channel_id}` | `channels:read` | Channel profile |
 | PATCH | `/channels/{channel_id}` | `channels:write` | Update channel details |
-| DELETE | `/channels/{channel_id}` | `channels:write` | Archive/delete channel |
+| POST | `/channels/{channel_id}/close` | `channels:write` | Close and archive channel |
+| POST | `/channels/{channel_id}/archive` | `channels:write` | Archive channel |
+| POST | `/channels/{channel_id}/unarchive` | `channels:write` | Restore archived channel |
+| DELETE | `/channels/{channel_id}` | `channels:write` | Compatibility soft-delete/archive channel |
 | GET | `/channels/{channel_id}/members` | `channels:read` | Channel members |
 | POST | `/channels/{channel_id}/members` | `channels:write` | Add channel members |
 | DELETE | `/channels/{channel_id}/members/{emp_id}` | `channels:write` | Remove member |
@@ -85,3 +88,27 @@ Expected detection:
 }
 ```
 
+
+## Close / Archive Channel
+
+```http
+POST /api/channels/v1/{channel_id}/close
+POST /api/channels/v1/{channel_id}/archive
+POST /api/channels/v1/{channel_id}/unarchive
+```
+
+Use `close` when the channel work is complete. Use `archive` when it should be hidden from active lists. Use `unarchive` to restore it.
+
+Example response:
+
+```json
+{
+  "status": true,
+  "channel": {
+    "id": 120,
+    "action": "close",
+    "is_archived": 1,
+    "status": "Closed"
+  }
+}
+```

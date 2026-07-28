@@ -271,6 +271,23 @@ function admin_user_detail(PDO $pdo): array
     $employeeTypeOverrides = admin_employee_type_overrides($pdo);
     $employeeType = admin_employee_type_label($profile['emp_type'] ?? '', (string)($employeeTypeOverrides[$empId]['employee_type'] ?? ''));
 
+    try {
+        $aiAccess = admin_ai_access_summary($pdo, $empId, $employeeType);
+    } catch (Throwable $e) {
+        error_log('admin user detail ai access failed: ' . $e->getMessage());
+        $aiAccess = [
+            'employee_type' => $employeeType,
+            'access_mode' => 'none',
+            'providers' => [],
+            'available_providers' => [],
+            'provider_ids' => '',
+            'daily_token_limit' => 0,
+            'daily_search_limit' => 0,
+            'enabled' => false,
+            'updated_at' => null,
+        ];
+    }
+
     return [
         'status' => true,
         'user' => $user,
@@ -284,7 +301,7 @@ function admin_user_detail(PDO $pdo): array
         'memberships' => $memberships,
         'attendance' => admin_user_attendance($empId),
         'employee_type' => ['value' => $employeeType, 'source_emp_type' => $profile['emp_type'] ?? null, 'updated_at' => $employeeTypeOverrides[$empId]['updated_at'] ?? null],
-        'ai_access' => admin_ai_access_summary($pdo, $empId, $employeeType),
+        'ai_access' => $aiAccess,
     ];
 }
 
@@ -629,8 +646,12 @@ function admin_update_employee_type(PDO $pdo, int $adminEmpId, int $empId, strin
     admin_ensure_employee_type_table($pdo);
     $stmt = $pdo->prepare('INSERT INTO flow_admin_employee_types (emp_id, employee_type, updated_by_emp_id, updated_at) VALUES (:emp_id, :employee_type, :admin_emp_id, NOW()) ON DUPLICATE KEY UPDATE employee_type = VALUES(employee_type), updated_by_emp_id = VALUES(updated_by_emp_id), updated_at = NOW()');
     $stmt->execute([':emp_id' => $empId, ':employee_type' => $employeeType, ':admin_emp_id' => $adminEmpId]);
-    flow_admin_audit($adminEmpId, 'update_employee_type', 'flow_admin_employee_types', (string)$empId, ['employee_type' => $employeeType]);
-    return ['status' => true, 'message' => 'Employee type updated.'];
+    if ($employeeType === 'A' && flow_admin_table_exists($pdo, 'xmpp_group_members')) {
+        $roleStmt = $pdo->prepare("UPDATE xmpp_group_members SET role = 'admin' WHERE emp_id = :emp_id AND role = 'member'");
+        $roleStmt->execute([':emp_id' => $empId]);
+    }
+    flow_admin_audit($adminEmpId, 'update_employee_type', 'flow_admin_employee_types', (string)$empId, ['employee_type' => $employeeType, 'auto_group_admin' => $employeeType === 'A']);
+    return ['status' => true, 'message' => $employeeType === 'A' ? 'Employee type updated. Existing group/channel memberships changed to admin.' : 'Employee type updated.'];
 }
 function admin_candidate_location_tables(PDO $pdo): array
 {
@@ -1017,6 +1038,17 @@ function admin_group_detail(PDO $pdo): array
             ]) . " FROM xmpp_group_members WHERE {$memberWhere} ORDER BY {$order} LIMIT 500",
             $memberParams
         );
+        $typeAIds = array_keys(array_filter(admin_employee_type_overrides($pdo), static fn($row): bool => strtoupper((string)($row['employee_type'] ?? '')) === 'A'));
+        if ($typeAIds) {
+            $typeASet = array_fill_keys(array_map('intval', $typeAIds), true);
+            foreach ($members as &$memberRow) {
+                $memberEmpId = (int)($memberRow['emp_id'] ?? 0);
+                if (($typeASet[$memberEmpId] ?? false) && strtolower((string)($memberRow['role'] ?? 'member')) !== 'owner') {
+                    $memberRow['role'] = 'admin';
+                }
+            }
+            unset($memberRow);
+        }
     }
 
     $profiles = [];
@@ -2019,6 +2051,10 @@ function admin_post_action(PDO $pdo, int $adminEmpId, string $action): array
             $role = strtolower(trim((string)($_POST['role'] ?? 'member')));
             if ($groupId <= 0 || $empId <= 0 || !in_array($role, ['owner', 'admin', 'member'], true)) {
                 return ['status' => false, 'error' => 'Group, employee and role are required.'];
+            }
+            $typeOverride = admin_employee_type_overrides($pdo)[$empId]['employee_type'] ?? '';
+            if (strtoupper((string)$typeOverride) === 'A' && $role !== 'owner') {
+                $role = 'admin';
             }
             $stmt = $pdo->prepare('UPDATE xmpp_group_members SET role = :role WHERE group_id = :group_id AND emp_id = :emp_id');
             $stmt->execute([':role' => $role, ':group_id' => $groupId, ':emp_id' => $empId]);

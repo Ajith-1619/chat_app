@@ -27,11 +27,13 @@ Base:
 POST /api/chat/v1/messages
 ```
 
+The same endpoint sends direct, group, and channel messages. For direct messages pass a user JID. For group/channel messages pass the room JID from the group/channel profile.
+
 ```json
 {
-  "to": "302@chat.skylinkonline.net",
+  "to_jid": "302@chat.skylinkonline.net",
   "body": "Hello from external portal",
-  "message_type": "text",
+  "message_type": "chat",
   "reply_to_id": 0,
   "thread_root_id": 0,
   "mentions": [],
@@ -41,11 +43,24 @@ POST /api/chat/v1/messages
 }
 ```
 
+## Send Group Or Channel Message
+
+```json
+{
+  "to_jid": "channel-flowrollout-f5e7be47@conference.chat.skylinkonline.net",
+  "body": "Channel update from external portal",
+  "message_type": "groupchat",
+  "client_message_id": "crm-channel-1001"
+}
+```
+
+If `message_type` is omitted for a room JID, Flow stores it as `groupchat` automatically.
+
 ## Group/Channel Selected Send
 
 ```json
 {
-  "to": "channel-flow@conference.chat.skylinkonline.net",
+  "to_jid": "channel-flow@conference.chat.skylinkonline.net",
   "body": "Restricted update",
   "visibility_mode": "selected",
   "recipient_emp_ids": [302, 116]

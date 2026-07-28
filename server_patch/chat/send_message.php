@@ -222,11 +222,13 @@ try {
             ':sender' => (int)$session['emp_id'],
         ]);
         $members = $memberStmt->fetchAll(PDO::FETCH_ASSOC) ?: [];
+        $employeePdoForMentions = getEmployeeDB();
         foreach ($members as $member) {
             $memberId = (int)$member['emp_id'];
+            $effectiveRole = chat_effective_group_role($pdo, $employeePdoForMentions, $memberId, (string)$member['role']);
             if (in_array('@channel', $mentions, true) ||
                 (in_array('@admins', $mentions, true) &&
-                    in_array((string)$member['role'], ['owner', 'admin'], true)) ||
+                    in_array($effectiveRole, ['owner', 'admin'], true)) ||
                 (in_array('@online', $mentions, true) &&
                     chat_ejabberd_is_online(chat_jid($memberId)))) {
                 $mentions[] = $memberId;

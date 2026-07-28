@@ -480,3 +480,106 @@
 - Verification: Web release compiled successfully after wake-up last-message summary backend patch and prior chat metadata updates.
 - Remaining manual checks: Deploy server_patch/chat/wakeup_helpers.php with the web build, then confirm scheduled wake-up messages include Last message summary in group/channel chat.
 
+
+## REGRESSION-20260728-SYSTEM-NOTIFICATION-BROADCAST-FIX
+- Date: 2026-07-28 10:25:00 +05:30
+- Verified: dart format completed for changed Dart files.
+- Verified: flutter analyze lib/chat_api.dart lib/home/home_screen.dart ran with no new errors; existing warnings/info remain.
+- Risk: Broadcast POST still depends on server-side flow_admin_employee_types / employee emp_type being correctly updated for Type A users.
+## REGRESSION-20260728-SLASH-AI-COMMANDS
+- Date: 2026-07-28 10:55:00 +05:30
+- Verified: dart format passed for lib/chat/chat_screen.dart.
+- Verified: PHP lint passed for server_patch/chat/ai_room_helper.php and server_patch/chat/send_message.php.
+- Verified: targeted flutter analyze ran with no compile errors; existing warnings/info remain.
+- Risk: AI reply still depends on room AI access being enabled and a valid active provider API key in backend tables.
+## REGRESSION-20260728-NEXT-ACTION-DATE-PERSON-FIX
+- Date: 2026-07-28 11:10:00 +05:30
+- Verified: PHP lint passed for channel_action_helper.php and conversation_metadata_helper.php.
+- Verified: parser smoke test returned 2026-07-31 18:00:00 for 'Please complete this task end of this month' and null/blank for a message without a date.
+- Risk: Existing messages already saved with stale dates will need a new message/update or manual clarification to refresh their displayed metadata.
+## REGRESSION-20260728-CONTEXT-AWARE-ACTION-ENGINE
+- Date: 2026-07-28 11:35:00 +05:30
+- Verified: PHP lint passed for channel_action_helper.php, conversation_metadata_helper.php, and channel_profile.php.
+- Verified: smoke test returned false for normal 'ok noted', true for actionable 'Please complete this task end of this month', and date 2026-07-31 18:00:00.
+- Risk: UI currently needs to render previous_action_text if previous action must be visible in the right panel.
+## REGRESSION-20260728-WEB-BUILD-CONTEXT-ACTION
+- Date: 2026-07-28 11:50:00 +05:30
+- Verification: Web release build completed successfully after slash AI, system notification, broadcast, and context-aware action engine updates.
+- Residual: PROJECT_STATE.md and CHANGE_LEDGER_SPEC.md are still missing from workspace.
+## 2026-07-28 - Regression Check: Type A Auto Admin
+- Risk: Type A users could still appear as members in selected endpoints or be demoted manually.
+- Verification: PHP syntax lint passed for touched server_patch/chat files and admin/legacy_standalone/api.php.
+- Residual: Live DB permission behavior must be verified after deploying server_patch files.
+
+## 2026-07-28 - Regression Check: My Activity
+- PHP lint passed for server_patch/chat/myhub.php.
+- flutter analyze passed for lib/myhub_activity_screen.dart.
+- Broader analyze on home/chat_api still reports pre-existing warnings only; no new errors observed.
+
+## 2026-07-28 - Regression Verification: Web Build After My Activity
+- Verification: Web release build completed successfully from lib/main.dart.
+- Output artifact folder: build/web.
+- Residual: Manual browser smoke test still recommended after deployment.
+
+## 2026-07-28 - Regression Check: Activity DB Target
+- PHP lint passed for server_patch/chat/myhub.php after DB target correction.
+- Residual: Existing rows accidentally saved in task DB require a one-time migration if they must appear in chat DB.
+
+## 2026-07-28 - Regression Check: External API Group/Channel Send And Channel Lifecycle
+- Risk: Direct message API behavior could change if message_type default changed incorrectly.
+- Mitigation: Default remains chat for non-room JIDs; only @conference. JIDs auto-default to groupchat.
+- Risk: Channel close/archive could hard-delete data.
+- Mitigation: Routes only update xmpp_groups is_archived/status and retain DELETE as soft archive/delete compatibility.
+- Validation: PHP lint passed for server_patch/api/_shared/bootstrap.php and server_patch/api/_shared/extended.php.
+
+## 2026-07-28 - Regression Check: My Hub Horizon
+- Risk: Existing My Hub directory/tasks/activity routes could break if dispatcher changes are wrong.
+- Mitigation: Added only new match cases and new helper functions; existing section names remain unchanged.
+- Risk: Unauthorized attendance visibility.
+- Mitigation: Backend allowlist restricts Horizon to 116, 232, 302, 428, and 553.
+- Validation: PHP lint passed for server_patch/chat/myhub.php; new Horizon screen analyzer passed with no issues; touched integration analyzer only reported pre-existing warnings/info.
+
+## 2026-07-28 - Regression Check: Horizon Load Failure
+- Risk: Live attendance schema can differ from local assumptions and cause section=horizon to return generic Unable to load MyHub data.
+- Mitigation: Horizon punch query now validates table/columns dynamically and returns an empty Horizon list instead of throwing when schema is unavailable.
+- Validation: PHP lint passed for server_patch/chat/myhub.php; Horizon screen analyzer passed.
+
+## 2026-07-28 - Regression Check: Horizon Map Address
+- Risk: Horizon map could remain visually blank if only route painter renders.
+- Mitigation: Added OSM tile layer behind the route and kept existing route/card/list screen structure unchanged.
+- Risk: Address lookup could slow timeline loading.
+- Mitigation: Backend first uses saved address columns and caches reverse-geocode fallback per rounded coordinate.
+- Validation: php -l server_patch/chat/myhub.php passed; flutter analyze lib/myhub_horizon_screen.dart passed; web release build completed successfully.
+
+## 2026-07-28 - Regression Check: Horizon Zoom And Reporting Scope
+- Risk: Broad Horizon access could expose all attendance locations to normal users.
+- Mitigation: Non-super users are filtered to self plus direct reporting_to employees; timeline endpoint validates target scope independently.
+- Risk: Zoom controls could break the existing route overlay.
+- Mitigation: Zoom changes reuse the same tile/world-coordinate projection and preserve route marker rendering.
+- Validation: PHP lint passed; Horizon screen analyzer passed with no issues.
+
+## 2026-07-28 - Regression Check: Group Channel Slash Help
+- Risk: /help could accidentally send a chat message or interfere with /ai and metadata commands.
+- Mitigation: Intercept exact /help before send_message and keep existing slash command selection flow unchanged.
+- Risk: Direct chat command use could confuse users.
+- Mitigation: Direct chats show a concise snackbar and do not send /help.
+- Validation: flutter analyze lib/chat/chat_screen.dart produced only existing warnings/info, no new analyzer errors.
+
+## 2026-07-28 - Regression Verification: Web Build After Slash Help And Horizon Updates
+- Verification: Web release build completed successfully from lib/main.dart.
+- Output artifact folder: build/web.
+- Residual: Manual browser smoke test recommended after deploying build/web and server_patch/chat/myhub.php.
+
+## 2026-07-28 - Regression Check: Horizon Map Drag Pan
+- Risk: Dragging the map could desync the route overlay from map tiles.
+- Mitigation: The tile layer and route painter now use the same panned Web Mercator center.
+- Risk: Zooming after drag could jump back to the default route center.
+- Mitigation: Pan offset is scaled when zoom changes so the current map view remains stable.
+- Validation: flutter analyze lib/myhub_horizon_screen.dart passed.
+
+## REG-2026-07-28-v2.0.7
+- php -l register_draft_2_0_7.php: Passed.
+- flutter analyze targeted files: Existing warnings/info only; no blocking build errors.
+- flutter build web/apk/windows: Passed.
+- Risk: Full analyzer still has legacy warnings in chat_screen.dart; no release blocker found during build.
+

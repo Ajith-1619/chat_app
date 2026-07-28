@@ -140,7 +140,31 @@ Group/channel body:
 ```json
 {
   "to_jid": "channel-flowrollout-f5e7be47@conference.chat.skylinkonline.net",
-  "body": "Update from external portal"
+  "body": "Update from external portal",
+  "message_type": "groupchat",
+  "source_name": "External Portal"
+}
+```
+
+Group/channel messages use the same endpoint as direct messages. Use the room JID from the group/channel profile. If `message_type` is omitted, the API detects `@conference.` room JIDs and stores the message as `groupchat`.
+
+Examples:
+
+```http
+POST https://dns.watchtower247.in/router_login/api/chat/v1/messages
+```
+
+```json
+{
+  "to_jid": "st-velocity-complaints-44b18839@conference.chat.skylinkonline.net",
+  "body": "Group update from CRM portal"
+}
+```
+
+```json
+{
+  "to_jid": "channel-flowrollout-f5e7be47@conference.chat.skylinkonline.net",
+  "body": "Channel update from external portal"
 }
 ```
 
@@ -499,8 +523,35 @@ POST /channels/v1/{channel_id}/wakeup
 POST /channels/v1/{channel_id}/external-users
 GET /channels/v1/{channel_id}/ai
 POST /channels/v1/{channel_id}/ai
+POST /channels/v1/{channel_id}/close
+POST /channels/v1/{channel_id}/archive
+POST /channels/v1/{channel_id}/unarchive
 DELETE /channels/v1/{channel_id}
 ```
+
+### 7.6 Close, Archive, And Reopen Channel
+
+Close marks a channel operationally closed and archives it from active lists:
+
+```http
+POST /channels/v1/{channel_id}/close
+```
+
+Archive hides a channel from active lists without using the closed status:
+
+```http
+POST /channels/v1/{channel_id}/archive
+```
+
+Unarchive restores the channel to active/open state:
+
+```http
+POST /channels/v1/{channel_id}/unarchive
+```
+
+Responses include `id`, `action`, `is_archived`, and `status`.
+
+`DELETE /channels/v1/{channel_id}` is retained as a compatibility soft-delete/archive endpoint.
 
 ## 8. Tasks API
 

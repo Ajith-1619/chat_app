@@ -17,6 +17,9 @@ $stmt = $pdo->prepare("SELECT g.*, gm.role FROM xmpp_groups g INNER JOIN xmpp_gr
 $stmt->execute([':group_id' => $groupId, ':emp_id' => (int)$session['emp_id']]);
 $channel = $stmt->fetch(PDO::FETCH_ASSOC);
 if (!$channel) chat_json(['status' => false, 'error' => 'Channel not found'], 404);
+$employeePdo = getEmployeeDB();
+chat_sync_type_a_group_admin($pdo, $employeePdo, (int)$session['emp_id'], $groupId);
+$channel['role'] = chat_effective_group_role($pdo, $employeePdo, (int)$session['emp_id'], (string)$channel['role']);
 if (!in_array((string)$channel['role'], ['owner', 'admin'], true)) {
     chat_json(['status' => false, 'error' => 'Only owner/admin can update channel details'], 403);
 }

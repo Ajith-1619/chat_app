@@ -362,12 +362,16 @@ function flow_api_handle_chat(array $auth, array $segments): never
         $body = trim((string)($input['body'] ?? ''));
         if ($to === '' || $body === '') flow_api_error('to_jid and body are required.', 422, 'VALIDATION_ERROR');
         $from = flow_api_jid_for_emp($pdo, (int)$auth['actor_emp_id']);
+        $messageType = (string)($input['message_type'] ?? '');
+        if ($messageType === '') {
+            $messageType = stripos($to, '@conference.') !== false ? 'groupchat' : 'chat';
+        }
         $stmt = $pdo->prepare('INSERT INTO xmpp_messages (from_jid, to_jid, body, message_type, source_device, source_name, client_message_id, status) VALUES (:from_jid, :to_jid, :body, :type, :source_device, :source_name, :client_message_id, :status)');
         $stmt->execute([
             ':from_jid' => $from,
             ':to_jid' => $to,
             ':body' => $body,
-            ':type' => (string)($input['message_type'] ?? 'chat'),
+            ':type' => $messageType,
             ':source_device' => 'api',
             ':source_name' => (string)($input['source_name'] ?? $auth['client_name']),
             ':client_message_id' => (string)($input['client_message_id'] ?? ('api-' . flow_api_request_id())),
@@ -377,12 +381,12 @@ function flow_api_handle_chat(array $auth, array $segments): never
         flow_plugin_emit($pdo, 'message.sent', [
             'event_id' => 'api-message-sent-' . $id,
             'actor_emp_id' => (int)$auth['actor_emp_id'],
-            'message' => ['id' => $id, 'from_jid' => $from, 'to_jid' => $to, 'body' => $body, 'message_type' => (string)($input['message_type'] ?? 'chat'), 'created_at' => date('c')],
+            'message' => ['id' => $id, 'from_jid' => $from, 'to_jid' => $to, 'body' => $body, 'message_type' => $messageType, 'created_at' => date('c')],
         ]);
         flow_plugin_emit($pdo, 'message.received', [
             'event_id' => 'api-message-received-' . $id,
             'actor_emp_id' => (int)$auth['actor_emp_id'],
-            'message' => ['id' => $id, 'from_jid' => $from, 'to_jid' => $to, 'body' => $body, 'message_type' => (string)($input['message_type'] ?? 'chat'), 'created_at' => date('c')],
+            'message' => ['id' => $id, 'from_jid' => $from, 'to_jid' => $to, 'body' => $body, 'message_type' => $messageType, 'created_at' => date('c')],
         ]);
         try { chat_ejabberd_send_message($from, $to, $body); } catch (Throwable $e) {}
         flow_api_success($auth, 'chat:write', ['message' => ['id' => $id, 'from_jid' => $from, 'to_jid' => $to]], 201, 'message', (string)$id);

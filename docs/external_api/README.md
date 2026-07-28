@@ -1,4 +1,4 @@
-﻿# Flow External API Plan
+# Flow External API Plan
 
 Date: 2026-07-24
 
@@ -215,3 +215,21 @@ Build v1 in this order:
 10. Release read-only
 
 
+
+## Group/channel message send
+
+Use the chat message endpoint for DM, group, and channel messages:
+
+```http
+POST https://dns.watchtower247.in/router_login/api/chat/v1/messages
+```
+
+Pass the group/channel room JID in `to_jid`. Room JIDs contain `@conference.chat.skylinkonline.net`; Flow stores them as `groupchat` automatically when `message_type` is omitted.
+
+## Channel close/archive
+
+```http
+POST https://dns.watchtower247.in/router_login/api/channels/v1/{channel_id}/close
+POST https://dns.watchtower247.in/router_login/api/channels/v1/{channel_id}/archive
+POST https://dns.watchtower247.in/router_login/api/channels/v1/{channel_id}/unarchive
+```

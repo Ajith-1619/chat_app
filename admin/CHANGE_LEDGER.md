@@ -212,3 +212,9 @@
 - Files: server_patch/chat/bootstrap.php, server_patch/chat/upload_file.php, server_patch/chat/storage_usage.php, lib/chat_api.dart, lib/settings/settings_screens.dart
 - Change: Added default 2GB per-user storage quota, upload-time quota enforcement, user-facing Data and Storage settings screen, and conversation-wise user/group/channel storage breakdown.
 
+
+## CHANGE-20260728-ADMIN-USER-TYPE-DETAIL-FIX
+- Date: 2026-07-28 12:20:00 +05:30
+- Requirement: Fix admin Users page employee type edit and intermittent unable-to-load user detail errors.
+- Impact Analysis: Admin-only change. Employee Type save button is now wired in inline and modal user detail views. Admin JSON output is protected against invalid UTF-8 employee/profile data. Optional AI access summary failure no longer blocks the entire user detail panel.
+- Regression Verification: PHP lint passed for admin legacy bootstrap/API; admin JS syntax check passed.

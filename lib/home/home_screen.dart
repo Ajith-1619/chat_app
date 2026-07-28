@@ -32,6 +32,8 @@ import '../notification_service.dart';
 import '../session_store.dart';
 import '../myhub_leave_screens.dart';
 import '../myhub_tasks_screen.dart';
+import '../myhub_activity_screen.dart';
+import '../myhub_horizon_screen.dart';
 import '../flow_registry.dart';
 import '../mojibake_tools.dart';
 import '../clipboard_media_bridge.dart';
@@ -3991,12 +3993,14 @@ class MyHubScreen extends StatelessWidget {
     final items = [
       ('Punch In / Out', Icons.fingerprint_rounded),
       ('Attendance', Icons.calendar_month_outlined),
+      ('Horizon', Icons.travel_explore_rounded),
       ('Leave Management', Icons.beach_access_outlined),
       ('Leave Application', Icons.edit_calendar_outlined),
       ('Achievements', Icons.emoji_events_outlined),
       ('Employee Directory', Icons.people_outline_rounded),
       ('Company Announcements', Icons.campaign_outlined),
       ('Tasks & Tickets', Icons.task_alt_outlined),
+      ('My Activity', Icons.edit_note_rounded),
       ('Reminders & Follow-ups', Icons.notifications_active_outlined),
       ('Projects', Icons.workspaces_outline),
     ];
@@ -4029,16 +4033,28 @@ class MyHubScreen extends StatelessWidget {
                       builder: (_) => const AttendanceCalendarScreen(),
                     ),
                   );
-                } else if (index == 2) {
+                } else if (item.$1 == 'Horizon') {
+                  Navigator.of(context).push(
+                    MaterialPageRoute<void>(
+                      builder: (_) => const MyHubHorizonScreen(),
+                    ),
+                  );
+                } else if (item.$1 == 'Leave Management') {
                   Navigator.of(context).push(
                     MaterialPageRoute<void>(
                       builder: (_) => const MyHubLeaveScreen(),
                     ),
                   );
-                } else if (index == 3) {
+                } else if (item.$1 == 'Leave Application') {
                   Navigator.of(context).push(
                     MaterialPageRoute<void>(
                       builder: (_) => const MyHubLeaveApplyScreen(),
+                    ),
+                  );
+                } else if (item.$1 == 'My Activity') {
+                  Navigator.of(context).push(
+                    MaterialPageRoute<void>(
+                      builder: (_) => const MyHubActivityScreen(),
                     ),
                   );
                 } else if (item.$1 == 'Reminders & Follow-ups') {
@@ -5478,23 +5494,9 @@ Future<bool> _canCreateGroupOrChannel(BuildContext context) async {
 }
 
 Future<bool> _canCreateBroadcast(BuildContext context) async {
-  try {
-    final cached = await chatApi.cachedProfile();
-    final profile = cached ?? await chatApi.getProfile();
-    final type = _normalizedCreatorEmployeeType(profile.employeeType);
-    if (type != 'A') {
-      if (context.mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Only Type A users can create and send broadcasts.'),
-          ),
-        );
-      }
-      return false;
-    }
-  } catch (_) {
-    // Backend enforces this rule; allow the attempt if profile loading is unavailable.
-  }
+  // Broadcast permission is backed by the server-side employee type override.
+  // Do not block from cached profile data; the broadcast API performs the final
+  // Type A check and returns an actionable error when access is denied.
   return true;
 }
 

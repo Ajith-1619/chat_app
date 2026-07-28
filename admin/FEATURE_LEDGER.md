@@ -75,3 +75,7 @@
 - Status: Implemented
 - Chat app adds an Add external user request form for groups/channels. Admin adds External Requests module with approve/reject controls. Approved users appear in mention suggestions as External mention-only contacts.
 
+
+## FEATURE-2026-07-28-001 - Admin Employee Type Control
+- Status: Complete
+- Summary: Super admins can save employee type A/B/C1/C2 from the user detail panel, with existing backend audited override flow.

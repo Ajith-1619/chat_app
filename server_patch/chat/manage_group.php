@@ -29,7 +29,9 @@ try {
     $owner->execute([':group_id' => $groupId, ':owner_id' => (int)$session['emp_id']]);
     $ownerRow = $owner->fetch(PDO::FETCH_ASSOC) ?: [];
     $roomJid = (string)($ownerRow['room_jid'] ?? '');
-    $currentRole = (string)($ownerRow['role'] ?? '');
+    $employeePdo = getEmployeeDB();
+    $currentRole = chat_effective_group_role($pdo, $employeePdo, (int)$session['emp_id'], (string)($ownerRow['role'] ?? ''));
+    chat_sync_type_a_group_admin($pdo, $employeePdo, (int)$session['emp_id'], $groupId);
     if ($roomJid === '') chat_json(['status' => false, 'error' => 'You are not a member of this group'], 403);
     $canManageMembers = in_array($currentRole, ['owner', 'admin'], true);
     if ($action !== 'leave' && !$canManageMembers) {
@@ -43,7 +45,9 @@ try {
             'SELECT role FROM xmpp_group_members WHERE group_id = :group_id AND emp_id = :emp_id LIMIT 1'
         );
         $targetRole->execute([':group_id' => $groupId, ':emp_id' => $empId]);
-        if ((string)($targetRole->fetchColumn() ?: '') !== 'member') {
+        $targetStoredRole = (string)($targetRole->fetchColumn() ?: '');
+        $targetEffectiveRole = chat_effective_group_role($pdo, $employeePdo, $empId, $targetStoredRole);
+        if ($targetEffectiveRole !== 'member') {
             chat_json(['status' => false, 'error' => 'Admins can remove members only'], 403);
         }
     }
@@ -54,14 +58,15 @@ try {
     if ($action === 'add') {
         $stmt = $pdo->prepare(
             "INSERT INTO xmpp_group_members (group_id, emp_id, role, history_visible_from)
-             VALUES (:group_id, :emp_id, 'member', :history_visible_from)
+             VALUES (:group_id, :emp_id, :role, :history_visible_from)
              ON DUPLICATE KEY UPDATE
-               role = IF(role IN ('owner', 'admin'), role, 'member'),
+               role = IF(role = 'owner', role, VALUES(role)),
                history_visible_from = VALUES(history_visible_from)"
         );
         $stmt->execute([
             ':group_id' => $groupId,
             ':emp_id' => $empId,
+            ':role' => chat_is_type_a_user($pdo, $employeePdo, $empId) ? 'admin' : 'member',
             ':history_visible_from' => $showHistory ? null : date('Y-m-d H:i:s'),
         ]);
         $read = $pdo->prepare(
@@ -112,7 +117,6 @@ try {
         $deleteRead->execute([':group_id' => $groupId, ':emp_id' => $empId]);
         chat_ejabberd_client()->setRoomAffiliation($room, chat_jid($empId), 'none');
     }
-    $employeePdo = getEmployeeDB();
     $actor = chat_user_payload(
         $employeePdo,
         (int)$session['emp_id'],
@@ -150,7 +154,7 @@ try {
             'group_id' => $groupId,
             'room_jid' => $roomJid,
             'member_emp_id' => $empId,
-            'role' => 'member',
+            'role' => chat_is_type_a_user($pdo, $employeePdo, $empId) ? 'admin' : 'member',
             'show_history' => $showHistory,
         ]);
     }

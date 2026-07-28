@@ -520,3 +520,100 @@
 - Output: build\\web
 - Notes: Flutter reported dependency update notices and successful WASM dry run; no build failure.
 
+
+## BUILD-20260728-SYSTEM-NOTIFICATION-BROADCAST-FIX
+- Timestamp: 2026-07-28 10:25:00 +05:30
+- Build: Not requested and not run.
+- Validation: dart format passed; targeted flutter analyze completed with existing warnings/info only and no compile-blocking errors.
+## BUILD-20260728-SLASH-AI-COMMANDS
+- Timestamp: 2026-07-28 10:55:00 +05:30
+- Build: Not requested and not run.
+- Validation: dart format, PHP lint, and targeted flutter analyze completed; no blocking errors found.
+## BUILD-20260728-NEXT-ACTION-DATE-PERSON-FIX
+- Timestamp: 2026-07-28 11:10:00 +05:30
+- Build: Not requested and not run.
+- Validation: PHP lint and parser smoke test completed successfully.
+## BUILD-20260728-CONTEXT-AWARE-ACTION-ENGINE
+- Timestamp: 2026-07-28 11:35:00 +05:30
+- Build: Not requested and not run.
+- Validation: PHP lint and smoke tests completed successfully.
+## BUILD-20260728-WEB-CONTEXT-ACTION-V2.0.6
+- Timestamp: 2026-07-28 11:50:00 +05:30
+- Command: flutter build web --release --base-href /chat/
+- Status: Success
+- Output: build/web
+- Notes: Flutter reported dependency update notices and Wasm dry-run suggestion; no build failure.
+## 2026-07-28 - Verification Only: Type A Auto Admin
+- Build: Not requested and not run.
+- Verification: PHP lint passed across touched backend/admin files.
+- Notes: Server patch must be deployed for live behavior.
+
+## 2026-07-28 - Verification Only: My Activity
+- Build: Not requested and not run.
+- Verification: PHP lint passed; new Dart screen analyze passed.
+
+## 2026-07-28 - Web Build After My Activity
+- Build: flutter build web --release --base-href /chat/
+- Status: Passed
+- Output: build/web
+- Notes: Flutter reported dependency update notices and wasm dry-run suggestion; build completed successfully.
+
+## 2026-07-28 - Verification Only: Activity DB Target
+- Build: Not run.
+- Verification: PHP lint passed for server_patch/chat/myhub.php.
+
+## 2026-07-28 - Verification Only: External API Group/Channel Send And Channel Lifecycle
+- Build: Not requested and not run.
+- Validation: PHP lint passed for server_patch/api/_shared/bootstrap.php and server_patch/api/_shared/extended.php.
+- Output: Documentation and server_patch API handler updates only.
+
+## 2026-07-28 - Verification Only: My Hub Horizon
+- Build: Not requested and not run.
+- Validation: php -l server_patch/chat/myhub.php passed; flutter analyze lib/myhub_horizon_screen.dart passed; flutter analyze touched integration files completed with existing warnings/info only.
+
+## 2026-07-28 - Web Build After My Hub Horizon
+- Timestamp: 2026-07-28 18:50:00 +05:30
+- Command: flutter build web --release --base-href /chat/
+- Status: Success
+- Output: build/web
+- Notes: Flutter reported dependency update notices, icon tree-shaking, and Wasm dry-run suggestion; no build failure.
+
+## 2026-07-28 - Verification Only: Horizon Load Failure Hardening
+- Build: Not run; backend-only fix.
+- Validation: php -l server_patch/chat/myhub.php passed; flutter analyze lib/myhub_horizon_screen.dart passed.
+
+## 2026-07-28 - Web Build After Horizon Map Address
+- Timestamp: 2026-07-28 19:30:00 +05:30
+- Command: flutter build web --release --base-href /chat/
+- Status: Success
+- Output: build/web
+- Notes: Flutter reported dependency update notices, icon tree-shaking, and Wasm dry-run suggestion; no build failure.
+
+## 2026-07-28 - Verification Only: Horizon Zoom And Reporting Scope
+- Build: Not run; user requested implementation only.
+- Validation: php -l server_patch/chat/myhub.php passed; flutter analyze lib/myhub_horizon_screen.dart passed.
+- Deploy notes: server_patch/chat/myhub.php must be uploaded to live router_login/chat/myhub.php; Flutter web rebuild/deploy required for zoom UI to appear live.
+
+## 2026-07-28 - Verification Only: Group Channel Slash Help
+- Build: Not run.
+- Validation: flutter analyze lib/chat/chat_screen.dart completed with no new errors; existing pre-existing warnings/info remain in the large chat screen.
+
+## 2026-07-28 - Web Build After Slash Help And Horizon Updates
+- Timestamp: 2026-07-28 20:05:00 +05:30
+- Command: flutter build web --release --base-href /chat/
+- Status: Success
+- Output: build/web
+- Notes: Includes latest /help command guide, Horizon zoom controls, Horizon reporting_to visibility UI/backend client changes. Flutter reported dependency update notices, icon tree-shaking, and Wasm dry-run suggestion; no build failure.
+
+## 2026-07-28 - Verification Only: Horizon Map Drag Pan
+- Build: Not run.
+- Validation: flutter analyze lib/myhub_horizon_screen.dart passed with no issues.
+- Notes: Web rebuild/deploy required for live users to receive the drag-pan UI change.
+
+## BUILD-2026-07-28-v2.0.7
+- Web: release/Skylink-Chat-Web-v2.0.7.zip SHA256 E2C84A80C3F42151425B3171A01C0154AF7641A01DE35BC0B7D7DEA6E6CA7192.
+- Android: release/Skylink-Chat-v2.0.7.apk SHA256 85A9748D326B471B3D56F1F52D41D3B7FCBE9ED10ECE2494741E3F238E1A8DCD.
+- Windows: release/Skylink-Chat-Setup-v2.0.7.exe SHA256 9C50E146F228DA732589C98CB5EE2D417810A37B3ECBF8BFAFC20F4F7C7666AB.
+- Uploaded to /var/www/html/router_login/downloads.
+- Draft registered: Android release_id=35, Windows release_id=36.
+

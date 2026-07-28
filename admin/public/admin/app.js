@@ -1,4 +1,4 @@
-const appShell = document.querySelector('.app-shell');
+﻿const appShell = document.querySelector('.app-shell');
 const state = { view: appShell?.dataset.initialView || 'overview', q: '', modal: null, locationRefreshTimer: null, locationRefreshEmpId: null, attendanceTimer: null, locationTimeline: [] };
 const LOCATION_REFRESH_MS = 5 * 60 * 1000;
 const csrf = document.querySelector('meta[name="flow-admin-csrf"]')?.content || '';
@@ -746,9 +746,9 @@ function aiRoomAccessPanel(access) {
     + '<div class="members-head"><h4>AI access</h4><span>' + (access.enabled ? 'Enabled' : 'Off') + '</span></div>'
     + '<div class="toggle-row"><input id="groupAiEnabled" type="checkbox" data-ai-room-enabled value="1" ' + (access.enabled ? 'checked' : '') + '><label for="groupAiEnabled">Enable @AI for this group/channel</label></div>'
     + '<label>AI API<select data-ai-room-provider>' + providerOptions + '</select></label>'
-    + '<label>Trigger token<input type="text" data-ai-room-trigger value="' + escapeHtml(access.trigger_token || '@ai') + '" maxlength="40"></label>'
+    + '<label>Trigger token<input type="text" data-ai-room-trigger value="' + escapeHtml(access.trigger_token || '/ai') + '" maxlength="40"></label>'
     + '<label>Context messages<input type="number" data-ai-room-context min="5" max="50" value="' + escapeHtml(access.max_context_messages || 50) + '"></label>'
-    + '<small>@ai reads up to the latest 50 visible room messages and replies in this chat. Disabled rooms will ignore @ai.</small>'
+    + '<small>/ai reads up to the latest 50 visible room messages and replies in this chat. Disabled rooms will ignore /ai.</small>'
     + '<button type="button" data-ai-room-save>Save AI access</button>'
     + '</div>';
 }
@@ -938,7 +938,7 @@ function wireGroupAiAccess(groupId, container = modalFields, inline = false) {
       group_id: groupId,
       enabled: container.querySelector('[data-ai-room-enabled]')?.checked ? '1' : '0',
       provider_id: container.querySelector('[data-ai-room-provider]')?.value || '',
-      trigger_token: container.querySelector('[data-ai-room-trigger]')?.value.trim() || '@ai',
+      trigger_token: container.querySelector('[data-ai-room-trigger]')?.value.trim() || '/ai',
       max_context_messages: container.querySelector('[data-ai-room-context]')?.value || '50',
     }, { reload: false });
     inline ? await openGroupInline(groupId) : await openGroupDetailModal(groupId);
@@ -1378,6 +1378,7 @@ function escapeHtml(value) {
 
 renderTitle();
 load();
+
 
 
 

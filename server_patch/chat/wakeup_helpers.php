@@ -53,19 +53,90 @@ function wakeup_business_remaining_seconds(int $intervalMinutes, DateTimeInterfa
     return max(0, ($intervalMinutes - $elapsed) * 60);
 }
 
-function wakeup_room_message(array $group, string $lastActivity): string
+function wakeup_decode_payload(string $body, string $prefix): ?array
+{
+    if (!str_starts_with(trim($body), $prefix)) return null;
+    $decoded = json_decode(substr(trim($body), strlen($prefix)), true);
+    return is_array($decoded) ? $decoded : null;
+}
+
+function wakeup_clean_summary_text(string $text): string
+{
+    $text = trim(preg_replace('/\s+/', ' ', $text) ?? $text);
+    return $text === '' ? '' : mb_substr($text, 0, 220);
+}
+
+function wakeup_message_summary(array $message): string
+{
+    $body = (string)($message['body'] ?? '');
+    $fileName = trim((string)($message['file_name'] ?? ''));
+    $fileType = strtolower((string)($message['file_type'] ?? ''));
+    if ($fileName !== '') {
+        if (str_starts_with($fileType, 'image/')) return 'Photo: ' . $fileName;
+        if (str_starts_with($fileType, 'video/')) return 'Video: ' . $fileName;
+        if (str_starts_with($fileType, 'audio/')) return 'Audio: ' . $fileName;
+        return 'File: ' . $fileName;
+    }
+    if ($file = wakeup_decode_payload($body, 'SKYLINK_FILE:')) {
+        $name = trim((string)($file['name'] ?? $file['file_name'] ?? 'attachment'));
+        $type = strtolower((string)($file['mime_type'] ?? $file['type'] ?? ''));
+        if (str_starts_with($type, 'image/')) return 'Photo: ' . $name;
+        if (str_starts_with($type, 'video/')) return 'Video: ' . $name;
+        if (str_starts_with($type, 'audio/')) return 'Audio: ' . $name;
+        return 'File: ' . $name;
+    }
+    if ($location = wakeup_decode_payload($body, 'SKYLINK_LOCATION:')) {
+        $label = !empty($location['is_live']) || !empty($location['is_live_location']) ? 'Live location' : 'Location';
+        $address = wakeup_clean_summary_text((string)($location['address'] ?? $location['location_address'] ?? ''));
+        return $address !== '' ? $label . ': ' . $address : $label;
+    }
+    if ($checklist = wakeup_decode_payload($body, 'SKYLINK_CHECKLIST:')) {
+        $title = wakeup_clean_summary_text((string)($checklist['title'] ?? 'Checklist'));
+        return 'Checklist: ' . ($title !== '' ? $title : 'Checklist');
+    }
+    if ($poll = wakeup_decode_payload($body, 'SKYLINK_POLL:')) {
+        $question = wakeup_clean_summary_text((string)($poll['question'] ?? 'Poll'));
+        return 'Poll: ' . ($question !== '' ? $question : 'Poll');
+    }
+    if (str_starts_with(trim($body), 'SKYLINK_ACTION_CLARIFY:')) return 'Flow MCO asked for missing action details';
+    $summary = wakeup_clean_summary_text($body);
+    return $summary !== '' ? $summary : 'No readable message content';
+}
+
+function wakeup_last_message_summary(PDO $pdo, array $group): string
+{
+    $roomJid = strtolower((string)($group['room_jid'] ?? ''));
+    if ($roomJid === '') return '';
+    $stmt = $pdo->prepare("SELECT body, file_name, file_type, source_name, created_at
+        FROM xmpp_messages
+        WHERE to_jid = :room_jid
+          AND deleted_at IS NULL
+          AND COALESCE(source_name, '') <> 'Wake-up notification'
+          AND body NOT LIKE 'Wake-up reminder:%'
+        ORDER BY created_at DESC, id DESC
+        LIMIT 1");
+    $stmt->execute([':room_jid' => $roomJid]);
+    $message = $stmt->fetch(PDO::FETCH_ASSOC);
+    return $message ? wakeup_message_summary($message) : '';
+}
+
+function wakeup_room_message(array $group, string $lastActivity, string $lastMessageSummary = ''): string
 {
     $name = (string)($group['room_name'] ?? 'this conversation');
     $kind = ((string)($group['group_type'] ?? 'group')) === 'channel' ? 'channel' : 'group';
     $interval = wakeup_interval_label((int)($group['wakeup_interval_minutes'] ?? 1440));
-    return "Wake-up reminder: No new message in {$kind} {$name} for {$interval}. Please share an update if this is still active.";
+    $message = "Wake-up reminder: No new message in {$kind} {$name} for {$interval}.";
+    if (trim($lastMessageSummary) !== '') {
+        $message .= ' Last message summary: ' . trim($lastMessageSummary) . '.';
+    }
+    return $message . ' Please share an update if this is still active.';
 }
 
 function wakeup_emit_group_message(PDO $pdo, array $group, string $lastActivity): int
 {
     chat_ensure_system_notification_account();
     $roomJid = strtolower((string)$group['room_jid']);
-    $body = wakeup_room_message($group, $lastActivity);
+    $body = wakeup_room_message($group, $lastActivity, wakeup_last_message_summary($pdo, $group));
     chat_ejabberd_client()->sendMessage(
         SKYCHAT_SYSTEM_NOTIFICATION_JID,
         $roomJid,

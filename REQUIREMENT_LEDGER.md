@@ -303,3 +303,42 @@
 ## 2026-07-27 19:20:00 +05:30 - Android Public Download Visibility
 - Requirement: Mobile downloads must request storage where needed, save files/images into visible public device folders like WhatsApp/Telegram, and make the saved location clear to the user.
 - Status: Implemented locally. Build not requested in this turn.
+
+## 2026-07-27 13:00:45 - Workspace Chat Filter
+- Requirement: Add a fixed Workspace filter next to All. Workspace lists channels whose channel type is not incident, action, operational, project, or announcement. Channels filter lists only those five core channel types. All and Workspace must not be reorderable; other filters remain reorderable.
+
+
+## 2026-07-27 13:10:59 +05:30 - Chat List Attachment Preview
+- Requirement: Chat list rows must show a clean file/photo/video/audio preview with an icon when the latest message is an attachment, instead of mojibake/raw encoded body text.
+- Status: Implemented locally. Server patch must be deployed for live recent chat JSON to include explicit last_file_name/file_name metadata.
+
+
+## 2026-07-27 14:50:32 +05:30 - Type A Broadcast Messaging
+- Requirement: Flow must support Broadcast messaging where only Type A users can create/send a broadcast to multiple users, recipients receive it as private/direct messages, and replies remain one-to-one with the sender.
+- Status: Implemented locally for text broadcasts. Backend patch must be deployed before production use.
+
+
+## 2026-07-27 - Broadcast Saved List Management
+- Requirement: Broadcast must support a saved name, add/remove recipients, and delete broadcast lists.
+- Status: Implemented locally; backend patch and Flutter UI/API updated.
+
+
+## 2026-07-27 - Slash AI And Conversation Metadata Engine
+- Requirement: Replace @ai trigger with /ai, show slash command list when typing /, and add a strongly typed conversation metadata engine for channels, groups, and DMs.
+- Status: Implemented foundation locally for /ai, slash suggestions, metadata schema, message command/event capture, and conversation snapshot sync.
+
+
+## 2026-07-27 - Employee Birthday And Work Anniversary System Notifications
+- Requirement: Use employee.dob and employee.doj to send birthday and work anniversary messages to all users in System Notifications.
+- Status: Implemented backend daily notification endpoint with duplicate protection.
+
+
+## 2026-07-27 - Next Action Summary And Clarification
+- Requirement: When actionable messages update channel next action/person/date, also save a short action summary. If the message does not clearly include a next action person or date, show a Flow MCO-style clarification card in the conversation so members can update the missing details.
+- Status: Implemented locally; server patch must be deployed for live channels.
+
+
+## 2026-07-27 - Wake-up Last Message Summary
+- Requirement: Wake-up reminder messages must include the latest conversation message summary along with the existing stale/no-new-message reminder text.
+- Status: Implemented locally in backend wake-up helper. Build not required for this backend-only patch.
+

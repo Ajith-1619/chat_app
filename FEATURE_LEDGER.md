@@ -255,3 +255,40 @@
 - Feature: Android attachment downloads now save to public Pictures/Skylink, Movies/Skylink, Music/Skylink, or Downloads/Skylink based on file type.
 - Feature: Saved-message downloads now use the same permission and public-save flow as normal chat attachments.
 - Feature: Modern Android devices avoid the old misleading app-storage fallback warning when public save does not need runtime storage permission.
+
+## 2026-07-27 13:00:45 - Chat List Workspace Filter
+- Feature: Chat filter strip now separates core channels from custom workspace channels using channel kind metadata.
+- Core channel kinds: incident, action, operational, project, announcement.
+
+
+## 2026-07-27 13:10:59 +05:30 - Attachment Preview Metadata
+- Feature: Recent conversation preview now supports last-file metadata from chat APIs and renders attachment-specific preview labels/icons in the conversation list and chat folder list.
+
+
+## 2026-07-27 14:50:32 +05:30 - Broadcast Messaging
+- Feature: Added text-only Broadcast compose flow with searchable multi-recipient selection, Type A UI gate, backend Type A enforcement, broadcast audit tables, direct-message fan-out, XMPP delivery attempt, and push queue integration.
+
+
+## 2026-07-27 - Broadcast Lists
+- Added saved broadcast list management for Type A users: named lists, recipient selection updates, soft delete, and send using saved recipients.
+
+
+## 2026-07-27 - Conversation Metadata Engine
+- Added metadata definition/value/event tables for typed fields including channel type, status, priority, previous action, next action, owner, participants and extensible custom metadata definitions.
+- Added slash command discovery for /ai, /update, /assign, /decision, /meeting, /action, /followup, /reminder, and /tags in the chat composer.
+
+
+## 2026-07-27 - Employee Event Notifications
+- Added daily employee celebration notifications for birthdays and work anniversaries using the System Notifications conversation.
+- Notifications are sent to every active employee and tracked per event/date/employee/recipient to avoid duplicate daily sends.
+
+
+## 2026-07-27 - Next Action Summary And Clarification
+- Feature: Channel action detection now stores next_action_summary with the detected next action metadata.
+- Feature: Missing next action person/date creates a structured Flow MCO clarification card in the channel conversation.
+- Feature: Clarification cards can be opened from chat to update summary, owner, and date through a dedicated API endpoint.
+
+
+## 2026-07-27 - Wake-up Last Message Summary
+- Feature: Wake-up notifications now append a readable last message summary for text, files, photos, videos, audio, locations, checklists, polls, and Flow MCO clarification messages.
+

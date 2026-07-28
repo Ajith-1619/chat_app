@@ -21,12 +21,13 @@ function chat_ai_ensure_room_table(PDO $pdo): void
         group_id INT NOT NULL PRIMARY KEY,
         provider_id INT NULL,
         enabled TINYINT NOT NULL DEFAULT 0,
-        trigger_token VARCHAR(40) NOT NULL DEFAULT '@ai',
+        trigger_token VARCHAR(40) NOT NULL DEFAULT '/ai',
         max_context_messages INT NOT NULL DEFAULT 50,
         updated_by_emp_id INT NULL,
         updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
         INDEX idx_ai_room_enabled (enabled, provider_id)
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
+    $pdo->exec("UPDATE flow_admin_ai_room_access SET trigger_token = '/ai' WHERE trigger_token = '@ai' OR trigger_token = '' OR trigger_token IS NULL");
 }
 
 function chat_ai_room_config(PDO $pdo, int $groupId): ?array
@@ -45,13 +46,13 @@ function chat_ai_room_config(PDO $pdo, int $groupId): ?array
 
 function chat_ai_triggered(string $body, string $trigger): bool
 {
-    $trigger = trim($trigger) !== '' ? trim($trigger) : '@ai';
+    $trigger = trim($trigger) !== '' ? trim($trigger) : '/ai';
     return preg_match('/(^|\s)' . preg_quote($trigger, '/') . '(\s|$|[,:?.!])/i', $body) === 1;
 }
 
 function chat_ai_question(string $body, string $trigger): string
 {
-    $trigger = trim($trigger) !== '' ? trim($trigger) : '@ai';
+    $trigger = trim($trigger) !== '' ? trim($trigger) : '/ai';
     $question = preg_replace('/(^|\s)' . preg_quote($trigger, '/') . '(\s|$|[,:?.!])/i', ' ', $body) ?? $body;
     return trim((string)$question) ?: 'Summarize the recent conversation and answer helpfully.';
 }
@@ -171,7 +172,7 @@ function chat_try_send_ai_room_reply(PDO $pdo, array $group, int $messageId, str
     if ($groupId <= 0 || $roomJid === '' || $messageId <= 0 || trim($body) === '') return;
     $config = chat_ai_room_config($pdo, $groupId);
     if (!$config) return;
-    $trigger = (string)($config['trigger_token'] ?? '@ai');
+    $trigger = (string)($config['trigger_token'] ?? '/ai');
     if (!chat_ai_triggered($body, $trigger)) return;
     $contextRows = chat_ai_recent_context($pdo, $roomJid, $messageId, (int)($config['max_context_messages'] ?? 50));
     $question = chat_ai_question($body, $trigger);

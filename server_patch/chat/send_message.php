@@ -4,6 +4,7 @@ require_once __DIR__ . '/bootstrap.php';
 require_once __DIR__ . '/PluginEventBus.php';
 require_once __DIR__ . '/ai_room_helper.php';
 require_once __DIR__ . '/channel_action_helper.php';
+require_once __DIR__ . '/conversation_metadata_helper.php';
 
 
 function chat_spawn_external_delivery_worker(): void
@@ -400,6 +401,11 @@ try {
             chat_update_channel_next_action_from_message($pdo, $group, $messageId, (int)$session['emp_id'], $body, $mentions);
         } catch (Throwable $actionError) {
             error_log('chat/send_message channel next action skipped: ' . $actionError->getMessage());
+        }
+        try {
+            chat_metadata_record_message($pdo, $group, $messageId, (int)$session['emp_id'], $body, $mentions);
+        } catch (Throwable $metadataError) {
+            error_log('chat/send_message conversation metadata skipped: ' . $metadataError->getMessage());
         }
     }
     $responsePayload = [

@@ -77,7 +77,11 @@ try {
                     (string)($row['last_body'] ?? 'System notification'),
                     (string)($row['last_file_name'] ?? '')
                 ),
-                'time' => (string)$row['last_time'],
+                'last_file_name' => (string)($row['last_file_name'] ?? ''),
+                'file_name' => (string)($row['last_file_name'] ?? ''),
+                'last_file_name' => (string)($row['last_file_name'] ?? ''),
+            'file_name' => (string)($row['last_file_name'] ?? ''),
+            'time' => (string)$row['last_time'],
                 'unread_count' => (int)($row['unread_count'] ?? 0),
                 'mentioned' => false,
                 'pinned' => true,
@@ -104,6 +108,8 @@ try {
                 (string)($row['last_body'] ?? 'Message'),
                 (string)($row['last_file_name'] ?? '')
             ),
+            'last_file_name' => (string)($row['last_file_name'] ?? ''),
+            'file_name' => (string)($row['last_file_name'] ?? ''),
             'time' => (string)$row['last_time'],
             'unread_count' => (int)($row['unread_count'] ?? 0),
             'mentioned' => false,
@@ -169,6 +175,8 @@ try {
                 (string)($row['last_body'] ?? 'Group chat'),
                 (string)($row['last_file_name'] ?? '')
             ),
+            'last_file_name' => (string)($row['last_file_name'] ?? ''),
+            'file_name' => (string)($row['last_file_name'] ?? ''),
             'time' => (string)($row['last_time'] ?? $row['created_at']),
             'unread_count' => max(0, (int)($row['unread_count'] ?? 0)),
             'mentioned' => (int)($row['mentioned'] ?? 0) === 1,

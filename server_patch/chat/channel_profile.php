@@ -1,10 +1,12 @@
 <?php
 declare(strict_types=1);
 require_once __DIR__ . '/bootstrap.php';
+require_once __DIR__ . '/channel_action_helper.php';
 
 $session = chat_require_user();
 $pdo = chat_db();
 chat_ensure_schema($pdo);
+chat_channel_action_ensure_schema($pdo);
 $groupId = max(0, (int)($_GET['group_id'] ?? $_POST['group_id'] ?? 0));
 $jid = strtolower(trim((string)($_GET['jid'] ?? $_POST['jid'] ?? '')));
 if ($groupId <= 0 && $jid === '') chat_json(['status' => false, 'error' => 'Channel is required'], 422);
@@ -75,6 +77,8 @@ chat_json([
         'target_date' => (string)($channel['target_date'] ?? ''),
         'next_action_date' => (string)($channel['next_action_date'] ?? ''),
         'next_action_text' => (string)($channel['next_action_text'] ?? ''),
+        'next_action_summary' => (string)($channel['next_action_summary'] ?? ''),
+        'next_action_missing_fields' => (string)($channel['next_action_missing_fields'] ?? ''),
         'next_action_persons' => (string)($channel['next_action_persons'] ?? ''),
         'next_action_updated_at' => (string)($channel['next_action_updated_at'] ?? ''),
         'sla_minutes' => $slaMinutes,
@@ -95,5 +99,7 @@ chat_json([
         'tags' => $tags,
     ],
 ]);
+
+
 
 

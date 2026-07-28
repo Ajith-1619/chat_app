@@ -1,6 +1,7 @@
 <?php
 declare(strict_types=1);
 require_once __DIR__ . '/bootstrap.php';
+require_once __DIR__ . '/conversation_metadata_helper.php';
 
 $session = chat_require_user();
 $pdo = chat_db();
@@ -59,6 +60,15 @@ try {
     ]);
 } catch (Throwable $e) {
     error_log('channel update timeline skipped: ' . $e->getMessage());
+}
+
+try {
+    $metaStmt = $pdo->prepare('SELECT * FROM xmpp_groups WHERE id = :group_id LIMIT 1');
+    $metaStmt->execute([':group_id' => $groupId]);
+    $metaGroup = $metaStmt->fetch(PDO::FETCH_ASSOC) ?: $channel;
+    chat_metadata_sync_conversation($pdo, $metaGroup, (int)$session['emp_id'], null, 'conversation.updated');
+} catch (Throwable $metadataError) {
+    error_log('chat/update_channel conversation metadata skipped: ' . $metadataError->getMessage());
 }
 
 chat_json(['status' => true, 'message' => 'Channel updated']);

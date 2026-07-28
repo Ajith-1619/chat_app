@@ -126,7 +126,7 @@ class _AiApiScreenState extends State<AiApiScreen> {
                           ),
                           const SizedBox(height: 3),
                           Text(
-                            'Toggle AI for your groups and channels. Use @ai in enabled rooms.',
+                            'Toggle AI for your groups and channels. Use /ai in enabled rooms.',
                             style: TextStyle(color: colors.onSurfaceVariant),
                           ),
                         ],
@@ -198,7 +198,7 @@ class _AiApiScreenState extends State<AiApiScreen> {
           overflow: TextOverflow.ellipsis,
           style: const TextStyle(fontWeight: FontWeight.w700),
         ),
-        subtitle: Text(enabled ? '$subtitle - @ai enabled' : subtitle),
+        subtitle: Text(enabled ? '$subtitle - /ai enabled' : subtitle),
         value: enabled,
         onChanged: saving || groupId <= 0
             ? null

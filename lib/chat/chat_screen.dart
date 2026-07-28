@@ -53,6 +53,21 @@ import '../profile/profile_screens.dart';
 import '../chat/chat_screen.dart';
 import '../attachments/attachment_widgets.dart';
 
+const _actionClarificationPrefix = 'SKYLINK_ACTION_CLARIFY:';
+
+Map<String, dynamic>? decodeActionClarification(String text) {
+  final trimmed = text.trim();
+  if (!trimmed.startsWith(_actionClarificationPrefix)) return null;
+  try {
+    final decoded = jsonDecode(
+      trimmed.substring(_actionClarificationPrefix.length),
+    );
+    return decoded is Map ? Map<String, dynamic>.from(decoded) : null;
+  } catch (_) {
+    return null;
+  }
+}
+
 class ChatMessage {
   const ChatMessage({
     this.id = 0,
@@ -204,6 +219,77 @@ class _PendingChatMessage {
   final DateTime createdAt;
 }
 
+class _SlashCommand {
+  const _SlashCommand({
+    required this.token,
+    required this.title,
+    required this.description,
+    required this.icon,
+  });
+
+  final String token;
+  final String title;
+  final String description;
+  final IconData icon;
+}
+
+const _flowSlashCommands = <_SlashCommand>[
+  _SlashCommand(
+    token: '/ai',
+    title: 'AI',
+    description: 'Ask Flow AI with recent context',
+    icon: Icons.auto_awesome_rounded,
+  ),
+  _SlashCommand(
+    token: '/update',
+    title: 'Update',
+    description: 'Record a status update',
+    icon: Icons.update_rounded,
+  ),
+  _SlashCommand(
+    token: '/assign',
+    title: 'Assign',
+    description: 'Assign owner metadata',
+    icon: Icons.assignment_ind_rounded,
+  ),
+  _SlashCommand(
+    token: '/decision',
+    title: 'Decision',
+    description: 'Capture a decision',
+    icon: Icons.fact_check_rounded,
+  ),
+  _SlashCommand(
+    token: '/meeting',
+    title: 'Meeting',
+    description: 'Capture meeting notes',
+    icon: Icons.groups_2_rounded,
+  ),
+  _SlashCommand(
+    token: '/action',
+    title: 'Action',
+    description: 'Create next action metadata',
+    icon: Icons.task_alt_rounded,
+  ),
+  _SlashCommand(
+    token: '/followup',
+    title: 'Follow-up',
+    description: 'Schedule a follow-up',
+    icon: Icons.event_repeat_rounded,
+  ),
+  _SlashCommand(
+    token: '/reminder',
+    title: 'Reminder',
+    description: 'Create reminder metadata',
+    icon: Icons.notifications_active_outlined,
+  ),
+  _SlashCommand(
+    token: '/tags',
+    title: 'Tags',
+    description: 'Review or add metadata tags',
+    icon: Icons.sell_outlined,
+  ),
+];
+
 class ChatScreen extends StatefulWidget {
   const ChatScreen({
     super.key,
@@ -254,6 +340,7 @@ class _ChatScreenState extends State<ChatScreen> {
   String _groupRole = '';
   bool _canViewMessageLocations = false;
   String _mentionQuery = '';
+  String _slashQuery = '';
   final Set<String> _selectedMentions = {};
   final Map<int, GlobalKey> _messageKeys = {};
   final Set<int> _selectedMessageIds = <int>{};
@@ -2263,6 +2350,39 @@ class _ChatScreenState extends State<ChatScreen> {
       if (message.id == id) return message;
     }
     return null;
+  }
+
+  List<_SlashCommand> get _slashSuggestions {
+    if (!RegExp(r'(?:^|\s)/[A-Za-z0-9_]*$').hasMatch(_messageController.text)) {
+      return const [];
+    }
+    return _flowSlashCommands
+        .where((command) {
+          final key = command.token.replaceFirst('/', '').toLowerCase();
+          return _slashQuery.isEmpty ||
+              key.contains(_slashQuery) ||
+              command.title.toLowerCase().contains(_slashQuery);
+        })
+        .take(8)
+        .toList();
+  }
+
+  void _selectSlashCommand(_SlashCommand command) {
+    final text = _messageController.text;
+    final match = RegExp(r'(?:^|\s)/[A-Za-z0-9_]*$').firstMatch(text);
+    if (match == null) return;
+    final prefix = match.group(0)?.startsWith(' ') == true ? ' ' : '';
+    _messageController.value = TextEditingValue(
+      text: text.replaceRange(
+        match.start,
+        match.end,
+        '$prefix${command.token} ',
+      ),
+      selection: TextSelection.collapsed(
+        offset: match.start + prefix.length + command.token.length + 1,
+      ),
+    );
+    setState(() => _slashQuery = '');
   }
 
   List<GroupMember> get _mentionSuggestions {
@@ -4306,6 +4426,139 @@ class _ChatScreenState extends State<ChatScreen> {
     });
   }
 
+  Future<void> _showActionClarificationDialog(
+    ChatMessage message,
+    Map<String, dynamic> payload,
+  ) async {
+    final groupId = int.tryParse(widget.chat.empId) ?? 0;
+    if (groupId <= 0) return;
+    if (_groupMembers.isEmpty) await _loadGroupMembers();
+    if (!mounted) return;
+
+    final summaryController = TextEditingController(
+      text: '${payload['summary'] ?? ''}',
+    );
+    final personsController = TextEditingController();
+    final dateController = TextEditingController();
+    final sourceMessageId =
+        int.tryParse('${payload['source_message_id'] ?? message.id}') ??
+        message.id;
+    final missing = (payload['missing_fields'] is List)
+        ? (payload['missing_fields'] as List).map((item) => '$item').toSet()
+        : <String>{};
+
+    final save = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Update next action'),
+        content: SizedBox(
+          width: 460,
+          child: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                TextField(
+                  controller: summaryController,
+                  maxLines: 3,
+                  decoration: const InputDecoration(
+                    labelText: 'Action summary',
+                    alignLabelWithHint: true,
+                  ),
+                ),
+                const SizedBox(height: 12),
+                TextField(
+                  controller: personsController,
+                  decoration: InputDecoration(
+                    labelText: missing.contains('person')
+                        ? 'Next action person required'
+                        : 'Next action person',
+                    hintText: 'Example: Ajith P (302)',
+                  ),
+                ),
+                if (_groupMembers.isNotEmpty) ...[
+                  const SizedBox(height: 8),
+                  Wrap(
+                    spacing: 6,
+                    runSpacing: 6,
+                    children: _groupMembers.take(12).map((member) {
+                      return ActionChip(
+                        label: Text(member.name),
+                        onPressed: () => personsController.text =
+                            '${member.name} (${member.empId})',
+                      );
+                    }).toList(),
+                  ),
+                ],
+                const SizedBox(height: 12),
+                TextField(
+                  controller: dateController,
+                  readOnly: true,
+                  decoration: InputDecoration(
+                    labelText: missing.contains('date')
+                        ? 'Next action date required'
+                        : 'Next action date',
+                    suffixIcon: const Icon(Icons.event_outlined),
+                  ),
+                  onTap: () async {
+                    final picked = await showDatePicker(
+                      context: dialogContext,
+                      initialDate: DateTime.now().add(const Duration(days: 1)),
+                      firstDate: DateTime.now().subtract(
+                        const Duration(days: 1),
+                      ),
+                      lastDate: DateTime.now().add(const Duration(days: 365)),
+                    );
+                    if (picked == null) return;
+                    dateController.text =
+                        '${picked.year.toString().padLeft(4, '0')}-${picked.month.toString().padLeft(2, '0')}-${picked.day.toString().padLeft(2, '0')} 18:00:00';
+                  },
+                ),
+              ],
+            ),
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext, false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(dialogContext, true),
+            child: const Text('Save'),
+          ),
+        ],
+      ),
+    );
+
+    if (save != true) {
+      summaryController.dispose();
+      personsController.dispose();
+      dateController.dispose();
+      return;
+    }
+    try {
+      await chatApi.updateActionClarification(
+        groupId: groupId,
+        sourceMessageId: sourceMessageId,
+        nextActionSummary: summaryController.text,
+        nextActionPersons: personsController.text,
+        nextActionDate: dateController.text,
+      );
+      if (mounted) setState(() {});
+    } on ApiException catch (error) {
+      if (mounted) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text(error.message)));
+      }
+    } finally {
+      summaryController.dispose();
+      personsController.dispose();
+      dateController.dispose();
+    }
+  }
+
   Future<void> _editMessage(ChatMessage message) async {
     if (decodeLiveChecklist(message.text) != null) {
       await _editChecklistMessage(message);
@@ -5418,6 +5671,17 @@ class _ChatScreenState extends State<ChatScreen> {
                                         _toggleChecklist(message, itemIndex),
                                     onPollVote: (optionIndex) =>
                                         _votePoll(message, optionIndex),
+                                    onActionClarificationTap: () {
+                                      final payload = decodeActionClarification(
+                                        message.text,
+                                      );
+                                      if (payload != null) {
+                                        _showActionClarificationDialog(
+                                          message,
+                                          payload,
+                                        );
+                                      }
+                                    },
                                   );
                                 },
                               ),
@@ -5453,6 +5717,25 @@ class _ChatScreenState extends State<ChatScreen> {
               ),
             ),
           ),
+          if (_slashSuggestions.isNotEmpty)
+            Container(
+              constraints: const BoxConstraints(maxHeight: 260),
+              color: Colors.white,
+              child: ListView(
+                shrinkWrap: true,
+                children: _slashSuggestions
+                    .map(
+                      (command) => ListTile(
+                        dense: true,
+                        leading: CircleAvatar(child: Icon(command.icon)),
+                        title: Text(command.token),
+                        subtitle: Text(command.description),
+                        onTap: () => _selectSlashCommand(command),
+                      ),
+                    )
+                    .toList(),
+              ),
+            ),
           if (_mentionSuggestions.isNotEmpty)
             Container(
               constraints: const BoxConstraints(maxHeight: 220),
@@ -6020,6 +6303,13 @@ class _ChatScreenState extends State<ChatScreen> {
                             : profile!.description,
                       ),
                       _ChannelProfileTile(
+                        icon: Icons.summarize_outlined,
+                        label: 'Action summary',
+                        value: (profile?.nextActionSummary ?? '').trim().isEmpty
+                            ? 'No action summary detected.'
+                            : profile!.nextActionSummary,
+                      ),
+                      _ChannelProfileTile(
                         icon: Icons.task_alt_rounded,
                         label: 'Next action',
                         value: (profile?.nextActionText ?? '').trim().isEmpty
@@ -6491,6 +6781,7 @@ class _MessageBubble extends StatelessWidget {
     this.onSwipeBack,
     this.onChecklistToggle,
     this.onPollVote,
+    this.onActionClarificationTap,
     this.onTextSelectionPointerDown,
     this.onTextSelectionPointerUp,
     this.onTextSelectionChanged,
@@ -6515,6 +6806,7 @@ class _MessageBubble extends StatelessWidget {
   final VoidCallback? onSwipeBack;
   final ValueChanged<int>? onChecklistToggle;
   final ValueChanged<int>? onPollVote;
+  final VoidCallback? onActionClarificationTap;
   final VoidCallback? onTextSelectionPointerDown;
   final VoidCallback? onTextSelectionPointerUp;
   final VoidCallback? onTextSelectionChanged;
@@ -6530,6 +6822,7 @@ class _MessageBubble extends StatelessWidget {
     final contactCard = decodeContactCard(message.text);
     final checklist = decodeLiveChecklist(message.text);
     final poll = decodeLivePoll(message.text);
+    final actionClarification = decodeActionClarification(message.text);
     final isTaggedOrReplied =
         message.replyToId > 0 ||
         message.originalSenderName.isNotEmpty ||
@@ -6548,7 +6841,8 @@ class _MessageBubble extends StatelessWidget {
         attachment == null &&
         contactCard == null &&
         checklist == null &&
-        poll == null;
+        poll == null &&
+        actionClarification == null;
     final letTextOwnMouseDrag = desktopTextSelection && selectableTextBubble;
     if (message.isSystem) {
       return Column(
@@ -6779,6 +7073,11 @@ class _MessageBubble extends StatelessWidget {
                           showDetails: showChecklistPollDetails,
                           participantNames: participantNames,
                         )
+                      else if (actionClarification != null)
+                        _ActionClarificationCard(
+                          data: actionClarification,
+                          onUpdate: onActionClarificationTap,
+                        )
                       else
                         Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
@@ -6953,6 +7252,87 @@ class _MessageBubble extends StatelessWidget {
           ),
         ),
       ],
+    );
+  }
+}
+
+class _ActionClarificationCard extends StatelessWidget {
+  const _ActionClarificationCard({required this.data, this.onUpdate});
+
+  final Map<String, dynamic> data;
+  final VoidCallback? onUpdate;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final missing = data['missing_fields'] is List
+        ? (data['missing_fields'] as List).map((item) => '$item').toList()
+        : const <String>[];
+    final summary = cleanMojibakeText('${data['summary'] ?? ''}').trim();
+    return Container(
+      constraints: const BoxConstraints(minWidth: 260, maxWidth: 420),
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: theme.colorScheme.primary.withValues(alpha: 0.08),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(
+          color: theme.colorScheme.primary.withValues(alpha: 0.35),
+        ),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Row(
+            children: [
+              Icon(Icons.rule_rounded, color: theme.colorScheme.primary),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  'Action needs details',
+                  style: theme.textTheme.titleSmall?.copyWith(
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
+              ),
+            ],
+          ),
+          if (summary.isNotEmpty) ...[
+            const SizedBox(height: 8),
+            Text(summary, style: theme.textTheme.bodyMedium),
+          ],
+          if (missing.isNotEmpty) ...[
+            const SizedBox(height: 10),
+            Wrap(
+              spacing: 6,
+              runSpacing: 6,
+              children: missing
+                  .map(
+                    (field) => Chip(
+                      visualDensity: VisualDensity.compact,
+                      label: Text(
+                        field == 'person'
+                            ? 'Person missing'
+                            : field == 'date'
+                            ? 'Date missing'
+                            : field,
+                      ),
+                    ),
+                  )
+                  .toList(),
+            ),
+          ],
+          const SizedBox(height: 10),
+          Align(
+            alignment: Alignment.centerRight,
+            child: FilledButton.icon(
+              onPressed: onUpdate,
+              icon: const Icon(Icons.edit_calendar_outlined, size: 18),
+              label: const Text('Update'),
+            ),
+          ),
+        ],
+      ),
     );
   }
 }

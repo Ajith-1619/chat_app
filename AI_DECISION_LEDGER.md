@@ -316,3 +316,45 @@
 - Decision: Move Android download saving from direct path writes into a native public-save bridge using MediaStore on Android 10+ and legacy public directories on older Android versions.
 - Decision: Save images/videos/audio into media collections and general documents into Downloads so users can find them in Gallery or Files naturally.
 - Reason: Smallest reliable fix for user-visible downloads without rewriting the attachment UI or web/desktop download flows.
+
+## 2026-07-27 13:00:45 - Decision
+- Decision: Use existing recent chat channel_kind metadata instead of adding a backend call.
+- Reason: The recent_chats endpoint already returns channel_kind; carrying it through ChatContact/ChatPreview keeps the change minimal and avoids new latency/API risk.
+
+
+## 2026-07-27 13:10:59 +05:30 - Attachment Preview Decision
+- Decision: Use explicit backend file metadata for recent chat previews instead of trying to decode corrupted or binary-looking message bodies in the UI.
+- Rationale: File metadata is already selected by recent_chats.php and is the stable source of truth; this prevents mojibake from appearing and keeps normal message previews unchanged.
+
+
+## 2026-07-27 14:50:32 +05:30 - Broadcast Architecture Decision
+- Decision: Model Broadcast as a sender-owned list with direct-message fan-out instead of creating a hidden group/channel.
+- Rationale: This matches WhatsApp/Telegram broadcast semantics: recipients do not see each other and replies return through normal one-to-one chat.
+- Decision: Backend enforces Type A only, while UI provides an early Type A check for better feedback.
+
+
+## 2026-07-27 - Broadcast Architecture Decision
+- Used soft delete for broadcast lists so sent-message history/audit is preserved.
+- Saved list send reuses direct one-to-one message fanout and stores recipients centrally to avoid exposing recipient lists to non-owners.
+- Kept implementation scoped to existing broadcast.php, ChatApi, and BroadcastSheet without changing core chat message behavior.
+
+
+## 2026-07-27 - Metadata Engine Decision
+- Implemented metadata as first-class typed tables rather than plain text fields, with custom field definitions keyed by channel type for future admin configuration.
+- Kept /ai as a slash command and migrated stored @ai room triggers on helper initialization to preserve existing AI-enabled rooms.
+- Kept slash command UI as an insertion helper only, preserving the existing message send pipeline.
+
+
+## 2026-07-27 - Employee Event Notification Decision
+- Reused existing SystemNotification.php so messages appear in the existing System Notifications chat and push behavior remains consistent.
+- Implemented as an authorized daily runner endpoint/CLI-safe script instead of adding polling to the app, avoiding extra client API calls.
+
+
+## 2026-07-27 - Next Action Summary And Clarification
+- Decision: Use a structured SKYLINK_ACTION_CLARIFY message prefix for missing owner/date clarification instead of a snackbar or side-panel-only warning.
+- Rationale: The missing metadata belongs to the conversation context, and a chat card lets members resolve it where the actionable message happened while keeping the metadata engine database-driven.
+
+
+## 2026-07-27 - Wake-up Last Message Summary
+- Decision: Generate wake-up summaries from the latest stored message metadata/body instead of calling AI, keeping scheduled notification latency low and avoiding extra API cost.
+

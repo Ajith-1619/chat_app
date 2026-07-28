@@ -470,3 +470,56 @@
 - Change: Updated attachment download flow to save Android files/images into visible public media/download directories through MediaStore or legacy public storage.
 - Change: Added saved-message permission call before download and updated legacy-only storage permission messaging.
 - Verification: dart format passed; scoped flutter analyze reported no new compile errors in changed Dart files. Native Gradle verification could not complete locally because JAVA_HOME/java is missing on this machine.
+
+## 2026-07-27 13:00:45 - Workspace Filter Implementation
+- lib/chat_api.dart: Added ChatContact.channelKind and mapped channel_kind/channel_type from recent chat API JSON.
+- lib/home/home_screen.dart: Added ChatPreview.channelKind, core channel kind helpers, Workspace filter id 7, fixed All + Workspace chip placement, and movable-only saved/reorder filter order.
+
+
+## 2026-07-27 13:10:59 +05:30 - Chat List File Preview Cleanup
+- Files: lib/chat_api.dart, lib/home/home_screen.dart, server_patch/chat/recent_chats.php.
+- Change: Added ChatContact/ChatPreview last file metadata fields and mapped last_file_name/file_name from recent chat JSON.
+- Change: Added attachment preview labels and icons for photo, video, audio, PDF, and generic files in chat list rows.
+- Change: Updated recent_chats.php to return explicit last_file_name/file_name values for direct chats, groups/channels, and system notification rows.
+- Verification: dart format passed; PHP lint passed; scoped flutter analyze reported no new compile errors, with the existing 36 warning/info backlog remaining.
+
+
+## 2026-07-27 14:50:32 +05:30 - Broadcast Messaging Implementation
+- Files: lib/chat_api.dart, lib/home/home_screen.dart, server_patch/chat/broadcast.php.
+- Change: Added ChatApi.sendBroadcast() to call chat/broadcast.php with recipient IDs, message, and source metadata.
+- Change: Added Broadcast entry points in home actions, overflow menu, drawer, and New Message sheet.
+- Change: Added BroadcastSheet with title, message, searchable recipient list, multi-select, validation, and send progress state.
+- Change: Added server broadcast endpoint with xmpp_broadcast_lists, xmpp_broadcast_recipients, xmpp_broadcast_sends, and xmpp_broadcast_message_map auto-create schema.
+- Change: Enforced broadcast create/send for employee type A only; recipients receive normal direct xmpp_messages so replies stay private.
+- Verification: PHP lint passed; dart format passed; scoped flutter analyze reported no compile errors, with existing 36 warning/info backlog remaining.
+
+
+## 2026-07-27 - Broadcast Name / Members / Delete
+- Updated server_patch/chat/broadcast.php with GET recipient payloads and save/update/delete actions.
+- Updated lib/chat_api.dart with BroadcastList model plus get/save/delete/send broadcast APIs.
+- Updated lib/home/home_screen.dart BroadcastSheet with list picker, broadcast name, member add/remove, save, delete, and send controls.
+
+
+## 2026-07-27 - /ai And Metadata Sync
+- Updated server_patch/chat/ai_room_helper.php default trigger and migration from @ai to /ai.
+- Added server_patch/chat/conversation_metadata_helper.php for typed metadata definitions, values, and events.
+- Wired metadata sync into send_message.php, create_group.php, and update_channel.php.
+- Updated lib/chat/chat_screen.dart with slash command suggestions and lib/ai_api_screen.dart/admin public JS copy to use /ai.
+
+
+## 2026-07-27 - DOB/DOJ Notification Runner
+- Added server_patch/chat/employee_event_notifications.php.
+- Endpoint reads employee.emp_id, dob, doj, name/designation, detects today birthday/work anniversary, sends via chat_send_system_notification, and logs delivery in xmpp_employee_event_notifications.
+
+
+## 2026-07-27 - Next Action Summary And Clarification
+- Updated server_patch/chat/channel_action_helper.php to add next_action_summary and next_action_missing_fields schema, strict person detection, summary extraction, and clarification-card insertion.
+- Added server_patch/chat/update_action_clarification.php to update missing next action metadata from the chat UI.
+- Updated server_patch/chat/channel_profile.php and conversation_metadata_helper.php to expose/sync next action summary.
+- Updated lib/chat_api.dart, lib/chat/chat_screen.dart, and lib/home/home_screen.dart for summary display and Flow MCO clarification card UI.
+
+
+## 2026-07-27 - Wake-up Last Message Summary
+- Updated server_patch/chat/wakeup_helpers.php with last-message summary extraction and wake-up message body enrichment.
+- Wake-up summary fetch excludes previous wake-up reminder messages so the summary points to the latest real conversation content.
+

@@ -423,3 +423,60 @@
 - Verified: Normal attachment download callers and saved-message download callers still use the same chat API path and success snackbar flow.
 - Pending manual check: On Android, download an image and confirm it appears in Gallery/Pictures; download a document and confirm it appears in Files > Downloads/Skylink.
 - Environment blocker: Native compile was not fully verified locally because the machine does not have JAVA_HOME/java configured for Gradle.
+
+## 2026-07-27 13:00:45 - Workspace Filter Verification
+- Verified All remains first and Workspace remains second in filter strip.
+- Verified reorder dialog operates only on movable filters: Unread, Online, Personal, Groups, Channels, Starred.
+- Verified Channels filter excludes non-core channel kinds; Workspace filter includes non-core channel kinds.
+- Ran dart format and flutter analyze on touched files; analyzer reported existing warnings/info only, no compile errors.
+
+
+## 2026-07-27 13:10:59 +05:30 - Chat List Attachment Preview Regression Check
+- Scope: Recent chat list and chat folder list preview rendering.
+- Preserved: Normal text message previews still use existing plain-text cleanup; voice message icon remains for non-file voice previews; group/channel filtering untouched in this change.
+- Risk: Live server must deploy server_patch/chat/recent_chats.php so older API responses do not omit file metadata.
+- Validation: PHP lint passed and scoped Flutter analyze showed no compile errors from this change.
+
+
+## 2026-07-27 14:50:32 +05:30 - Broadcast Regression Check
+- Scope: Home compose actions, drawer actions, user search, direct message persistence, Type A authorization.
+- Preserved: Existing direct chat, group, channel, selected-user send, and attachment flows were not rewritten.
+- Risk: First version is text-only; file/location/voice broadcast support remains future work. Live server must deploy server_patch/chat/broadcast.php.
+- Validation: server_patch/chat/broadcast.php PHP syntax passed; Flutter analyzer has no new compile errors.
+
+
+## 2026-07-27 - Broadcast Regression Verification
+- PHP syntax check passed for server_patch/chat/broadcast.php.
+- dart format completed for lib/chat_api.dart and lib/home/home_screen.dart.
+- flutter analyze completed with no new compile errors; existing lint warnings remain in scoped files.
+- Existing one-shot send remains supported through optional broadcastId API signature.
+
+
+## 2026-07-27 - Slash AI Metadata Verification
+- PHP lint passed for conversation_metadata_helper.php, ai_room_helper.php, send_message.php, create_group.php, and update_channel.php.
+- dart format completed for lib/chat/chat_screen.dart and lib/ai_api_screen.dart.
+- flutter analyze completed for the modified Flutter files with no compile errors; existing warnings remain unrelated to this change.
+- Metadata write failures are caught/logged so core message send remains protected.
+
+
+## 2026-07-27 - Employee Event Notification Verification
+- PHP lint passed for server_patch/chat/employee_event_notifications.php.
+- No Flutter UI/build changes were required.
+- Duplicate protection uses event date/type/source employee/recipient plus unique notification reference.
+
+
+## 2026-07-27 - Next Action Summary And Clarification
+- Preserved: Existing send_message flow still saves normal next action text/person/date and does not block message sending if timeline/metadata logging fails.
+- Preserved: Existing checklist, poll, attachment, contact, and normal selectable text message rendering remain separate branches.
+- Risk: Live server must deploy the new PHP endpoint and helper changes so auto-created columns exist before the UI update card can save.
+
+
+## 2026-07-27 - Wake-up Last Message Summary
+- Preserved: Existing wake-up due calculation, Ejabberd groupchat send, xmpp_messages persistence, and wakeup_last_sent_at update remain unchanged.
+- Risk: Live server must deploy wakeup_helpers.php for new summary text to appear in scheduled wake-up notifications.
+
+
+## 2026-07-27 - Web Build After Wake-up Summary
+- Verification: Web release compiled successfully after wake-up last-message summary backend patch and prior chat metadata updates.
+- Remaining manual checks: Deploy server_patch/chat/wakeup_helpers.php with the web build, then confirm scheduled wake-up messages include Last message summary in group/channel chat.
+

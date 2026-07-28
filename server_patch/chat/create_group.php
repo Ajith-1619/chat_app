@@ -2,6 +2,7 @@
 declare(strict_types=1);
 require_once __DIR__ . '/bootstrap.php';
 require_once __DIR__ . '/PluginEventBus.php';
+require_once __DIR__ . '/conversation_metadata_helper.php';
 
 $session = chat_require_user();
 $chatPdo = chat_db();
@@ -71,6 +72,12 @@ foreach ($validMembers as $empId) {
     }
 }
 $chatPdo->commit();
+
+try {
+    chat_metadata_sync_conversation($chatPdo, ['id' => $groupId, 'room_name' => $groupName, 'room_jid' => $roomJid, 'group_type' => 'group', 'channel_kind' => 'group', 'status' => 'Open', 'priority' => 'Normal'], (int)$session['emp_id'], null, 'conversation.created');
+} catch (Throwable $metadataError) {
+    error_log('chat/create_group conversation metadata skipped: ' . $metadataError->getMessage());
+}
 
 flow_plugin_emit($chatPdo, 'channel.created', [
     'event_id' => 'group-created-' . $groupId,

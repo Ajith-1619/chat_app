@@ -76,6 +76,9 @@ class ChatPreview {
     this.originalSenderName = '',
     this.originalSourceName = '',
     this.isChannel = false,
+    this.channelKind = '',
+    this.lastFileName = '',
+    this.lastFileType = '',
     this.nextActionText = '',
     this.nextActionPersons = '',
     this.nextActionDate = '',
@@ -92,20 +95,29 @@ class ChatPreview {
       Color(0xFF18A2AE),
     ];
     final attachment = ChatAttachment.tryParse(contact.lastMessage);
+    final fileName = contact.lastFileName.trim().isNotEmpty
+        ? contact.lastFileName.trim()
+        : (attachment?.name.trim() ?? '');
+    final fileType = contact.lastFileType.trim().isNotEmpty
+        ? contact.lastFileType.trim()
+        : (attachment?.mimeType.trim() ?? '');
     return ChatPreview(
       empId: contact.empId,
       jid: contact.jid,
       name: contact.name.isEmpty ? contact.empId : contact.name,
       designation: contact.designation,
-      message: attachment == null
+      message: fileName.isEmpty
           ? _plainMessagePreview(contact.lastMessage)
-          : 'Attachment: ${attachment.name}',
+          : _fileMessagePreview(fileName, fileType),
       time: _displayChatTime(contact.time),
       avatarColor: colors[contact.empId.hashCode.abs() % colors.length],
       unread: contact.unread,
       isOnline: contact.isOnline,
       isGroup: contact.type != 'chat',
       isChannel: contact.type == 'channel',
+      channelKind: contact.channelKind,
+      lastFileName: fileName,
+      lastFileType: fileType,
       isPinned: contact.isPinned,
       isStarred: contact.isStarred,
       wasMentioned: contact.wasMentioned,
@@ -122,6 +134,8 @@ class ChatPreview {
   final String designation;
   final String message;
   final String time;
+  final String lastFileName;
+  final String lastFileType;
   final Color avatarColor;
   final int unread;
   final bool isOnline;
@@ -136,6 +150,7 @@ class ChatPreview {
   final String originalSenderName;
   final String originalSourceName;
   final bool isChannel;
+  final String channelKind;
   final String nextActionText;
   final String nextActionPersons;
   final String nextActionDate;
@@ -204,6 +219,47 @@ String _displayChatTime(String value) {
   return '${local.day}/${local.month}/${local.year}';
 }
 
+String _fileMessagePreview(String fileName, String fileType) {
+  final lower = '${fileType.toLowerCase()} ${fileName.toLowerCase()}';
+  if (lower.contains('image/') ||
+      RegExp(r'\.(jpe?g|png|gif|webp|bmp|svg|heic|heif)$').hasMatch(lower)) {
+    return 'Photo: $fileName';
+  }
+  if (lower.contains('video/') ||
+      RegExp(r'\.(mp4|mov|mkv|avi|webm|m4v)$').hasMatch(lower)) {
+    return 'Video: $fileName';
+  }
+  if (lower.contains('audio/') ||
+      RegExp(r'\.(mp3|m4a|aac|wav|ogg|oga|opus|flac|amr)$').hasMatch(lower)) {
+    return 'Audio: $fileName';
+  }
+  if (lower.contains('pdf') || lower.endsWith('.pdf')) {
+    return 'PDF: $fileName';
+  }
+  return 'File: $fileName';
+}
+
+IconData _filePreviewIcon(ChatPreview chat) {
+  final lower =
+      '${chat.lastFileType.toLowerCase()} ${chat.lastFileName.toLowerCase()}';
+  if (lower.contains('image/') ||
+      RegExp(r'\.(jpe?g|png|gif|webp|bmp|svg|heic|heif)$').hasMatch(lower)) {
+    return Icons.image_rounded;
+  }
+  if (lower.contains('video/') ||
+      RegExp(r'\.(mp4|mov|mkv|avi|webm|m4v)$').hasMatch(lower)) {
+    return Icons.videocam_rounded;
+  }
+  if (lower.contains('audio/') ||
+      RegExp(r'\.(mp3|m4a|aac|wav|ogg|oga|opus|flac|amr)$').hasMatch(lower)) {
+    return Icons.audiotrack_rounded;
+  }
+  if (lower.contains('pdf') || lower.endsWith('.pdf')) {
+    return Icons.picture_as_pdf_rounded;
+  }
+  return Icons.insert_drive_file_rounded;
+}
+
 String _plainMessagePreview(String value) {
   return value
       .replaceAll(RegExp(r'\[color=#[0-9A-Fa-f]{6}\]'), '')
@@ -215,6 +271,39 @@ String _plainMessagePreview(String value) {
       .trim();
 }
 
+const _coreChannelKinds = {
+  'incident',
+  'action',
+  'operational',
+  'project',
+  'announcement',
+};
+
+bool _isMovableFilter(int filter) => const {1, 2, 3, 4, 5, 6}.contains(filter);
+
+String _normalizeChannelKindValue(String value) {
+  final normalized = value
+      .trim()
+      .toLowerCase()
+      .replaceAll(RegExp(r'[^a-z0-9]+'), '_')
+      .replaceAll(RegExp(r'^_+|_+$'), '');
+  return normalized;
+}
+
+String _channelKindForPreview(ChatPreview chat) {
+  var kind = _normalizeChannelKindValue(chat.channelKind);
+  if (kind.isEmpty) {
+    kind = _normalizeChannelKindValue(
+      chat.designation.replaceFirst(
+        RegExp(r'\s+channel$', caseSensitive: false),
+        '',
+      ),
+    );
+  }
+  return kind.isEmpty && chat.isChannel ? 'operational' : kind;
+}
+
+bool _isCoreChannelKind(String kind) => _coreChannelKinds.contains(kind);
 String formatFileBytes(int bytes) {
   if (bytes < 1024) return '$bytes B';
   if (bytes < 1024 * 1024) return '${(bytes / 1024).toStringAsFixed(1)} KB';
@@ -308,7 +397,7 @@ class _HomeScreenState extends State<HomeScreen> {
   StreamSubscription<String>? _pushTokenSubscription;
   String _query = '';
   int _filter = 0;
-  List<int> _filterOrder = const [0, 1, 6, 2, 3, 4, 5];
+  List<int> _filterOrder = const [1, 6, 2, 3, 4, 5];
   Map<String, List<String>> _chatFolders = const {};
   List<String> _chatFolderOrder = const [];
   String _activeFolderName = '';
@@ -336,8 +425,10 @@ class _HomeScreenState extends State<HomeScreen> {
         1 => chat.unread > 0,
         2 => !chat.isGroup,
         3 => chat.isGroup && !chat.isChannel,
-        4 => chat.isChannel,
+        4 => chat.isChannel && _isCoreChannelKind(_channelKindForPreview(chat)),
         5 => chat.isStarred,
+        7 =>
+          chat.isChannel && !_isCoreChannelKind(_channelKindForPreview(chat)),
         6 => chat.isOnline,
         _ => true,
       };
@@ -612,6 +703,7 @@ class _HomeScreenState extends State<HomeScreen> {
     4 => 'Channels',
     5 => 'Starred',
     6 => 'Online',
+    7 => 'Workspace',
     _ => 'All',
   };
 
@@ -619,8 +711,12 @@ class _HomeScreenState extends State<HomeScreen> {
     final prefs = await SharedPreferences.getInstance();
     final saved = prefs.getStringList(_filterOrderKey);
     if (saved == null) return;
-    final values = saved.map(int.tryParse).whereType<int>().toList();
-    const expected = {0, 1, 2, 3, 4, 5, 6};
+    final values = saved
+        .map(int.tryParse)
+        .whereType<int>()
+        .where(_isMovableFilter)
+        .toList();
+    const expected = {1, 2, 3, 4, 5, 6};
     if (values.length != expected.length ||
         values.toSet().length != expected.length ||
         !values.toSet().containsAll(expected)) {
@@ -711,6 +807,8 @@ class _HomeScreenState extends State<HomeScreen> {
     EdgeInsets padding = const EdgeInsets.fromLTRB(10, 0, 10, 8),
   }) {
     final chips = [
+      _buildChatFilter(0),
+      _buildChatFilter(7),
       ..._filterOrder.map(_buildChatFilter),
       ..._chatFolderOrder
           .where((name) => name.trim().isNotEmpty)
@@ -752,7 +850,7 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   Future<void> _reorderFilters() async {
-    var order = List<int>.from(_filterOrder);
+    var order = _filterOrder.where(_isMovableFilter).toList();
     final updated = await showDialog<List<int>>(
       context: context,
       builder: (dialogContext) => StatefulBuilder(
@@ -836,7 +934,9 @@ class _HomeScreenState extends State<HomeScreen> {
       return switch (filter) {
         2 => !chat.isGroup,
         3 => chat.isGroup && !chat.isChannel,
-        4 => chat.isChannel,
+        4 => chat.isChannel && _isCoreChannelKind(_channelKindForPreview(chat)),
+        7 =>
+          chat.isChannel && !_isCoreChannelKind(_channelKindForPreview(chat)),
         _ => true,
       };
     }).toList();
@@ -1248,6 +1348,13 @@ class _HomeScreenState extends State<HomeScreen> {
     if (mounted) await _openChat(channel);
   }
 
+  Future<void> _createBroadcast() async {
+    if (!await _canCreateBroadcast(context)) return;
+    if (!mounted) return;
+    await showBroadcastSheet(context);
+    if (mounted) await _loadChats(silent: true);
+  }
+
   @override
   Widget build(BuildContext context) {
     if (MediaQuery.sizeOf(context).width >= 900) {
@@ -1325,6 +1432,11 @@ class _HomeScreenState extends State<HomeScreen> {
             onPressed: _createGroup,
             icon: const Icon(Icons.group_add_outlined),
           ),
+          IconButton(
+            tooltip: 'Broadcast',
+            onPressed: _createBroadcast,
+            icon: const Icon(Icons.campaign_rounded),
+          ),
           PopupMenuButton<String>(
             icon: const Icon(Icons.more_vert_rounded),
             onSelected: (value) {
@@ -1332,6 +1444,8 @@ class _HomeScreenState extends State<HomeScreen> {
                 logout(context);
               } else if (value == 'New group') {
                 _createGroup();
+              } else if (value == 'Broadcast') {
+                _createBroadcast();
               } else if (value == 'Settings') {
                 Navigator.of(context).push(
                   MaterialPageRoute<void>(
@@ -1345,6 +1459,7 @@ class _HomeScreenState extends State<HomeScreen> {
             },
             itemBuilder: (_) => const [
               PopupMenuItem(value: 'New group', child: Text('New group')),
+              PopupMenuItem(value: 'Broadcast', child: Text('Broadcast')),
               PopupMenuItem(value: 'Settings', child: Text('Settings')),
               PopupMenuDivider(),
               PopupMenuItem(value: 'logout', child: Text('Log out')),
@@ -1777,6 +1892,7 @@ class _DesktopConversationProfileState
       'channel_priority': channelProfile?.priority ?? '',
       'channel_description': channelProfile?.description ?? '',
       'channel_next_action_text': channelProfile?.nextActionText ?? '',
+      'channel_next_action_summary': channelProfile?.nextActionSummary ?? '',
       'channel_next_action_persons': channelProfile?.nextActionPersons ?? '',
       'channel_next_action_date': channelProfile?.nextActionDate ?? '',
       'channel_next_action_updated_at':
@@ -2347,6 +2463,8 @@ class _DesktopConversationProfileState
               .toString();
           final channelNextAction = (profile['channel_next_action_text'] ?? '')
               .toString();
+          final channelNextSummary =
+              (profile['channel_next_action_summary'] ?? '').toString();
           final channelNextPersons =
               (profile['channel_next_action_persons'] ?? '').toString();
           final channelNextDate = (profile['channel_next_action_date'] ?? '')
@@ -2363,6 +2481,7 @@ class _DesktopConversationProfileState
               channelKind.trim().isNotEmpty ||
               channelStatus.trim().isNotEmpty ||
               channelDescription.trim().isNotEmpty ||
+              channelNextSummary.trim().isNotEmpty ||
               channelNextAction.trim().isNotEmpty ||
               channelNextPersons.trim().isNotEmpty ||
               channelNextDate.trim().isNotEmpty;
@@ -2451,6 +2570,15 @@ class _DesktopConversationProfileState
                   value: channelDescription.trim().isEmpty
                       ? 'No description added.'
                       : channelDescription,
+                ),
+                const SizedBox(height: 10),
+                _detailCard(
+                  context,
+                  icon: Icons.summarize_outlined,
+                  label: 'Action summary',
+                  value: channelNextSummary.trim().isEmpty
+                      ? 'No action summary detected.'
+                      : channelNextSummary,
                 ),
                 const SizedBox(height: 10),
                 _detailCard(
@@ -2792,6 +2920,15 @@ class _DesktopConversationProfileState
                   const SizedBox(height: 10),
                   _detailCard(
                     context,
+                    icon: Icons.summarize_outlined,
+                    label: 'Action summary',
+                    value: channelNextSummary.trim().isEmpty
+                        ? 'No action summary detected.'
+                        : channelNextSummary,
+                  ),
+                  const SizedBox(height: 10),
+                  _detailCard(
+                    context,
                     icon: Icons.task_alt_rounded,
                     label: 'Next action',
                     value: channelNextAction.trim().isEmpty
@@ -3109,7 +3246,14 @@ class _ChatTile extends StatelessWidget {
                             ),
                             const SizedBox(width: 4),
                           ],
-                          if (chat.message == 'Voice message') ...[
+                          if (chat.lastFileName.trim().isNotEmpty) ...[
+                            Icon(
+                              _filePreviewIcon(chat),
+                              color: AppColors.primary,
+                              size: 17,
+                            ),
+                            const SizedBox(width: 4),
+                          ] else if (chat.message == 'Voice message') ...[
                             const Icon(
                               Icons.mic_rounded,
                               color: AppColors.primary,
@@ -3584,6 +3728,11 @@ class _AppDrawer extends StatelessWidget {
                   onTap: () => _drawerAction(context, 'New channel'),
                 ),
                 DrawerItem(
+                  icon: Icons.campaign_rounded,
+                  label: 'Broadcast',
+                  onTap: () => _drawerAction(context, 'Broadcast'),
+                ),
+                DrawerItem(
                   icon: Icons.account_circle_outlined,
                   label: 'My profile',
                   onTap: () {
@@ -3793,6 +3942,10 @@ class _AppDrawer extends StatelessWidget {
       await Navigator.of(context).push<void>(
         MaterialPageRoute(builder: (_) => const ScheduleMessageScreen()),
       );
+    } else if (action == 'Broadcast') {
+      if (!await _canCreateBroadcast(context)) return;
+      if (!context.mounted) return;
+      await showBroadcastSheet(context);
     } else if (action == 'New group' || action == 'New channel') {
       if (!await _canCreateGroupOrChannel(context)) return;
       if (!context.mounted) return;
@@ -4398,7 +4551,27 @@ class _ChatFoldersScreenState extends State<ChatFoldersScreen> {
                               (chat) => ListTile(
                                 leading: UserAvatar(chat: chat, radius: 22),
                                 title: Text(chat.name),
-                                subtitle: Text(chat.message),
+                                subtitle: Row(
+                                  children: [
+                                    if (chat.lastFileName
+                                        .trim()
+                                        .isNotEmpty) ...[
+                                      Icon(
+                                        _filePreviewIcon(chat),
+                                        color: AppColors.primary,
+                                        size: 16,
+                                      ),
+                                      const SizedBox(width: 4),
+                                    ],
+                                    Expanded(
+                                      child: Text(
+                                        chat.message,
+                                        maxLines: 1,
+                                        overflow: TextOverflow.ellipsis,
+                                      ),
+                                    ),
+                                  ],
+                                ),
                                 onTap: () => Navigator.of(context).push(
                                   MaterialPageRoute<void>(
                                     builder: (_) => ChatScreen(chat: chat),
@@ -5304,13 +5477,495 @@ Future<bool> _canCreateGroupOrChannel(BuildContext context) async {
   return true;
 }
 
+Future<bool> _canCreateBroadcast(BuildContext context) async {
+  try {
+    final cached = await chatApi.cachedProfile();
+    final profile = cached ?? await chatApi.getProfile();
+    final type = _normalizedCreatorEmployeeType(profile.employeeType);
+    if (type != 'A') {
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Only Type A users can create and send broadcasts.'),
+          ),
+        );
+      }
+      return false;
+    }
+  } catch (_) {
+    // Backend enforces this rule; allow the attempt if profile loading is unavailable.
+  }
+  return true;
+}
+
 void showNewMessageSheet(BuildContext context) {
   showModalBottomSheet<void>(
     context: context,
     isScrollControlled: true,
     backgroundColor: Colors.transparent,
-    builder: (_) => const NewMessageSheet(),
+    builder: (_) =>
+        NewMessageSheet(onBroadcast: () => showBroadcastSheet(context)),
   );
+}
+
+Future<void> showBroadcastSheet(BuildContext context) async {
+  await showModalBottomSheet<void>(
+    context: context,
+    isScrollControlled: true,
+    backgroundColor: Colors.transparent,
+    builder: (_) => const BroadcastSheet(),
+  );
+}
+
+class BroadcastSheet extends StatefulWidget {
+  const BroadcastSheet({super.key});
+
+  @override
+  State<BroadcastSheet> createState() => _BroadcastSheetState();
+}
+
+class _BroadcastSheetState extends State<BroadcastSheet> {
+  final _titleController = TextEditingController(text: 'Broadcast');
+  final _messageController = TextEditingController();
+  Timer? _debounce;
+  List<ChatContact> _users = [];
+  List<BroadcastList> _broadcasts = [];
+  final Set<String> _selectedIds = {};
+  int _broadcastId = 0;
+  bool _loading = true;
+  bool _busy = false;
+  String? _error;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadInitial();
+  }
+
+  @override
+  void dispose() {
+    _debounce?.cancel();
+    _titleController.dispose();
+    _messageController.dispose();
+    super.dispose();
+  }
+
+  void _onSearchChanged(String value) {
+    _debounce?.cancel();
+    _debounce = Timer(const Duration(milliseconds: 300), () => _search(value));
+  }
+
+  Future<void> _loadInitial() async {
+    if (mounted) setState(() => _loading = true);
+    try {
+      final results = await Future.wait([
+        chatApi.searchUsers(''),
+        chatApi.getBroadcastLists(),
+      ]);
+      if (!mounted) return;
+      setState(() {
+        _users = results[0] as List<ChatContact>;
+        _broadcasts = results[1] as List<BroadcastList>;
+        _loading = false;
+        _error = null;
+      });
+    } on ApiException catch (error) {
+      if (mounted) {
+        setState(() {
+          _loading = false;
+          _error = error.message;
+        });
+      }
+    } catch (_) {
+      if (mounted) {
+        setState(() {
+          _loading = false;
+          _error = 'Unable to load broadcast data.';
+        });
+      }
+    }
+  }
+
+  Future<void> _search([String value = '']) async {
+    if (mounted) setState(() => _loading = true);
+    try {
+      final users = await chatApi.searchUsers(value.trim());
+      if (!mounted) return;
+      setState(() {
+        _users = users;
+        _loading = false;
+        _error = null;
+      });
+    } on ApiException catch (error) {
+      if (mounted) {
+        setState(() {
+          _loading = false;
+          _error = error.message;
+        });
+      }
+    } catch (_) {
+      if (mounted) {
+        setState(() {
+          _loading = false;
+          _error = 'Unable to load users.';
+        });
+      }
+    }
+  }
+
+  void _selectBroadcast(int id) {
+    if (id <= 0) {
+      setState(() {
+        _broadcastId = 0;
+        _titleController.text = 'Broadcast';
+        _selectedIds.clear();
+        _error = null;
+      });
+      return;
+    }
+    final item = _broadcasts.firstWhere((broadcast) => broadcast.id == id);
+    setState(() {
+      _broadcastId = item.id;
+      _titleController.text = item.title;
+      _selectedIds
+        ..clear()
+        ..addAll(item.recipientEmpIds);
+      _error = null;
+    });
+  }
+
+  Future<BroadcastList?> _saveList({bool showSnack = true}) async {
+    if (_selectedIds.isEmpty) {
+      setState(() => _error = 'Select at least one broadcast recipient.');
+      return null;
+    }
+    setState(() {
+      _busy = true;
+      _error = null;
+    });
+    try {
+      final saved = await chatApi.saveBroadcastList(
+        broadcastId: _broadcastId,
+        title: _titleController.text.trim(),
+        recipientEmpIds: _selectedIds.toList(),
+      );
+      if (!mounted) return saved;
+      setState(() {
+        _broadcastId = saved.id;
+        _broadcasts = [
+          saved,
+          ..._broadcasts.where((item) => item.id != saved.id),
+        ];
+      });
+      if (showSnack) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('${saved.title} saved.')));
+      }
+      return saved;
+    } on ApiException catch (error) {
+      if (mounted) setState(() => _error = error.message);
+    } catch (_) {
+      if (mounted) setState(() => _error = 'Unable to save broadcast.');
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+    return null;
+  }
+
+  Future<void> _deleteList() async {
+    if (_broadcastId <= 0) return;
+    final title = _titleController.text.trim().isEmpty
+        ? 'this broadcast'
+        : _titleController.text.trim();
+    final confirm = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Delete broadcast'),
+        content: Text(
+          'Delete $title? This will not delete messages already sent.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('Delete'),
+          ),
+        ],
+      ),
+    );
+    if (confirm != true) return;
+    setState(() {
+      _busy = true;
+      _error = null;
+    });
+    try {
+      await chatApi.deleteBroadcastList(_broadcastId);
+      if (!mounted) return;
+      setState(() {
+        _broadcasts = _broadcasts
+            .where((item) => item.id != _broadcastId)
+            .toList();
+        _broadcastId = 0;
+        _titleController.text = 'Broadcast';
+        _selectedIds.clear();
+      });
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('Broadcast deleted.')));
+    } on ApiException catch (error) {
+      if (mounted) setState(() => _error = error.message);
+    } catch (_) {
+      if (mounted) setState(() => _error = 'Unable to delete broadcast.');
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
+  Future<void> _send() async {
+    final message = _messageController.text.trim();
+    if (_selectedIds.isEmpty) {
+      setState(() => _error = 'Select at least one broadcast recipient.');
+      return;
+    }
+    if (message.isEmpty) {
+      setState(() => _error = 'Enter a broadcast message.');
+      return;
+    }
+    final saved = await _saveList(showSnack: false);
+    if (saved == null) return;
+    setState(() {
+      _busy = true;
+      _error = null;
+    });
+    try {
+      final result = await chatApi.sendBroadcast(
+        broadcastId: saved.id,
+        title: saved.title,
+        recipientEmpIds: saved.recipientEmpIds,
+        message: message,
+      );
+      if (!mounted) return;
+      Navigator.pop(context);
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            'Broadcast sent to ${result['recipient_count'] ?? _selectedIds.length} users.',
+          ),
+        ),
+      );
+    } on ApiException catch (error) {
+      if (mounted) setState(() => _error = error.message);
+    } catch (_) {
+      if (mounted) setState(() => _error = 'Unable to send broadcast.');
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = Theme.of(context).colorScheme;
+    return Container(
+      height: MediaQuery.sizeOf(context).height * 0.9,
+      decoration: BoxDecoration(
+        color: colors.surface,
+        borderRadius: const BorderRadius.vertical(top: Radius.circular(28)),
+      ),
+      child: SafeArea(
+        top: false,
+        child: Column(
+          children: [
+            const SizedBox(height: 10),
+            Container(
+              width: 42,
+              height: 4,
+              decoration: BoxDecoration(
+                color: AppColors.divider,
+                borderRadius: BorderRadius.circular(4),
+              ),
+            ),
+            Padding(
+              padding: const EdgeInsets.fromLTRB(20, 18, 20, 12),
+              child: Row(
+                children: [
+                  const Icon(Icons.campaign_rounded, color: AppColors.primary),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: Text(
+                      _broadcastId > 0 ? 'Edit broadcast' : 'Broadcast',
+                      style: TextStyle(
+                        color: colors.onSurface,
+                        fontSize: 22,
+                        fontWeight: FontWeight.w800,
+                      ),
+                    ),
+                  ),
+                  Text(
+                    '${_selectedIds.length} selected',
+                    style: TextStyle(color: colors.onSurfaceVariant),
+                  ),
+                ],
+              ),
+            ),
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 18),
+              child: Column(
+                children: [
+                  DropdownButtonFormField<int>(
+                    initialValue: _broadcastId,
+                    decoration: const InputDecoration(
+                      labelText: 'Broadcast list',
+                      prefixIcon: Icon(Icons.list_alt_rounded),
+                    ),
+                    items: [
+                      const DropdownMenuItem(
+                        value: 0,
+                        child: Text('New broadcast'),
+                      ),
+                      ..._broadcasts.map(
+                        (item) => DropdownMenuItem(
+                          value: item.id,
+                          child: Text(
+                            '${item.title} (${item.recipientCount})',
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        ),
+                      ),
+                    ],
+                    onChanged: _busy ? null : (id) => _selectBroadcast(id ?? 0),
+                  ),
+                  const SizedBox(height: 10),
+                  TextField(
+                    controller: _titleController,
+                    enabled: !_busy,
+                    decoration: const InputDecoration(
+                      labelText: 'Broadcast name',
+                      prefixIcon: Icon(Icons.label_outline_rounded),
+                    ),
+                  ),
+                  const SizedBox(height: 10),
+                  TextField(
+                    controller: _messageController,
+                    enabled: !_busy,
+                    minLines: 2,
+                    maxLines: 4,
+                    decoration: const InputDecoration(
+                      labelText: 'Message',
+                      prefixIcon: Icon(Icons.chat_bubble_outline_rounded),
+                    ),
+                  ),
+                  const SizedBox(height: 10),
+                  TextField(
+                    enabled: !_busy,
+                    onChanged: _onSearchChanged,
+                    decoration: const InputDecoration(
+                      hintText: 'Search recipients',
+                      prefixIcon: Icon(Icons.search_rounded),
+                    ),
+                  ),
+                  if (_error != null) ...[
+                    const SizedBox(height: 8),
+                    Align(
+                      alignment: Alignment.centerLeft,
+                      child: Text(
+                        _error!,
+                        style: const TextStyle(color: Color(0xFFB3261E)),
+                      ),
+                    ),
+                  ],
+                ],
+              ),
+            ),
+            const SizedBox(height: 8),
+            Expanded(
+              child: _loading
+                  ? const Center(child: CircularProgressIndicator())
+                  : ListView.separated(
+                      itemCount: _users.length,
+                      separatorBuilder: (_, _) => const Divider(height: 1),
+                      itemBuilder: (_, index) {
+                        final user = _users[index];
+                        final selected = _selectedIds.contains(user.empId);
+                        return CheckboxListTile(
+                          value: selected,
+                          onChanged: _busy
+                              ? null
+                              : (value) {
+                                  setState(() {
+                                    if (value ?? false) {
+                                      _selectedIds.add(user.empId);
+                                    } else {
+                                      _selectedIds.remove(user.empId);
+                                    }
+                                  });
+                                },
+                          secondary: UserAvatar(
+                            chat: ChatPreview.fromContact(user),
+                            radius: 22,
+                          ),
+                          title: Text(
+                            user.name,
+                            style: const TextStyle(fontWeight: FontWeight.w700),
+                          ),
+                          subtitle: Text(
+                            user.designation.isEmpty
+                                ? user.jid
+                                : user.designation,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        );
+                      },
+                    ),
+            ),
+            Padding(
+              padding: const EdgeInsets.fromLTRB(18, 10, 18, 16),
+              child: Wrap(
+                spacing: 10,
+                runSpacing: 8,
+                alignment: WrapAlignment.end,
+                crossAxisAlignment: WrapCrossAlignment.center,
+                children: [
+                  TextButton(
+                    onPressed: _busy ? null : () => Navigator.pop(context),
+                    child: const Text('Cancel'),
+                  ),
+                  if (_broadcastId > 0)
+                    TextButton.icon(
+                      onPressed: _busy ? null : _deleteList,
+                      icon: const Icon(Icons.delete_outline_rounded),
+                      label: const Text('Delete'),
+                    ),
+                  OutlinedButton.icon(
+                    onPressed: _busy ? null : () => _saveList(),
+                    icon: const Icon(Icons.save_outlined),
+                    label: Text(
+                      _broadcastId > 0 ? 'Save changes' : 'Save list',
+                    ),
+                  ),
+                  FilledButton.icon(
+                    onPressed: _busy ? null : _send,
+                    icon: _busy
+                        ? const SizedBox(
+                            width: 16,
+                            height: 16,
+                            child: CircularProgressIndicator(strokeWidth: 2),
+                          )
+                        : const Icon(Icons.send_rounded),
+                    label: Text(_busy ? 'Working' : 'Send broadcast'),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
 }
 
 class NewGroupSheet extends StatefulWidget {
@@ -5970,7 +6625,9 @@ class NewGroupSheetState extends State<NewGroupSheet> {
 }
 
 class NewMessageSheet extends StatefulWidget {
-  const NewMessageSheet();
+  const NewMessageSheet({this.onBroadcast});
+
+  final VoidCallback? onBroadcast;
 
   @override
   State<NewMessageSheet> createState() => NewMessageSheetState();
@@ -6058,6 +6715,26 @@ class NewMessageSheetState extends State<NewMessageSheet> {
                   ),
                 ),
               ],
+            ),
+          ),
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16),
+            child: ListTile(
+              contentPadding: const EdgeInsets.symmetric(horizontal: 4),
+              leading: const CircleAvatar(
+                backgroundColor: AppColors.primary,
+                child: Icon(Icons.campaign_rounded, color: Colors.white),
+              ),
+              title: const Text(
+                'Broadcast',
+                style: TextStyle(fontWeight: FontWeight.w800),
+              ),
+              subtitle: const Text('Send one message privately to many users'),
+              onTap: () {
+                final openBroadcast = widget.onBroadcast;
+                Navigator.pop(context);
+                openBroadcast?.call();
+              },
             ),
           ),
           Padding(

@@ -90,6 +90,8 @@ class ChatContact {
     required this.jid,
     this.type = 'chat',
     this.lastMessage = '',
+    this.lastFileName = '',
+    this.lastFileType = '',
     this.time = '',
     this.isOnline = false,
     this.unread = 0,
@@ -97,6 +99,7 @@ class ChatContact {
     this.avatarUrl = '',
     this.isPinned = false,
     this.isStarred = false,
+    this.channelKind = '',
     this.nextActionText = '',
     this.nextActionPersons = '',
     this.nextActionDate = '',
@@ -126,6 +129,10 @@ class ChatContact {
       jid: normalizedJid,
       type: isNotification ? 'notification' : '${json['type'] ?? 'chat'}',
       lastMessage: '${json['last'] ?? ''}',
+      lastFileName: '${json['last_file_name'] ?? json['file_name'] ?? ''}'
+          .trim(),
+      lastFileType: '${json['last_file_type'] ?? json['file_type'] ?? ''}'
+          .trim(),
       time: '${json['time'] ?? ''}',
       isOnline: _jsonBool(json['online'] ?? json['is_online']),
       unread: _jsonInt(unreadValue),
@@ -133,6 +140,8 @@ class ChatContact {
       avatarUrl: '${json['avatar_url'] ?? ''}',
       isPinned: _jsonBool(json['pinned']),
       isStarred: _jsonBool(json['starred']),
+      channelKind: '${json['channel_kind'] ?? json['channel_type'] ?? ''}'
+          .trim(),
       nextActionText: '${json['next_action_text'] ?? ''}',
       nextActionPersons: '${json['next_action_persons'] ?? ''}',
       nextActionDate: '${json['next_action_date'] ?? ''}',
@@ -145,6 +154,8 @@ class ChatContact {
   final String jid;
   final String type;
   final String lastMessage;
+  final String lastFileName;
+  final String lastFileType;
   final String time;
   final bool isOnline;
   final int unread;
@@ -152,6 +163,7 @@ class ChatContact {
   final String avatarUrl;
   final bool isPinned;
   final bool isStarred;
+  final String channelKind;
   final String nextActionText;
   final String nextActionPersons;
   final String nextActionDate;
@@ -164,6 +176,51 @@ class ChatContact {
           caseSensitive: false,
         ).hasMatch(jid);
   }
+}
+
+class BroadcastList {
+  const BroadcastList({
+    required this.id,
+    required this.title,
+    required this.recipientEmpIds,
+    this.recipientCount = 0,
+    this.status = 'active',
+    this.createdAt = '',
+    this.updatedAt = '',
+    this.lastSentAt = '',
+  });
+
+  factory BroadcastList.fromJson(Map<String, dynamic> json) {
+    final rawRecipients = json['recipient_emp_ids'] ?? json['recipients'];
+    final recipients = rawRecipients is List
+        ? rawRecipients
+              .map((id) => '$id'.trim())
+              .where((id) => id.isNotEmpty && id != '0')
+              .toSet()
+              .toList()
+        : const <String>[];
+    return BroadcastList(
+      id: _jsonInt(json['id'] ?? json['broadcast_id']),
+      title: '${json['title'] ?? 'Broadcast'}'.trim().isEmpty
+          ? 'Broadcast'
+          : '${json['title'] ?? 'Broadcast'}'.trim(),
+      recipientEmpIds: recipients,
+      recipientCount: _jsonInt(json['recipient_count'] ?? recipients.length),
+      status: '${json['status'] ?? 'active'}',
+      createdAt: '${json['created_at'] ?? ''}',
+      updatedAt: '${json['updated_at'] ?? ''}',
+      lastSentAt: '${json['last_sent_at'] ?? ''}',
+    );
+  }
+
+  final int id;
+  final String title;
+  final List<String> recipientEmpIds;
+  final int recipientCount;
+  final String status;
+  final String createdAt;
+  final String updatedAt;
+  final String lastSentAt;
 }
 
 bool _jsonBool(dynamic value) {
@@ -337,6 +394,9 @@ class ChannelProfile {
   String get priority => '${data['priority'] ?? ''}';
   String get description => '${data['description'] ?? ''}';
   String get nextActionText => '${data['next_action_text'] ?? ''}';
+  String get nextActionSummary => '${data['next_action_summary'] ?? ''}';
+  String get nextActionMissingFields =>
+      '${data['next_action_missing_fields'] ?? ''}';
   String get nextActionPersons => '${data['next_action_persons'] ?? ''}';
   String get nextActionDate => '${data['next_action_date'] ?? ''}';
   String get nextActionUpdatedAt => '${data['next_action_updated_at'] ?? ''}';
@@ -1366,6 +1426,99 @@ class ChatApi {
     return users;
   }
 
+  Future<List<BroadcastList>> getBroadcastLists() async {
+    final body = await _getJson('chat/broadcast.php');
+    final rawItems = body['broadcasts'];
+    if (rawItems is! List) return const [];
+    return rawItems
+        .whereType<Map>()
+        .map((item) => BroadcastList.fromJson(Map<String, dynamic>.from(item)))
+        .where((item) => item.id > 0)
+        .toList();
+  }
+
+  Future<BroadcastList> saveBroadcastList({
+    int broadcastId = 0,
+    required String title,
+    required List<String> recipientEmpIds,
+  }) async {
+    final recipients = recipientEmpIds
+        .map((id) => id.trim())
+        .where((id) => id.isNotEmpty)
+        .toSet()
+        .toList();
+    if (recipients.isEmpty) {
+      throw const ApiException('Select at least one broadcast recipient.');
+    }
+    final body = await _postJson('chat/broadcast.php', {
+      'action': 'save',
+      if (broadcastId > 0) 'broadcast_id': broadcastId,
+      'title': title.trim().isEmpty ? 'Broadcast' : title.trim(),
+      'recipient_emp_ids': recipients,
+    });
+    return BroadcastList.fromJson({
+      'id': body['broadcast_id'] ?? broadcastId,
+      'title': body['title'] ?? title,
+      'recipient_count': body['recipient_count'] ?? recipients.length,
+      'recipient_emp_ids': body['recipient_emp_ids'] ?? recipients,
+      'status': 'active',
+    });
+  }
+
+  Future<void> deleteBroadcastList(int broadcastId) async {
+    if (broadcastId <= 0) return;
+    await _postJson('chat/broadcast.php', {
+      'action': 'delete',
+      'broadcast_id': broadcastId,
+    });
+  }
+
+  Future<Map<String, dynamic>> sendBroadcast({
+    int broadcastId = 0,
+    required String title,
+    required List<String> recipientEmpIds,
+    required String message,
+  }) async {
+    final trimmedMessage = message.trim();
+    if (trimmedMessage.isEmpty) {
+      throw const ApiException('Broadcast message cannot be empty.');
+    }
+    final recipients = recipientEmpIds
+        .map((id) => id.trim())
+        .where((id) => id.isNotEmpty)
+        .toSet()
+        .toList();
+    if (recipients.isEmpty && broadcastId <= 0) {
+      throw const ApiException('Select at least one broadcast recipient.');
+    }
+    AppDeviceInfo device;
+    try {
+      device = await DeviceService.instance.info;
+    } catch (_) {
+      device = const AppDeviceInfo(
+        id: 'web-session',
+        name: 'web browser',
+        platform: 'web',
+        source: 'web',
+      );
+    }
+    String sourceName;
+    try {
+      sourceName = await _deviceSourceName();
+    } catch (_) {
+      sourceName = device.name;
+    }
+    return _postJson('chat/broadcast.php', {
+      'action': 'send',
+      if (broadcastId > 0) 'broadcast_id': broadcastId,
+      'title': title.trim().isEmpty ? 'Broadcast' : title.trim(),
+      if (recipients.isNotEmpty) 'recipient_emp_ids': recipients,
+      'message': trimmedMessage,
+      'source_device': device.platform,
+      'source_name': 'Broadcast - $sourceName',
+    });
+  }
+
   Future<ChatContact> createGroup({
     required String name,
     required List<String> memberIds,
@@ -1597,6 +1750,26 @@ class ChatApi {
       'target_date': targetDate.trim(),
       'next_action_date': nextActionDate.trim(),
     });
+  }
+
+  Future<Map<String, dynamic>> updateActionClarification({
+    required int groupId,
+    required int sourceMessageId,
+    String nextActionPersons = '',
+    String nextActionDate = '',
+    String nextActionSummary = '',
+    String nextActionText = '',
+  }) async {
+    final body = await _postJson('chat/update_action_clarification.php', {
+      'group_id': groupId,
+      'source_message_id': sourceMessageId,
+      'next_action_persons': nextActionPersons.trim(),
+      'next_action_date': nextActionDate.trim(),
+      'next_action_summary': nextActionSummary.trim(),
+      'next_action_text': nextActionText.trim(),
+    });
+    final channel = body['channel'];
+    return channel is Map ? Map<String, dynamic>.from(channel) : body;
   }
 
   Future<Map<String, dynamic>> getWakeupConfig({

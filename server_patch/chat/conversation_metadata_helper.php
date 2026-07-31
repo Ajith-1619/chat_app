@@ -135,6 +135,13 @@ function chat_metadata_sync_conversation(PDO $pdo, array $group, ?int $actorEmpI
     chat_metadata_upsert($pdo, $jid, $groupId, 'last_updated', 'datetime', date('Y-m-d H:i:s'), $source, $messageId, $actorEmpId, 1.0);
 }
 
+function chat_metadata_command_body(string $body, string $token): string
+{
+    if ($token === '') return trim($body);
+    $text = preg_replace('/^\s*' . preg_quote($token, '/') . '\b\s*/i', '', $body) ?? $body;
+    return trim($text);
+}
+
 function chat_metadata_record_message(PDO $pdo, array $group, int $messageId, int $actorEmpId, string $body, array $mentions = []): void
 {
     chat_conversation_metadata_ensure_schema($pdo);
@@ -142,14 +149,33 @@ function chat_metadata_record_message(PDO $pdo, array $group, int $messageId, in
     $groupId = (int)($group['id'] ?? 0);
     if ($jid === '' || $groupId <= 0 || $messageId <= 0 || trim($body) === '') return;
     $token = chat_metadata_command_token($body);
+    $commandBody = chat_metadata_command_body($body, $token);
     $eventType = $token !== '' ? 'command.' . substr($token, 1) : 'message.context';
-    $payload = ['body' => mb_substr($body, 0, 4000), 'mentions' => $mentions];
+    $payload = ['body' => mb_substr($body, 0, 4000), 'command_body' => mb_substr($commandBody, 0, 4000), 'mentions' => $mentions];
     $stmt = $pdo->prepare('INSERT INTO flow_conversation_metadata_events (conversation_jid, group_id, message_id, actor_emp_id, event_type, command_token, payload_json) VALUES (:jid, :group_id, :message_id, :actor, :event_type, :command, :payload)');
     $stmt->execute([':jid' => $jid, ':group_id' => $groupId, ':message_id' => $messageId, ':actor' => $actorEmpId, ':event_type' => $eventType, ':command' => $token !== '' ? $token : null, ':payload' => json_encode($payload, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES)]);
-    if (function_exists('chat_channel_action_is_task_like') && chat_channel_action_is_task_like($body)) {
+
+    if ($token === '/update' && $commandBody !== '') {
+        chat_metadata_upsert($pdo, $jid, $groupId, 'current_status', 'text', $commandBody, 'command', $messageId, $actorEmpId, 0.9);
+    } elseif ($token === '/decision' && $commandBody !== '') {
+        chat_metadata_upsert($pdo, $jid, $groupId, 'pending_decisions', 'text', $commandBody, 'command', $messageId, $actorEmpId, 0.9);
+    } elseif ($token === '/meeting' && $commandBody !== '') {
+        chat_metadata_upsert($pdo, $jid, $groupId, 'current_status', 'text', 'Meeting notes: ' . $commandBody, 'command', $messageId, $actorEmpId, 0.85);
+    } elseif ($token === '/tags') {
+        $labels = preg_split('/[,#]+/', $commandBody) ?: [];
+        $labels = array_values(array_unique(array_filter(array_map(static fn(string $item): string => trim($item), $labels))));
+        if ($labels) chat_metadata_upsert($pdo, $jid, $groupId, 'labels', 'text', implode(', ', $labels), 'command', $messageId, $actorEmpId, 0.9);
+        chat_metadata_upsert($pdo, $jid, $groupId, 'last_updated', 'datetime', date('Y-m-d H:i:s'), 'command', $messageId, $actorEmpId, 1.0);
+        return;
+    }
+
+    $isExplicitActionCommand = in_array($token, ['/assign', '/action', '/followup', '/reminder'], true);
+    $isTaskLike = function_exists('chat_channel_action_is_task_like') && chat_channel_action_is_task_like($body);
+    if ($isExplicitActionCommand || $isTaskLike) {
+        $actionText = $commandBody !== '' ? $commandBody : $body;
         chat_metadata_upsert($pdo, $jid, $groupId, 'previous_action', 'text', (string)($group['previous_action_text'] ?? ''), 'message', $messageId, $actorEmpId, 0.7);
-        chat_metadata_upsert($pdo, $jid, $groupId, 'next_action', 'text', $body, 'message', $messageId, $actorEmpId, 0.85);
-        $summary = function_exists('chat_channel_action_summary') ? chat_channel_action_summary($body) : mb_substr(trim($body), 0, 240);
+        chat_metadata_upsert($pdo, $jid, $groupId, 'next_action', 'text', $actionText, 'message', $messageId, $actorEmpId, 0.85);
+        $summary = function_exists('chat_channel_action_summary') ? chat_channel_action_summary($body) : mb_substr(trim($actionText), 0, 240);
         chat_metadata_upsert($pdo, $jid, $groupId, 'next_action_summary', 'text', $summary, 'message', $messageId, $actorEmpId, 0.8);
         $eta = chat_metadata_action_date($body);
         if ($eta !== null) chat_metadata_upsert($pdo, $jid, $groupId, 'eta', 'datetime', $eta, 'message', $messageId, $actorEmpId, 0.75);

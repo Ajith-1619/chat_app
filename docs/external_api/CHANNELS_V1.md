@@ -61,6 +61,8 @@ project
 announcement
 ```
 
+`channel_type` is preserved exactly after normalization. Core types above are listed in the Channels tab. Any other type, for example `task`, `rollout`, or `customer_ops`, is treated as a Workspace channel so external portals can create new operational spaces without code changes.
+
 ## AI Behavior
 
 When channel AI access is enabled:

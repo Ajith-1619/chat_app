@@ -34,11 +34,13 @@ import '../flow_registry.dart';
 import '../mojibake_tools.dart';
 import '../clipboard_media_bridge.dart';
 import '../clipboard_text_bridge.dart';
+import '../attachment_validation.dart';
 import '../file_preview_embed.dart';
 import '../web_attachment_bridge.dart';
 import '../web_file_actions.dart';
 import '../web_text_selection_state.dart';
 import '../xmpp_bridge.dart';
+import '../shared/android_share_intent.dart';
 
 import '../app/skylink_app.dart';
 import '../auth/login_screen.dart';
@@ -249,49 +251,49 @@ const _flowSlashCommands = <_SlashCommand>[
   _SlashCommand(
     token: '/update',
     title: 'Update',
-    description: 'Record a status update',
+    description: 'Send a status update and refresh channel metadata',
     icon: Icons.update_rounded,
   ),
   _SlashCommand(
     token: '/assign',
     title: 'Assign',
-    description: 'Assign owner metadata',
+    description: 'Assign or clarify the next action owner',
     icon: Icons.assignment_ind_rounded,
   ),
   _SlashCommand(
     token: '/decision',
     title: 'Decision',
-    description: 'Capture a decision',
+    description: 'Record a decision in conversation metadata',
     icon: Icons.fact_check_rounded,
   ),
   _SlashCommand(
     token: '/meeting',
     title: 'Meeting',
-    description: 'Capture meeting notes',
+    description: 'Record meeting notes in metadata',
     icon: Icons.groups_2_rounded,
   ),
   _SlashCommand(
     token: '/action',
     title: 'Action',
-    description: 'Create next action metadata',
+    description: 'Create or update next action metadata',
     icon: Icons.task_alt_rounded,
   ),
   _SlashCommand(
     token: '/followup',
     title: 'Follow-up',
-    description: 'Schedule a follow-up',
+    description: 'Open follow-up creation flow',
     icon: Icons.event_repeat_rounded,
   ),
   _SlashCommand(
     token: '/reminder',
     title: 'Reminder',
-    description: 'Create reminder metadata',
+    description: 'Open reminder creation flow',
     icon: Icons.notifications_active_outlined,
   ),
   _SlashCommand(
     token: '/tags',
     title: 'Tags',
-    description: 'Review or add metadata tags',
+    description: 'Save searchable metadata labels',
     icon: Icons.sell_outlined,
   ),
 ];
@@ -316,6 +318,7 @@ class _ChatScreenState extends State<ChatScreen> {
   final _messageController = TextEditingController();
   final _itemScrollController = ItemScrollController();
   final _itemPositionsListener = ItemPositionsListener.create();
+  static const int _historyPageSize = 50;
   final List<ChatMessage> _messages = [];
   final List<_PendingChatMessage> _pendingOutgoing = [];
   Timer? _pollTimer;
@@ -327,6 +330,7 @@ class _ChatScreenState extends State<ChatScreen> {
   bool _isUploading = false;
   bool _showEmojiPicker = false;
   double _uploadProgress = 0;
+  final Map<int, double> _attachmentUploadProgress = {};
   String? _loadError;
   PresenceInfo? _presence;
   ChatMessage? _replyingTo;
@@ -334,6 +338,8 @@ class _ChatScreenState extends State<ChatScreen> {
   int _threadRootId = 0;
   bool _isMuted = false;
   bool _historyRequestActive = false;
+  bool _olderHistoryRequestActive = false;
+  bool _hasMoreOlderHistory = true;
   bool _presenceRequestActive = false;
   bool _showJumpToLatest = false;
   int _savedReadMessageId = 0;
@@ -389,6 +395,9 @@ class _ChatScreenState extends State<ChatScreen> {
     _loadMessageLocationVisibility();
     _warmMessageLocationMetadata();
     registerClipboardMediaHandler(_handleClipboardMediaPaste);
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      unawaited(_consumePendingAndroidShare());
+    });
     _pollTimer = Timer.periodic(const Duration(seconds: 12), (timer) {
       _loadHistory(silent: true);
       if (timer.tick % 5 == 0) _loadPresence();
@@ -479,7 +488,12 @@ class _ChatScreenState extends State<ChatScreen> {
   Future<void> _loadInitialHistory() async {
     var cached = chatApi.cachedHistory(widget.chat.jid);
     cached ??= await chatApi.persistedHistory(widget.chat.jid);
-    if (cached.isNotEmpty) _applyHistory(cached);
+    if (cached.isNotEmpty) {
+      final displayCache = cached.length > _historyPageSize
+          ? cached.sublist(cached.length - _historyPageSize)
+          : cached;
+      _applyHistory(displayCache);
+    }
     await _loadHistory(silent: cached.isNotEmpty);
   }
 
@@ -497,6 +511,29 @@ class _ChatScreenState extends State<ChatScreen> {
     _messageController.dispose();
     _highlightTimer?.cancel();
     super.dispose();
+  }
+
+  Future<void> _consumePendingAndroidShare() async {
+    if (!mounted) return;
+    final payload = AndroidShareIntentBridge.instance.takePendingFor(
+      widget.chat.jid,
+    );
+    if (payload == null || payload.isEmpty) return;
+    final sharedText = payload.text.trim();
+    final files = await payload.toPlatformFiles();
+    if (!mounted) return;
+    if (files.isNotEmpty) {
+      // Shared Android files use the normal Flow attachment preview and upload path.
+      await _sendPickedFiles(files, initialCaption: sharedText);
+      return;
+    }
+    if (sharedText.isNotEmpty) {
+      _messageController.text = sharedText;
+      _messageController.selection = TextSelection.collapsed(
+        offset: sharedText.length,
+      );
+      FocusScope.of(context).requestFocus();
+    }
   }
 
   bool get _isAtConversationBottom {
@@ -622,6 +659,9 @@ class _ChatScreenState extends State<ChatScreen> {
     if (firstVisible >= 0 && firstVisible < _messages.length) {
       final id = _messages[firstVisible].id;
       if (id > 0) _savedReadMessageId = id;
+      if (firstVisible <= 3 && !_isSelectionFreezeActive) {
+        _loadOlderHistory();
+      }
     }
   }
 
@@ -652,6 +692,7 @@ class _ChatScreenState extends State<ChatScreen> {
         targetMessageId: !_didJumpToInitialMessage
             ? widget.initialMessageId
             : 0,
+        limit: _historyPageSize,
       );
       if (!mounted) return;
       _applyHistory(history);
@@ -674,18 +715,8 @@ class _ChatScreenState extends State<ChatScreen> {
     }
   }
 
-  void _applyHistory(
-    List<ApiMessage> history, {
-    bool fromSelectionQueue = false,
-  }) {
-    if (!mounted) return;
-    if (!fromSelectionQueue &&
-        _messages.isNotEmpty &&
-        (_selectionModeActive || _isTextSelectionScrollLocked)) {
-      _queuedSelectionHistory = history;
-      return;
-    }
-    final historyMessages = history.map((message) {
+  List<ChatMessage> _chatMessagesFromApi(List<ApiMessage> history) {
+    return history.map((message) {
       final attachment = message.attachment;
       return ChatMessage(
         id: int.tryParse(message.id) ?? 0,
@@ -715,6 +746,102 @@ class _ChatScreenState extends State<ChatScreen> {
         isSystem: message.messageType == 'system',
       );
     }).toList();
+  }
+
+  Future<void> _loadOlderHistory() async {
+    if (_olderHistoryRequestActive || !_hasMoreOlderHistory) return;
+    if (_messages.isEmpty || _isSelectionFreezeActive) return;
+    final oldestId = _messages
+        .where((message) => message.id > 0)
+        .map((message) => message.id)
+        .fold<int>(0, (oldest, id) => oldest == 0 || id < oldest ? id : oldest);
+    if (oldestId <= 0) return;
+    final positions =
+        _itemPositionsListener.itemPositions.value
+            .where((position) => position.itemTrailingEdge > 0)
+            .toList()
+          ..sort((a, b) => a.itemLeadingEdge.compareTo(b.itemLeadingEdge));
+    final anchor = positions.isEmpty ? null : positions.first;
+    final anchorMessageId =
+        anchor != null && anchor.index >= 0 && anchor.index < _messages.length
+        ? _messages[anchor.index].id
+        : oldestId;
+    final anchorLeadingEdge = anchor?.itemLeadingEdge ?? 0.0;
+
+    _olderHistoryRequestActive = true;
+    try {
+      final history = await chatApi.getHistory(
+        widget.chat.jid,
+        markRead: false,
+        beforeMessageId: oldestId,
+        limit: _historyPageSize,
+      );
+      if (!mounted || history.isEmpty) {
+        _hasMoreOlderHistory = false;
+        return;
+      }
+      final existingIds = _messages
+          .where((message) => message.id > 0)
+          .map((message) => message.id)
+          .toSet();
+      final olderMessages = _chatMessagesFromApi(history)
+          .where(
+            (message) => message.id <= 0 || !existingIds.contains(message.id),
+          )
+          .toList();
+      if (olderMessages.isEmpty) {
+        _hasMoreOlderHistory = false;
+        return;
+      }
+      setState(() {
+        _messages.insertAll(0, olderMessages);
+        _hasMoreOlderHistory = history.length >= _historyPageSize;
+      });
+      final anchorIndex = _messages.indexWhere(
+        (message) => message.id == anchorMessageId,
+      );
+      if (anchorIndex >= 0) {
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (!mounted || !_itemScrollController.isAttached) return;
+          _itemScrollController.scrollTo(
+            index: anchorIndex,
+            duration: Duration.zero,
+            curve: Curves.linear,
+            alignment: anchorLeadingEdge,
+          );
+        });
+      }
+    } catch (_) {
+      // Older history can be retried the next time the user scrolls near the top.
+    } finally {
+      _olderHistoryRequestActive = false;
+    }
+  }
+
+  void _applyHistory(
+    List<ApiMessage> history, {
+    bool fromSelectionQueue = false,
+  }) {
+    if (!mounted) return;
+    if (!fromSelectionQueue &&
+        _messages.isNotEmpty &&
+        (_selectionModeActive || _isTextSelectionScrollLocked)) {
+      _queuedSelectionHistory = history;
+      return;
+    }
+    final latestPageMessages = _chatMessagesFromApi(history);
+    final latestIds = latestPageMessages
+        .where((message) => message.id > 0)
+        .map((message) => message.id)
+        .toSet();
+    final oldestLatestId = latestIds.isEmpty ? 0 : latestIds.reduce(min);
+    final retainedOlderMessages = _messages.where((message) {
+      if (message.id <= 0 || latestIds.contains(message.id)) return false;
+      return oldestLatestId > 0 && message.id < oldestLatestId;
+    }).toList();
+    final historyMessages = [...retainedOlderMessages, ...latestPageMessages];
+    _hasMoreOlderHistory =
+        history.length >= _historyPageSize || retainedOlderMessages.isNotEmpty;
     final now = DateTime.now();
     _pendingOutgoing.removeWhere(
       (pending) =>
@@ -1070,7 +1197,7 @@ class _ChatScreenState extends State<ChatScreen> {
     if (_isSystemNotification) return;
     var text = _messageController.text.trim();
     if (text.isEmpty || _isSending) return;
-    if (_handleSlashHelpCommand(text)) return;
+    if (await _handleSlashCommand(text)) return;
     setState(() => _isSending = true);
     if (_replyQuote.isNotEmpty) {
       text =
@@ -1644,6 +1771,7 @@ class _ChatScreenState extends State<ChatScreen> {
           _isRecordingVoice = false;
           _isUploading = false;
           _uploadProgress = 0;
+          _attachmentUploadProgress.clear();
         });
       }
     }
@@ -1842,9 +1970,10 @@ class _ChatScreenState extends State<ChatScreen> {
           mainAxisSize: MainAxisSize.min,
           children: [
             ListTile(
-              leading: const Icon(Icons.image_outlined),
-              title: const Text('Photo or image'),
-              onTap: () => Navigator.pop(sheetContext, 'image'),
+              leading: const Icon(Icons.perm_media_outlined),
+              title: const Text('Photo or video'),
+              subtitle: const Text('Pick images and videos from gallery.'),
+              onTap: () => Navigator.pop(sheetContext, 'media'),
             ),
             ListTile(
               leading: const Icon(Icons.attach_file_rounded),
@@ -1895,14 +2024,14 @@ class _ChatScreenState extends State<ChatScreen> {
     );
     if (!mounted || choice == null) return;
     switch (choice) {
-      case 'image':
-        final images = await FilePicker.pickFiles(
+      case 'media':
+        final media = await FilePicker.pickFiles(
           allowMultiple: true,
-          type: FileType.image,
+          type: FileType.media,
           withData: kIsWeb,
         );
-        if (!mounted || images == null || images.files.isEmpty) return;
-        await _sendPickedFiles(images.files);
+        if (!mounted || media == null || media.files.isEmpty) return;
+        await _sendPickedFiles(media.files);
         return;
       case 'file':
         final result = await FilePicker.pickFiles(
@@ -1976,9 +2105,30 @@ class _ChatScreenState extends State<ChatScreen> {
     await _sendPickedFiles(converted);
   }
 
-  Future<void> _sendPickedFiles(List<PlatformFile> files) async {
+  Future<void> _sendPickedFiles(
+    List<PlatformFile> files, {
+    String initialCaption = '',
+  }) async {
     if (_isUploading || files.isEmpty) return;
-    final draft = await _previewAttachments(files);
+    for (final file in files) {
+      final size = file.bytes?.length ?? file.size;
+      final validationError = validateAttachmentCandidate(
+        name: file.name,
+        size: size,
+      );
+      if (validationError != null) {
+        if (mounted) {
+          ScaffoldMessenger.of(
+            context,
+          ).showSnackBar(SnackBar(content: Text(validationError)));
+        }
+        return;
+      }
+    }
+    final draft = await _previewAttachments(
+      files,
+      initialCaption: initialCaption,
+    );
     if (!mounted || draft == null || draft.files.isEmpty) return;
     files = draft.files;
     final caption = draft.caption;
@@ -1993,20 +2143,33 @@ class _ChatScreenState extends State<ChatScreen> {
       if (!mounted) return;
       for (var index = 0; index < files.length; index++) {
         final file = files[index];
-        var bytes = file.bytes;
-        if (bytes == null && file.path != null) {
+        final mimeType = mimeTypeForFile(file.name);
+        final canStreamNativeFile =
+            !kIsWeb &&
+            file.path != null &&
+            file.path!.trim().isNotEmpty &&
+            (mimeType.startsWith('video/') || file.size > 20 * 1024 * 1024);
+        Uint8List? bytes = file.bytes;
+        // Some Android/Desktop pickers give us only a native file path.
+        // Fall back to reading bytes locally so regular attachments do not
+        // fail with "Unable to read ..." before upload even starts.
+        if (bytes == null &&
+            !kIsWeb &&
+            file.path != null &&
+            file.path!.trim().isNotEmpty &&
+            !canStreamNativeFile) {
           bytes = await File(file.path!).readAsBytes();
         }
-        if (bytes == null) {
-          throw ApiException('Unable to read ${file.name}.');
+        if (bytes == null && !canStreamNativeFile) {
+          throw ApiException('Unable to read `${file.name}.');
         }
-        final mimeType = mimeTypeForFile(file.name);
+        final displaySize = bytes?.length ?? file.size;
         final tempId = -(DateTime.now().microsecondsSinceEpoch + index);
         final tempAttachment = ChatAttachment(
           name: file.name,
           url: '',
           mimeType: mimeType,
-          size: bytes.length,
+          size: displaySize,
           caption: index == 0 ? caption : '',
           isRestricted: restricted,
         );
@@ -2022,32 +2185,67 @@ class _ChatScreenState extends State<ChatScreen> {
           mentions: _selectedMentions.toList(),
           isSending: true,
         );
-        setState(() => _messages.add(tempMessage));
+        setState(() {
+          _messages.add(tempMessage);
+          _attachmentUploadProgress[tempId] = 0;
+        });
         _scrollToBottom();
         try {
-          final attachment = await chatApi.sendAttachment(
-            to: widget.chat.jid,
-            name: file.name,
-            mimeType: mimeType,
-            bytes: bytes,
-            caption: index == 0 ? caption : '',
-            restricted: restricted,
-            replyToId: reply?.id == 0 ? '' : '${reply?.id ?? ''}',
-            mentions: _selectedMentions.toList(),
-            threadRootId: _threadRootId > 0 ? '$_threadRootId' : '',
-            latitude: sendLocation.latitude,
-            longitude: sendLocation.longitude,
-            locationAddress: sendLocation.address,
-            clientMessageId:
-                'file-${DateTime.now().microsecondsSinceEpoch}-$index',
-            onProgress: (progress) {
-              if (mounted) {
-                setState(
-                  () => _uploadProgress = (index + progress) / files.length,
+          final attachment = canStreamNativeFile
+              ? await chatApi.sendAttachmentFromPath(
+                  to: widget.chat.jid,
+                  name: file.name,
+                  path: file.path!,
+                  mimeType: mimeType,
+                  caption: index == 0 ? caption : '',
+                  restricted: restricted,
+                  replyToId: reply?.id == 0 ? '' : '${reply?.id ?? ''}',
+                  mentions: _selectedMentions.toList(),
+                  threadRootId: _threadRootId > 0 ? '$_threadRootId' : '',
+                  latitude: sendLocation.latitude,
+                  longitude: sendLocation.longitude,
+                  locationAddress: sendLocation.address,
+                  clientMessageId:
+                      'file-${DateTime.now().microsecondsSinceEpoch}-$index',
+                  onProgress: (progress) {
+                    if (mounted) {
+                      setState(() {
+                        _uploadProgress = (index + progress) / files.length;
+                        _attachmentUploadProgress[tempId] = progress.clamp(
+                          0.0,
+                          1.0,
+                        );
+                      });
+                    }
+                  },
+                )
+              : await chatApi.sendAttachment(
+                  to: widget.chat.jid,
+                  name: file.name,
+                  mimeType: mimeType,
+                  bytes: bytes!,
+                  caption: index == 0 ? caption : '',
+                  restricted: restricted,
+                  replyToId: reply?.id == 0 ? '' : '${reply?.id ?? ''}',
+                  mentions: _selectedMentions.toList(),
+                  threadRootId: _threadRootId > 0 ? '$_threadRootId' : '',
+                  latitude: sendLocation.latitude,
+                  longitude: sendLocation.longitude,
+                  locationAddress: sendLocation.address,
+                  clientMessageId:
+                      'file-${DateTime.now().microsecondsSinceEpoch}-$index',
+                  onProgress: (progress) {
+                    if (mounted) {
+                      setState(() {
+                        _uploadProgress = (index + progress) / files.length;
+                        _attachmentUploadProgress[tempId] = progress.clamp(
+                          0.0,
+                          1.0,
+                        );
+                      });
+                    }
+                  },
                 );
-              }
-            },
-          );
           if (!mounted) return;
           final message = tempMessage.copyWith(
             id: attachment.messageId,
@@ -2055,6 +2253,7 @@ class _ChatScreenState extends State<ChatScreen> {
             isSending: false,
           );
           setState(() {
+            _attachmentUploadProgress.remove(tempId);
             final messageIndex = _messages.indexWhere(
               (item) => item.id == tempId,
             );
@@ -2070,6 +2269,7 @@ class _ChatScreenState extends State<ChatScreen> {
         } catch (_) {
           if (mounted) {
             setState(() {
+              _attachmentUploadProgress.remove(tempId);
               final messageIndex = _messages.indexWhere(
                 (item) => item.id == tempId,
               );
@@ -2107,6 +2307,7 @@ class _ChatScreenState extends State<ChatScreen> {
           _isDragOver = false;
           _isUploading = false;
           _uploadProgress = 0;
+          _attachmentUploadProgress.clear();
         });
       }
     }
@@ -2151,9 +2352,10 @@ class _ChatScreenState extends State<ChatScreen> {
   }
 
   Future<_AttachmentDraft?> _previewAttachments(
-    List<PlatformFile> initialFiles,
-  ) async {
-    final captionController = TextEditingController();
+    List<PlatformFile> initialFiles, {
+    String initialCaption = '',
+  }) async {
+    final captionController = TextEditingController(text: initialCaption);
     var files = List<PlatformFile>.from(initialFiles);
     var restricted = false;
     try {
@@ -2361,6 +2563,51 @@ class _ChatScreenState extends State<ChatScreen> {
       if (message.id == id) return message;
     }
     return null;
+  }
+
+  ChatMessage _slashCommandDraftMessage(String text) {
+    return ChatMessage(
+      id: 0,
+      text: text,
+      time: TimeOfDay.now().format(context),
+      isMe: true,
+      sender: 'You',
+      sourceDevice: 'command',
+      sourceName: 'Flow command',
+      createdAt: DateTime.now(),
+    );
+  }
+
+  Future<bool> _handleSlashCommand(String text) async {
+    final match = RegExp(
+      r'^/(help|ai|update|assign|decision|meeting|action|followup|reminder|tags)\b\s*(.*)$',
+      caseSensitive: false,
+    ).firstMatch(text.trim());
+    if (match == null) return false;
+    final token = '/${match.group(1)!.toLowerCase()}';
+    final commandBody = (match.group(2) ?? '').trim();
+    if (token == '/help') return _handleSlashHelpCommand(text);
+    if (!widget.chat.isGroup) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Flow commands are available in groups and channels.'),
+        ),
+      );
+      return true;
+    }
+    if (token == '/ai') return false;
+    if (token == '/reminder' || token == '/followup') {
+      _messageController.clear();
+      setState(() => _slashQuery = '');
+      await _createReminderFromMessage(
+        _slashCommandDraftMessage(commandBody.isEmpty ? text : commandBody),
+        kind: token == '/followup' ? 'followup' : 'reminder',
+      );
+      return true;
+    }
+    // Other slash commands are sent as normal messages. The backend records
+    // command metadata and updates channel action fields without blocking chat.
+    return false;
   }
 
   bool _handleSlashHelpCommand(String text) {
@@ -4415,7 +4662,124 @@ class _ChatScreenState extends State<ChatScreen> {
     }
   }
 
+  String _nextActionDatePayload(DateTime value) {
+    String two(int number) => number.toString().padLeft(2, '0');
+    return '${value.year}-${two(value.month)}-${two(value.day)} ${two(value.hour)}:${two(value.minute)}:00';
+  }
+
+  Future<void> _respondNextActionPrompt(
+    ChatMessage message,
+    int optionIndex,
+  ) async {
+    final isComplete = optionIndex == 0;
+    final notesController = TextEditingController();
+    DateTime selectedDate = DateTime.now().add(const Duration(days: 1));
+    try {
+      final confirmed = await showDialog<bool>(
+        context: context,
+        builder: (dialogContext) => StatefulBuilder(
+          builder: (dialogContext, setDialogState) {
+            return AlertDialog(
+              title: Text(
+                isComplete ? 'Complete next action' : 'Update next action date',
+              ),
+              content: SizedBox(
+                width: 420,
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    TextField(
+                      controller: notesController,
+                      minLines: 3,
+                      maxLines: 5,
+                      decoration: InputDecoration(
+                        labelText: isComplete
+                            ? 'Completion explanation'
+                            : 'Reason / update',
+                        hintText: isComplete
+                            ? 'Explain what was completed.'
+                            : 'Explain why it is not complete.',
+                        border: const OutlineInputBorder(),
+                      ),
+                    ),
+                    if (!isComplete) ...[
+                      const SizedBox(height: 12),
+                      OutlinedButton.icon(
+                        onPressed: () async {
+                          final date = await showDatePicker(
+                            context: dialogContext,
+                            initialDate: selectedDate,
+                            firstDate: DateTime.now(),
+                            lastDate: DateTime.now().add(
+                              const Duration(days: 365),
+                            ),
+                          );
+                          if (date == null) return;
+                          if (!dialogContext.mounted) return;
+                          final time = await showTimePicker(
+                            context: dialogContext,
+                            initialTime: TimeOfDay.fromDateTime(selectedDate),
+                          );
+                          if (time == null) return;
+                          setDialogState(() {
+                            selectedDate = DateTime(
+                              date.year,
+                              date.month,
+                              date.day,
+                              time.hour,
+                              time.minute,
+                            );
+                          });
+                        },
+                        icon: const Icon(Icons.event_rounded),
+                        label: Text(
+                          'New due: ${_nextActionDatePayload(selectedDate)}',
+                        ),
+                      ),
+                    ],
+                  ],
+                ),
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.pop(dialogContext, false),
+                  child: const Text('Cancel'),
+                ),
+                FilledButton(
+                  onPressed: () => Navigator.pop(dialogContext, true),
+                  child: Text(isComplete ? 'Send update' : 'Save date'),
+                ),
+              ],
+            );
+          },
+        ),
+      );
+      if (confirmed != true) return;
+      await chatApi.respondNextActionPrompt(
+        messageId: message.id,
+        response: isComplete ? 'complete' : 'not_complete',
+        notes: notesController.text.trim(),
+        nextActionDate: isComplete ? '' : _nextActionDatePayload(selectedDate),
+      );
+      await _loadHistory(silent: true);
+    } on ApiException catch (error) {
+      if (mounted) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text(error.message)));
+      }
+    } finally {
+      notesController.dispose();
+    }
+  }
+
   Future<void> _votePoll(ChatMessage message, int optionIndex) async {
+    final poll = decodeLivePoll(message.text);
+    if (poll != null && poll['kind'] == 'next_action_due') {
+      await _respondNextActionPrompt(message, optionIndex);
+      return;
+    }
     try {
       await chatApi.votePollOption(message.id, optionIndex);
       await _loadHistory(silent: true);
@@ -5694,6 +6058,8 @@ class _ChatScreenState extends State<ChatScreen> {
                                     participantNames:
                                         _participantNamesForMessage(message),
                                     showChecklistPollDetails: message.isMe,
+                                    attachmentUploadProgress:
+                                        _attachmentUploadProgress[message.id],
                                     replyMessage: _messageById(
                                       message.replyToId,
                                     ),
@@ -6876,6 +7242,7 @@ class _MessageBubble extends StatelessWidget {
     this.onTextSelectionChanged,
     this.participantNames = const {},
     this.showChecklistPollDetails = false,
+    this.attachmentUploadProgress,
   });
 
   final ChatMessage message;
@@ -6901,6 +7268,7 @@ class _MessageBubble extends StatelessWidget {
   final VoidCallback? onTextSelectionChanged;
   final Map<int, String> participantNames;
   final bool showChecklistPollDetails;
+  final double? attachmentUploadProgress;
 
   @override
   Widget build(BuildContext context) {
@@ -7145,6 +7513,9 @@ class _MessageBubble extends StatelessWidget {
                         AttachmentContent(
                           attachment: attachment,
                           onOpen: onTextSelectionPointerDown,
+                          isUploading: message.isSending,
+                          isFailed: message.isFailed,
+                          uploadProgress: attachmentUploadProgress,
                         )
                       else if (contactCard != null)
                         ContactMessageCard(data: contactCard)

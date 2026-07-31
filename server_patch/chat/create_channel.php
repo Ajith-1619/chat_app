@@ -5,21 +5,19 @@ require_once __DIR__ . '/PluginEventBus.php';
 
 $session = chat_require_user();
 $pdo = chat_db();
+$employeePdo = getEmployeeDB();
 chat_ensure_schema($pdo);
-chat_require_group_channel_creator($pdo, getEmployeeDB(), (int)$session['emp_id']);
+chat_require_group_channel_creator($pdo, $employeePdo, (int)$session['emp_id']);
 $input = json_decode(file_get_contents('php://input') ?: '{}', true);
 if (!is_array($input)) chat_json(['status' => false, 'error' => 'Invalid JSON'], 422);
 
 $name = ltrim(trim((string)($input['channel_name'] ?? '')), '#');
 $channelKind = strtolower(trim((string)($input['channel_type'] ?? $input['channel_kind'] ?? 'operational')));
+$channelKind = preg_replace('/[^a-z0-9_-]+/i', '-', $channelKind) ?: 'operational';
+$channelKind = trim($channelKind, '-_') ?: 'operational';
 $definitionStmt = $pdo->prepare('SELECT * FROM xmpp_channel_definitions WHERE type_key = :type_key AND active = 1 LIMIT 1');
 $definitionStmt->execute([':type_key' => $channelKind]);
 $definition = $definitionStmt->fetch(PDO::FETCH_ASSOC) ?: null;
-if (!$definition) {
-    $channelKind = 'operational';
-    $definitionStmt->execute([':type_key' => $channelKind]);
-    $definition = $definitionStmt->fetch(PDO::FETCH_ASSOC) ?: null;
-}
 $definitionId = $definition ? (int)$definition['id'] : null;
 $definitionName = $definition ? (string)$definition['name'] : ucfirst($channelKind);
 $definitionSla = $definition ? (json_decode((string)($definition['sla_json'] ?? '{}'), true) ?: []) : [];
@@ -49,6 +47,7 @@ $prefix = match ($channelKind) {
     'incident' => 'INC',
     'project' => 'PRJ',
     'action' => 'ACT',
+    'task' => 'TSK',
     'announcement' => 'ANN',
     default => 'OPS',
 };

@@ -598,3 +598,175 @@
 - Updated Windows installer packaging script to derive version from pubspec.yaml.
 - Added server_patch/register_draft_2_0_7.php and tool/deploy_2_0_7.ps1/.psftp.
 
+
+## CHG-2026-07-29-OPENROUTER-AUTO-MODEL
+- Updated OpenRouter AI room helper fallback model from gpt-4o-mini to auto.
+- External API documentation examples now use model auto for OpenRouter.
+- Preserved backward compatibility for old saved gpt-4o-mini provider values by normalizing them to auto at runtime.
+
+
+## CHG-2026-07-29-BROADCAST-CHANNEL-CREATE-UX
+- Added Select All / Select all visible users support in Broadcast recipient picker.
+- Added Select All / Select all visible users support in New Group/Channel member picker.
+- Improved New Group/Channel create sheet into a constrained modal-style card on wide screens.
+- Fixed create_channel.php undefined employee DB handle that caused Unable to create channel.
+
+
+## CHG-2026-07-29-RECENT-CHAT-HIGH-VOLUME-SYNC
+- Added queued refresh handling in HomeScreen so high-volume users do not drop chat-list refresh requests while a previous refresh is still active.
+- Increased recent direct chat limit from 75 to 150 and group/channel limit from 100 to 250.
+- Updated recent group/channel last-message and unread selection to respect history_visible_from and selected-message visibility.
+- Added message/read indexes in chat schema for recent-list and unread-count performance.
+
+
+## 2026-07-29 - High-volume chat history pagination
+- Requirement: Make high-message groups/channels faster like WhatsApp/Telegram by loading only recent messages first and loading older messages on scroll-up.
+- Change: Added limit and efore_message_id support to chat/history.php, defaulting to 50 messages instead of 1000.
+- Change: Updated Flutter ChatApi.getHistory and ChatScreen to fetch latest 50 messages, trim old persisted cache, and lazy-prepend older messages when users scroll near the top.
+- Impact: Reduces initial chat payload, first render work, and repeated refresh cost for high-volume support groups/channels.
+- Verification: php -l server_patch/chat/history.php passed. lutter analyze lib/chat_api.dart lib/chat/chat_screen.dart completed with existing warnings/info only, no compile errors.
+- Updated: 2026-07-29 14:59:38
+
+## 2026-07-29 - Web Build Completed
+- Request: Build web release after high-volume chat history pagination update.
+- Command: flutter build web --release --base-href /chat/
+- Output: build/web
+- Status: Success
+- Report: BUILD_REPORT_2026-07-29_web_history_pagination.md
+- Updated: 2026-07-29 15:07:37
+
+## CHG-2026-07-29-CHANNEL-TYPE-API
+- Status: Complete
+- Files: server_patch/api/_shared/bootstrap.php; server_patch/chat/create_channel.php; server_patch/chat/external_create_conversation.php; server_patch/chat/update_channel.php; docs/external_api/FLOW_EXTERNAL_API_DOCUMENTATION.md; server_patch/api/FLOW_EXTERNAL_API_DOCUMENTATION.md; docs/external_api/CHANNELS_V1.md
+- Change: Preserve API-supplied channel type and document channel_type as preferred field.
+- Verification: PHP lint passed for all modified PHP files.
+- Updated: 2026-07-29 15:37:44 +05:30
+
+## CHG-2026-07-29-SLASH-COMMAND-BEHAVIOR
+- Status: Complete
+- Files: lib/chat/chat_screen.dart; server_patch/chat/conversation_metadata_helper.php; server_patch/chat/channel_action_helper.php
+- Change: Added slash command router in chat composer and command-aware metadata/action backend handling.
+- Verification: PHP lint passed; Flutter analyze ran with pre-existing warnings/info and no new compile errors identified.
+- Updated: 2026-07-29 16:06:09 +05:30
+
+
+## CHG-2026-07-29-NEW-CHANNEL-MEMBER-LIST-SCROLL
+- Status: Complete
+- Files: lib/home/home_screen.dart
+- Change: Increased new group/channel dialog height, compacted channel description field, and wrapped member results in a visible scrollable list.
+- Verification: Flutter analyze on lib/home/home_screen.dart ran with existing warnings/info and no new blocking errors identified.
+- Updated: 2026-07-29 16:40:00 +05:30
+
+## CHG-2026-07-29-BROADCAST-MODAL-PICKER
+- Status: Complete
+- Files: lib/home/home_screen.dart
+- Change: Replaced broadcast bottom sheet launcher with a dialog modal and updated BroadcastSheet layout to use center constraints, keyboard inset handling, compact message field, and scrollable recipient list.
+- Verification: dart format passed. Flutter analyze on lib/home/home_screen.dart ran with existing warnings/info and no new blocking errors identified.
+- Updated: 2026-07-29 17:05:00 +05:30
+
+## CHG-2026-07-29-MYHUB-SUGGESTIONS-COMPLAINTS
+- Status: Complete
+- Files: server_patch/chat/myhub.php; lib/chat_api.dart; lib/myhub_suggestions_screen.dart; lib/home/home_screen.dart
+- Change: Added suggestion_complaints table ensure/migration, create/list MyHub section, system notification to selected user, Flutter API helpers, Suggestions & Complaints screen, and My Hub tile routing.
+- Verification: PHP lint passed. Dart format passed. Flutter analyze on touched Dart files ran with existing warnings/info and no new blocking errors identified.
+- Updated: 2026-07-29 17:45:00 +05:30
+
+## CHG-2026-07-29-CHAT-LIST-NEXT-ACTION-BADGE
+- Status: Completed
+- Changed: Removed "NEXT ACTION" suffix from the chat list badge, added date/time formatting, and widened the badge max width so names can size naturally.
+- Risk: Low; presentational change only, no backend/API changes.
+
+## CHG-2026-07-29-WEB-BUILD-NEXT-ACTION-BADGE
+- Status: Completed
+- Changed: Ran `flutter build web --release --base-href /chat/` and regenerated `build/web`.
+- Risk: Low; build output only.
+
+## CHG-2026-07-29-DIRECT-USER-SEND-API
+- Status: Completed
+- Changed: Added direct employee-id message handling in `server_patch/api/_shared/extended.php` and documented usage in external API docs.
+- Risk: Low/Medium; scoped to external API route, existing `/chat/v1/messages` behavior preserved.
+
+## CHG-2026-07-29-DIRECT-MESSAGE-API-404-FALLBACK
+- Status: Completed
+- Changed: Added `server_patch/api/chat/v1/direct/messages/index.php` forwarding to the chat v1 dispatcher and documented the fallback deployment path.
+- Risk: Low; route only forwards to existing chat API dispatcher.
+
+## CHG-2026-07-29-DIRECT-MESSAGE-POSTMAN-BODY-FALLBACK
+- Status: Completed
+- Changed: `POST /api/chat/v1/direct/messages` merges JSON input with `$_POST` and `$_GET`, and accepts `recipient_id`, `to`, `sender_id`, `from`, and `text` aliases.
+- Risk: Low; only direct API POST input parsing changed.
+
+## CHG-2026-07-30-DIRECT-MESSAGE-BODY-DIAGNOSTICS
+- Status: Completed
+- Changed: Replaced strict helper-only body parsing in `POST /api/chat/v1/direct/messages` with robust raw-body parsing and safe validation debug metadata.
+- Risk: Low; authentication unchanged and debug does not echo secrets or body content.
+
+## CHG-2026-07-30-DIRECT-MESSAGE-PHYSICAL-HANDLER
+- Status: Completed
+- Changed: Replaced fallback include-only route with a standalone authenticated direct-message handler using raw JSON/form/query parsing and safe debug metadata.
+- Risk: Low; route is specific to one-to-one direct messages and keeps existing auth/audit helpers.
+
+## CHG-2026-07-30-DIRECT-SEND-PHYSICAL-ENDPOINT
+- Status: Completed
+- Changed: Created `server_patch/api/chat/v1/direct_send.php` as a self-contained authenticated direct-message handler and documented it.
+- Risk: Low; new endpoint only, no existing endpoint behavior removed.
+
+## CHANGE-2026-07-30-NEXT-ACTION-MONITOR
+- Type: Backend
+- Files: server_patch/chat/next_action_monitor_helpers.php, server_patch/chat/notification_worker.php, docs/next_action_monitor.md
+- Summary: Added a cron-safe next-action monitor with state hashing, one-hour reminders, and due-time completion polls.
+- Risk: Low; existing chat UI untouched, notification worker response gains next_action stats.
+
+## CHANGE-2026-07-30-TASK-CREATE-PHYSICAL-ENDPOINT
+- Type: Backend/API
+- Files: server_patch/api/tasks/v1/create.php; docs/external_api/TASKS_REMINDERS_NOTIFICATIONS_V1.md
+- Summary: Added rewrite-independent task create endpoint to avoid `/api/tasks/v1` returning GET list behavior in Postman/live server.
+- Risk: Low; existing `/api/tasks/v1` behavior remains unchanged.
+- [2026-07-30] CHANGE-SHARE-ANDROID-INBOUND: Updated AndroidManifest share intent filters, MainActivity MethodChannel content URI cache copy, HomeScreen target picker, ChatScreen shared-file consumer, and shared Android share models.
+
+## CHANGE-VIDEO-ATTACHMENT-SEND-20260730
+- Status: Completed
+- Files: lib/chat/chat_screen.dart, lib/chat_api.dart
+- Change: Replaced image-only gallery picker with media picker and added path-based native upload for videos/large files to avoid loading full video bytes into memory.
+
+- 2026-07-30 | CHG-BUILD-208 | COMPLETE | Bumped pubspec version to v2.0.8+31; built web release and Android release APK; packaged artifacts with SHA256 hashes.
+
+- 2026-07-30 | CHG-DEPLOY-208 | COMPLETE | Added register_draft_2_0_8.php; uploaded APK/Web ZIP and SHA256 files to live server; executed draft registration.
+
+## CHANGE-2026-07-31-VIDEO-UPLOAD-LIMIT
+- Type: Backend/server config
+- Files: server_patch/chat/upload_file.php, server_patch/chat/.user.ini
+- Summary: Added PHP-FPM per-folder upload limit configuration for large attachments and replaced raw upload error code responses with descriptive upload-limit diagnostics.
+- Risk: Low; upload handler behavior only changes failed-upload error messaging and server runtime limits when deployed.
+
+## CHANGE-2026-07-31-TELEGRAM-STYLE-UPLOAD-UX
+- Type: Flutter UI/UX
+- Files: lib/chat/chat_screen.dart, lib/attachments/attachment_widgets.dart
+- Summary: Added per-message upload progress tracking for attachment sends and enhanced attachment tiles to show uploading percentage, spinner, file/video-specific icon, and failed upload state before the final uploaded attachment replaces the temporary bubble.
+- Risk: Medium; upload UI path changed, but backend send APIs and existing attachment preview/download behavior remain unchanged.
+
+## CHANGE-2026-07-31-CHAT-UPLOAD-50MB
+- Files changed: lib/attachment_validation.dart, lib/chat/chat_screen.dart, lib/chat_api.dart, server_patch/chat/upload_file.php, server_patch/chat/.user.ini
+- Change: Reduced default upload max from 2 GB to 50 MB, allowed business file/video names through validation, added pre-preview validation, added server 413 guard, and aligned PHP upload timeout/size settings.
+- Impact: Prevents oversized uploads from hanging or failing late while preserving upload progress UI for valid files.
+
+## CHANGE-2026-07-31-LMS-LEAD-WEBHOOK
+- Files changed: server_patch/chat/send_message.php, server_patch/chat/lms_webhook_helper.php, server_patch/chat/lms_webhook_worker.php, server_patch/chat/lms_webhook_config.sample.php, docs/LMS_WEBHOOK_SYNC.md
+- Change: Added LMS webhook queue schema, lead-channel detection, participant-message filtering, stable flow-message IDs, async delivery worker, retry/no-retry policy, and local secret config template.
+- Impact: Flow send path remains fast while LMS receives matching lead-channel activity updates.
+
+## 2026-07-31 - Chat attachment send fallback
+- File: lib/chat/chat_screen.dart
+- Change: When PlatformFile.bytes is null for a regular attachment and a local file path exists, Flow now reads bytes from the native path before throwing Unable to read ....
+- Reason: Android/Desktop pickers and share flows can return path-only files.
+- Risk: Low; large/video files still use the existing stream/path upload branch.
+
+## 2026-07-31 - Horizon overview map enhancement
+- File: lib/myhub_horizon_screen.dart
+- Change: Reworked Horizon to include an all-employees overview map, selectable marker/name list, inline selected employee timeline panel, and full route deep-link button.
+- Risk: Medium-low UI-only change using existing Horizon APIs.
+
+## 2026-07-31 - Broadcast send hotfix
+- File: server_patch/chat/broadcast.php
+- Change: Added missing $title initialization in the broadcast send action before list update/insert.
+- Root cause: Send branch used $title without defining it, causing backend failure and generic UI error.

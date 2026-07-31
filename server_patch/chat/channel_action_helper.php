@@ -18,6 +18,7 @@ function chat_channel_action_is_task_like(string $body): bool
     $text = strtolower(trim($body));
     if ($text === '' || str_starts_with($text, 'skylink_')) return false;
     if (preg_match('/^\s*\/(ai|tags)\b/i', $text)) return false;
+    if (preg_match('/^\s*\/(assign|action|followup|reminder)\b/i', $text)) return true;
     if (preg_match('/\b(hi|hello|thanks|thank you|ok|okay|yes|no|noted|received|good morning|good evening)\b/i', $text) &&
         preg_match('/\b(task|complete|finish|update|call|send|check|close|resolve|assign|handover|remind|followup|follow up)\b/i', $text) !== 1) {
         return false;

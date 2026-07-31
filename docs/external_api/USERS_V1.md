@@ -38,6 +38,7 @@ Response:
         "name": "Ajith Kumar P",
         "designation": "Splicer",
         "jid": "302@chat.skylinkonline.net",
+        "username": "Ajith Kumar P",
         "status": "active"
       }
     ]

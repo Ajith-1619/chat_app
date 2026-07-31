@@ -7,8 +7,10 @@ $traceId = trim((string)($_SERVER['HTTP_X_SKYLINK_TRACE_ID'] ?? 'history-' . bin
 $traceStarted = microtime(true);
 $peer = trim((string)($_GET['jid'] ?? ''));
 $targetMessageId = max(0, (int)($_GET['target_message_id'] ?? 0));
-$historyLimit = max(50, min(1000, (int)($_GET['limit'] ?? 1000)));
+$beforeMessageId = max(0, (int)($_GET['before_message_id'] ?? 0));
+$historyLimit = max(20, min(100, (int)($_GET['limit'] ?? 50)));
 $targetMessageFilterSql = $targetMessageId > 0 ? 'AND id <= :target_message_id' : '';
+$beforeMessageFilterSql = $beforeMessageId > 0 ? 'AND id < :before_message_id' : '';
 $peek = (string)($_GET['peek'] ?? '') === '1';
 $readLatitude = isset($_GET['read_latitude']) && is_numeric($_GET['read_latitude']) ? (float)$_GET['read_latitude'] : null;
 $readLongitude = isset($_GET['read_longitude']) && is_numeric($_GET['read_longitude']) ? (float)$_GET['read_longitude'] : null;
@@ -60,6 +62,7 @@ try {
                  WHERE to_jid = :room_jid
                    AND (deleted_at IS NULL OR deleted_at = \'0000-00-00 00:00:00\')
                    ' . $targetMessageFilterSql . '
+                   ' . $beforeMessageFilterSql . '
                  ORDER BY created_at DESC, id DESC
                  LIMIT ' . $historyLimit . '
              ) latest_messages
@@ -67,14 +70,17 @@ try {
         $stmt = $pdo->prepare($historySql);
         $groupParams = [':room_jid' => strtolower($peer)];
         if ($targetMessageId > 0) $groupParams[':target_message_id'] = $targetMessageId;
+        if ($beforeMessageId > 0) $groupParams[':before_message_id'] = $beforeMessageId;
         try {
             $stmt->execute($groupParams);
             $historyRows = $stmt->fetchAll(PDO::FETCH_ASSOC) ?: [];
         } catch (Throwable $historyError) {
             error_log('chat/history group legacy fallback for ' . $peer . ': ' . $historyError->getMessage());
-            $fallbackSql = 'SELECT * FROM xmpp_messages WHERE to_jid = :room_jid ORDER BY id DESC LIMIT ' . $historyLimit . '';
+            $fallbackSql = 'SELECT * FROM xmpp_messages WHERE to_jid = :room_jid ' . $beforeMessageFilterSql . ' ORDER BY id DESC LIMIT ' . $historyLimit . '';
             $fallback = $pdo->prepare($fallbackSql);
-            $fallback->execute([':room_jid' => strtolower($peer)]);
+            $fallbackParams = [':room_jid' => strtolower($peer)];
+            if ($beforeMessageId > 0) $fallbackParams[':before_message_id'] = $beforeMessageId;
+            $fallback->execute($fallbackParams);
             $historyRows = array_reverse($fallback->fetchAll(PDO::FETCH_ASSOC) ?: []);
         }
         $messages = [];
@@ -156,6 +162,11 @@ try {
                 'jid' => (string)$group['room_jid'],
             ],
             'messages' => $messages,
+            'pagination' => [
+                'limit' => $historyLimit,
+                'has_more_before' => count($messages) >= $historyLimit,
+                'oldest_message_id' => count($messages) > 0 ? (int)$messages[0]['id'] : 0,
+            ],
         ]);
     }
     if (!$peek) {
@@ -194,6 +205,7 @@ try {
              )
                AND (deleted_at IS NULL OR deleted_at = \'0000-00-00 00:00:00\')
                ' . $targetMessageFilterSql . '
+               ' . $beforeMessageFilterSql . '
              ORDER BY created_at DESC, id DESC
              LIMIT ' . $historyLimit . '
          ) latest_messages
@@ -206,6 +218,7 @@ try {
         ':me_to' => $me,
     ];
     if ($targetMessageId > 0) $params[':target_message_id'] = $targetMessageId;
+    if ($beforeMessageId > 0) $params[':before_message_id'] = $beforeMessageId;
     $stmt->execute($params);
     $messages = [];
     foreach (($stmt->fetchAll(PDO::FETCH_ASSOC) ?: []) as $row) {
@@ -243,9 +256,18 @@ try {
         ];
     }
     chat_diagnostic_trace((int)$session['emp_id'], $traceId, 'database', 'message_history', (microtime(true) - $traceStarted) * 1000, 'success', ['count' => count($messages), 'peer_type' => chat_is_room_jid($peer) ? 'group' : 'dm']);
-    chat_json(['status' => true, 'messages' => $messages]);
+    chat_json([
+        'status' => true,
+        'messages' => $messages,
+        'pagination' => [
+            'limit' => $historyLimit,
+            'has_more_before' => count($messages) >= $historyLimit,
+            'oldest_message_id' => count($messages) > 0 ? (int)$messages[0]['id'] : 0,
+        ],
+    ]);
 } catch (Throwable $e) {
     chat_diagnostic_trace((int)$session['emp_id'], $traceId, 'database', 'message_history', (microtime(true) - $traceStarted) * 1000, 'error');
     error_log('chat/history failed: ' . $e->getMessage());
     chat_json(['status' => false, 'error' => 'Unable to load chat history'], 500);
 }
+

@@ -34,6 +34,7 @@ import '../myhub_leave_screens.dart';
 import '../myhub_tasks_screen.dart';
 import '../myhub_activity_screen.dart';
 import '../myhub_horizon_screen.dart';
+import '../myhub_suggestions_screen.dart';
 import '../flow_registry.dart';
 import '../mojibake_tools.dart';
 import '../clipboard_media_bridge.dart';
@@ -42,6 +43,7 @@ import '../file_preview_embed.dart';
 import '../web_attachment_bridge.dart';
 import '../web_file_actions.dart';
 import '../xmpp_bridge.dart';
+import '../shared/android_share_intent.dart';
 
 import '../app/skylink_app.dart';
 import '../auth/login_screen.dart';
@@ -399,12 +401,14 @@ class _HomeScreenState extends State<HomeScreen> {
   StreamSubscription<String>? _pushTokenSubscription;
   String _query = '';
   int _filter = 0;
+  String _workspaceKindFilter = '';
   List<int> _filterOrder = const [1, 6, 2, 3, 4, 5];
   Map<String, List<String>> _chatFolders = const {};
   List<String> _chatFolderOrder = const [];
   String _activeFolderName = '';
   bool _isLoading = true;
   bool _chatRefreshActive = false;
+  bool _chatRefreshQueued = false;
   String? _loadError;
   ChatPreview? _selectedDesktopChat;
   int _selectedDesktopInitialMessageId = 0;
@@ -423,19 +427,34 @@ class _HomeScreenState extends State<HomeScreen> {
       final matchesFolder =
           activeFolder.isEmpty ||
           (_chatFolders[activeFolder] ?? const <String>[]).contains(chat.jid);
+      final channelKind = _channelKindForPreview(chat);
       final matchesFilter = switch (_filter) {
         1 => chat.unread > 0,
         2 => !chat.isGroup,
         3 => chat.isGroup && !chat.isChannel,
-        4 => chat.isChannel && _isCoreChannelKind(_channelKindForPreview(chat)),
+        4 => chat.isChannel && _isCoreChannelKind(channelKind),
         5 => chat.isStarred,
         7 =>
-          chat.isChannel && !_isCoreChannelKind(_channelKindForPreview(chat)),
+          chat.isChannel &&
+              !_isCoreChannelKind(channelKind) &&
+              (_workspaceKindFilter.isEmpty ||
+                  channelKind == _workspaceKindFilter),
         6 => chat.isOnline,
         _ => true,
       };
       return matchesQuery && matchesFilter && matchesFolder;
     }).toList();
+  }
+
+  List<String> get _workspaceChannelKinds {
+    final kinds = _liveChats
+        .where((chat) => chat.isChannel)
+        .map(_channelKindForPreview)
+        .where((kind) => kind.isNotEmpty && !_isCoreChannelKind(kind))
+        .toSet()
+        .toList()
+      ..sort((a, b) => a.toLowerCase().compareTo(b.toLowerCase()));
+    return kinds;
   }
 
   int get _unreadCount =>
@@ -468,6 +487,224 @@ class _HomeScreenState extends State<HomeScreen> {
       (_) => _checkPunchedInConnectivity(),
     );
     _checkPunchedInConnectivity();
+    unawaited(
+      AndroidShareIntentBridge.instance.start(onPayload: _handleAndroidShare),
+    );
+  }
+
+
+  Future<void> _handleAndroidShare(IncomingSharePayload payload) async {
+    if (!mounted || payload.isEmpty) return;
+    final target = await _pickAndroidShareTarget(payload);
+    if (!mounted || target == null) return;
+    AndroidShareIntentBridge.instance.setPendingFor(target.jid, payload);
+    if (MediaQuery.sizeOf(context).width >= 900 &&
+        _selectedDesktopChat?.jid == target.jid) {
+      setState(() => _selectedDesktopChat = null);
+      await Future<void>.delayed(Duration.zero);
+    }
+    if (mounted) await _openChat(target);
+  }
+
+  Future<ChatPreview?> _pickAndroidShareTarget(
+    IncomingSharePayload payload,
+  ) async {
+    final searchController = TextEditingController();
+    Timer? debounce;
+    var query = '';
+    var users = <ChatContact>[];
+    var searching = false;
+    var error = '';
+
+    List<ChatPreview> buildTargets() {
+      final lowerQuery = query.trim().toLowerCase();
+      final targets = <ChatPreview>[];
+      final seen = <String>{};
+      for (final chat in _liveChats) {
+        if (chat.jid.toLowerCase() == systemNotificationJid) continue;
+        if (lowerQuery.isNotEmpty &&
+            !chat.name.toLowerCase().contains(lowerQuery) &&
+            !chat.message.toLowerCase().contains(lowerQuery)) {
+          continue;
+        }
+        if (seen.add(chat.jid.toLowerCase())) targets.add(chat);
+      }
+      for (final user in users) {
+        final chat = ChatPreview.fromContact(user);
+        if (seen.add(chat.jid.toLowerCase())) targets.add(chat);
+      }
+      return targets;
+    }
+
+    Future<void> runSearch(
+      String value,
+      void Function(void Function()) setDialogState,
+    ) async {
+      debounce?.cancel();
+      query = value;
+      setDialogState(() {});
+      debounce = Timer(const Duration(milliseconds: 260), () async {
+        if (!mounted) return;
+        setDialogState(() {
+          searching = true;
+          error = '';
+        });
+        try {
+          final results = await chatApi.searchUsers(value.trim());
+          if (!mounted) return;
+          setDialogState(() {
+            users = results;
+            searching = false;
+          });
+        } catch (_) {
+          if (!mounted) return;
+          setDialogState(() {
+            users = const [];
+            searching = false;
+            error = 'Unable to search users.';
+          });
+        }
+      });
+    }
+
+    try {
+      return await showDialog<ChatPreview>(
+        context: context,
+        builder: (dialogContext) => StatefulBuilder(
+          builder: (context, setDialogState) {
+            final targets = buildTargets();
+            final fileCount = payload.files.length;
+            final sharedText = payload.text.trim();
+            final subtitle = fileCount > 0
+                ? 'Share ' +
+                      fileCount.toString() +
+                      ' file' +
+                      (fileCount == 1 ? '' : 's')
+                : sharedText.length > 90
+                ? sharedText.substring(0, 90) + '...'
+                : sharedText;
+            return Dialog(
+              insetPadding: const EdgeInsets.symmetric(
+                horizontal: 22,
+                vertical: 22,
+              ),
+              child: SizedBox(
+                width: 520,
+                height: min(MediaQuery.sizeOf(context).height * 0.82, 680),
+                child: Column(
+                  children: [
+                    Padding(
+                      padding: const EdgeInsets.fromLTRB(20, 18, 12, 8),
+                      child: Row(
+                        children: [
+                          const CircleAvatar(
+                            backgroundColor: AppColors.primary,
+                            child: Icon(
+                              Icons.share_rounded,
+                              color: Colors.white,
+                            ),
+                          ),
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                const Text(
+                                  'Send to Flow',
+                                  style: TextStyle(
+                                    fontSize: 20,
+                                    fontWeight: FontWeight.w800,
+                                  ),
+                                ),
+                                Text(
+                                  subtitle.isEmpty ? 'Choose a chat' : subtitle,
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                ),
+                              ],
+                            ),
+                          ),
+                          IconButton(
+                            tooltip: 'Close',
+                            onPressed: () => Navigator.pop(dialogContext),
+                            icon: const Icon(Icons.close_rounded),
+                          ),
+                        ],
+                      ),
+                    ),
+                    Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 20),
+                      child: TextField(
+                        controller: searchController,
+                        autofocus: true,
+                        onChanged: (value) => runSearch(value, setDialogState),
+                        decoration: const InputDecoration(
+                          hintText: 'Search users, groups or channels',
+                          prefixIcon: Icon(Icons.search_rounded),
+                        ),
+                      ),
+                    ),
+                    if (searching) const LinearProgressIndicator(minHeight: 2),
+                    if (error.isNotEmpty)
+                      Padding(
+                        padding: const EdgeInsets.fromLTRB(20, 8, 20, 0),
+                        child: Text(
+                          error,
+                          style: TextStyle(
+                            color: Theme.of(context).colorScheme.error,
+                          ),
+                        ),
+                      ),
+                    Expanded(
+                      child: targets.isEmpty
+                          ? const Center(child: Text('No chats found.'))
+                          : ListView.separated(
+                              padding: const EdgeInsets.symmetric(vertical: 8),
+                              itemCount: targets.length,
+                              separatorBuilder: (_, _) => const Divider(
+                                height: 1,
+                                indent: 72,
+                              ),
+                              itemBuilder: (_, index) {
+                                final chat = targets[index];
+                                return ListTile(
+                                  leading: UserAvatar(chat: chat, radius: 23),
+                                  title: Text(
+                                    chat.name,
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                    style: const TextStyle(
+                                      fontWeight: FontWeight.w700,
+                                    ),
+                                  ),
+                                  subtitle: Text(
+                                    chat.isChannel
+                                        ? 'Channel'
+                                        : chat.isGroup
+                                        ? 'Group'
+                                        : chat.designation.isEmpty
+                                        ? chat.jid
+                                        : chat.designation,
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                  ),
+                                  trailing: const Icon(Icons.send_rounded),
+                                  onTap: () => Navigator.pop(dialogContext, chat),
+                                );
+                              },
+                            ),
+                    ),
+                  ],
+                ),
+              ),
+            );
+          },
+        ),
+      );
+    } finally {
+      debounce?.cancel();
+      searchController.dispose();
+    }
   }
 
   Future<void> _maybeShowWhatsNew() async {
@@ -602,8 +839,12 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   Future<void> _loadChats({bool silent = false}) async {
-    if (_chatRefreshActive) return;
+    if (_chatRefreshActive) {
+      _chatRefreshQueued = true;
+      return;
+    }
     _chatRefreshActive = true;
+    _chatRefreshQueued = false;
     try {
       final contacts = await chatApi.getRecentChats();
       if (!mounted) return;
@@ -670,6 +911,10 @@ class _HomeScreenState extends State<HomeScreen> {
       }
     } finally {
       _chatRefreshActive = false;
+      if (_chatRefreshQueued && mounted) {
+        _chatRefreshQueued = false;
+        unawaited(_loadChats(silent: true));
+      }
     }
   }
 
@@ -780,6 +1025,12 @@ class _HomeScreenState extends State<HomeScreen> {
       onTap: () => setState(() {
         _activeFolderName = '';
         _filter = filter;
+        if (filter != 7) {
+          _workspaceKindFilter = '';
+        } else if (_workspaceKindFilter.isNotEmpty &&
+            !_workspaceChannelKinds.contains(_workspaceKindFilter)) {
+          _workspaceKindFilter = '';
+        }
       }),
       onLongPress: () => _showFilterActions(label, filter),
     );
@@ -800,11 +1051,71 @@ class _HomeScreenState extends State<HomeScreen> {
       onTap: () => setState(() {
         _activeFolderName = folderName;
         _filter = 0;
+        _workspaceKindFilter = '';
       }),
       onLongPress: () => _showFolderActions(folderName),
     );
   }
 
+  String _workspaceKindLabel(String kind) {
+    final words = kind
+        .replaceAll(RegExp(r'[_-]+'), ' ')
+        .split(RegExp(r'\s+'))
+        .where((word) => word.trim().isNotEmpty)
+        .toList();
+    if (words.isEmpty) return 'Workspace';
+    return words
+        .map((word) => '${word[0].toUpperCase()}${word.substring(1)}')
+        .join(' ');
+  }
+
+  int _workspaceKindCount(String kind) => _liveChats.where((chat) {
+    return chat.isChannel && _channelKindForPreview(chat) == kind;
+  }).length;
+
+  Widget _buildWorkspaceKindFilters() {
+    if (_filter != 7 || _activeFolderName.isNotEmpty) {
+      return const SizedBox.shrink();
+    }
+    final kinds = _workspaceChannelKinds;
+    if (kinds.isEmpty) return const SizedBox.shrink();
+    final workspaceCount = kinds.fold<int>(
+      0,
+      (total, kind) => total + _workspaceKindCount(kind),
+    );
+    final chips = <Widget>[
+      _FilterChip(
+        label: 'All workspace',
+        count: workspaceCount,
+        selected: _workspaceKindFilter.isEmpty,
+        onTap: () => setState(() => _workspaceKindFilter = ''),
+      ),
+      ...kinds.map(
+        (kind) => _FilterChip(
+          label: _workspaceKindLabel(kind),
+          count: _workspaceKindCount(kind),
+          selected: _workspaceKindFilter == kind,
+          onTap: () => setState(() => _workspaceKindFilter = kind),
+        ),
+      ),
+    ];
+    return ScrollConfiguration(
+      behavior: ScrollConfiguration.of(context).copyWith(
+        dragDevices: const {
+          PointerDeviceKind.touch,
+          PointerDeviceKind.mouse,
+          PointerDeviceKind.stylus,
+          PointerDeviceKind.trackpad,
+        },
+      ),
+      child: SingleChildScrollView(
+        scrollDirection: Axis.horizontal,
+        primary: false,
+        padding: const EdgeInsets.fromLTRB(10, 0, 10, 8),
+        child: Row(children: chips),
+      ),
+    );
+  }
   Widget _buildFilterStrip({
     EdgeInsets padding = const EdgeInsets.fromLTRB(10, 0, 10, 8),
   }) {
@@ -1499,9 +1810,15 @@ class _HomeScreenState extends State<HomeScreen> {
           Container(
             width: double.infinity,
             color: Theme.of(context).colorScheme.surface,
-            padding: const EdgeInsets.fromLTRB(16, 0, 16, 14),
-            child: _buildFilterStrip(
-              padding: const EdgeInsets.fromLTRB(0, 0, 0, 8),
+            padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                _buildFilterStrip(
+                  padding: const EdgeInsets.fromLTRB(0, 0, 0, 8),
+                ),
+                _buildWorkspaceKindFilters(),
+              ],
             ),
           ),
           _buildInlineSearchHeader(),
@@ -1671,6 +1988,7 @@ class _HomeScreenState extends State<HomeScreen> {
                     ),
                   ),
                   SizedBox(height: 54, child: _buildFilterStrip()),
+                  _buildWorkspaceKindFilters(),
                   _buildInlineSearchHeader(),
                   const Divider(height: 1),
                   Expanded(
@@ -3373,12 +3691,14 @@ class _ChatTile extends StatelessWidget {
 class _ChannelNextActionBadgeData {
   const _ChannelNextActionBadgeData({
     required this.label,
+    required this.dateLabel,
     required this.foreground,
     required this.background,
     required this.icon,
   });
 
   final String label;
+  final String dateLabel;
   final Color foreground;
   final Color background;
   final IconData icon;
@@ -3392,9 +3712,8 @@ class _ChannelNextActionBadgeData {
     final ownerLabel = _personLabel(persons, currentUser);
     final urgency = _nextActionUrgency(chat.nextActionDate);
     return _ChannelNextActionBadgeData(
-      label: ownerLabel == 'YOU'
-          ? 'YOU: NEXT ACTION'
-          : '$ownerLabel: NEXT ACTION',
+      label: ownerLabel,
+      dateLabel: _nextActionDateLabel(chat.nextActionDate),
       foreground: urgency.foreground,
       background: urgency.background,
       icon: Icons.person_outline_rounded,
@@ -3431,6 +3750,7 @@ class _ChannelNextActionBadgeData {
     if (parsed == null) {
       return const _ChannelNextActionBadgeData(
         label: '',
+        dateLabel: '',
         foreground: Color(0xFF7C3AED),
         background: Color(0xFFF3E8FF),
         icon: Icons.person_outline_rounded,
@@ -3442,6 +3762,7 @@ class _ChannelNextActionBadgeData {
     if (date.isBefore(today)) {
       return const _ChannelNextActionBadgeData(
         label: '',
+        dateLabel: '',
         foreground: Color(0xFFE11D48),
         background: Color(0xFFFFEEF2),
         icon: Icons.person_outline_rounded,
@@ -3450,6 +3771,7 @@ class _ChannelNextActionBadgeData {
     if (date.isAtSameMomentAs(today)) {
       return const _ChannelNextActionBadgeData(
         label: '',
+        dateLabel: '',
         foreground: Color(0xFFF97316),
         background: Color(0xFFFFF3E8),
         icon: Icons.person_outline_rounded,
@@ -3457,10 +3779,27 @@ class _ChannelNextActionBadgeData {
     }
     return const _ChannelNextActionBadgeData(
       label: '',
+      dateLabel: '',
       foreground: Color(0xFF2563EB),
       background: Color(0xFFEFF6FF),
       icon: Icons.person_outline_rounded,
     );
+  }
+
+  static String _nextActionDateLabel(String raw) {
+    final parsed = _parseDate(raw);
+    if (parsed == null) return '';
+    final now = DateTime.now();
+    final today = DateTime(now.year, now.month, now.day);
+    final tomorrow = today.add(const Duration(days: 1));
+    final date = DateTime(parsed.year, parsed.month, parsed.day);
+    final hour = parsed.hour % 12 == 0 ? 12 : parsed.hour % 12;
+    final minute = parsed.minute.toString().padLeft(2, '0');
+    final period = parsed.hour >= 12 ? 'PM' : 'AM';
+    final time = '$hour:$minute $period';
+    if (date.isAtSameMomentAs(today)) return time;
+    if (date.isAtSameMomentAs(tomorrow)) return 'Tomorrow $time';
+    return '${parsed.day}/${parsed.month} $time';
   }
 
   static DateTime? _parseDate(String raw) {
@@ -3479,7 +3818,7 @@ class _ChannelNextActionBadge extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Container(
-      constraints: const BoxConstraints(maxWidth: 190),
+      constraints: const BoxConstraints(maxWidth: 260),
       padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 4),
       decoration: BoxDecoration(
         color: data.background,
@@ -3502,6 +3841,19 @@ class _ChannelNextActionBadge extends StatelessWidget {
               ),
             ),
           ),
+          if (data.dateLabel.isNotEmpty) ...[
+            const SizedBox(width: 6),
+            Text(
+              data.dateLabel,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(
+                color: data.foreground.withValues(alpha: 0.85),
+                fontSize: 10,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+          ],
         ],
       ),
     );
@@ -4001,6 +4353,7 @@ class MyHubScreen extends StatelessWidget {
       ('Company Announcements', Icons.campaign_outlined),
       ('Tasks & Tickets', Icons.task_alt_outlined),
       ('My Activity', Icons.edit_note_rounded),
+      ('Suggestions & Complaints', Icons.feedback_outlined),
       ('Reminders & Follow-ups', Icons.notifications_active_outlined),
       ('Projects', Icons.workspaces_outline),
     ];
@@ -4055,6 +4408,12 @@ class MyHubScreen extends StatelessWidget {
                   Navigator.of(context).push(
                     MaterialPageRoute<void>(
                       builder: (_) => const MyHubActivityScreen(),
+                    ),
+                  );
+                } else if (item.$1 == 'Suggestions & Complaints') {
+                  Navigator.of(context).push(
+                    MaterialPageRoute<void>(
+                      builder: (_) => const MyHubSuggestionsScreen(),
                     ),
                   );
                 } else if (item.$1 == 'Reminders & Follow-ups') {
@@ -5511,11 +5870,14 @@ void showNewMessageSheet(BuildContext context) {
 }
 
 Future<void> showBroadcastSheet(BuildContext context) async {
-  await showModalBottomSheet<void>(
+  await showDialog<void>(
     context: context,
-    isScrollControlled: true,
-    backgroundColor: Colors.transparent,
-    builder: (_) => const BroadcastSheet(),
+    barrierDismissible: true,
+    builder: (_) => Dialog(
+      insetPadding: const EdgeInsets.symmetric(horizontal: 24, vertical: 24),
+      backgroundColor: Colors.transparent,
+      child: const BroadcastSheet(),
+    ),
   );
 }
 
@@ -5529,6 +5891,7 @@ class BroadcastSheet extends StatefulWidget {
 class _BroadcastSheetState extends State<BroadcastSheet> {
   final _titleController = TextEditingController(text: 'Broadcast');
   final _messageController = TextEditingController();
+  final _recipientSearchController = TextEditingController();
   Timer? _debounce;
   List<ChatContact> _users = [];
   List<BroadcastList> _broadcasts = [];
@@ -5549,6 +5912,7 @@ class _BroadcastSheetState extends State<BroadcastSheet> {
     _debounce?.cancel();
     _titleController.dispose();
     _messageController.dispose();
+    _recipientSearchController.dispose();
     super.dispose();
   }
 
@@ -5633,6 +5997,27 @@ class _BroadcastSheetState extends State<BroadcastSheet> {
         ..clear()
         ..addAll(item.recipientEmpIds);
       _error = null;
+    });
+  }
+
+  List<String> get _visibleRecipientIds => _users
+      .map((user) => user.empId)
+      .where((id) => id.trim().isNotEmpty)
+      .toList();
+
+  bool get _allVisibleRecipientsSelected {
+    final visibleIds = _visibleRecipientIds;
+    return visibleIds.isNotEmpty && visibleIds.every(_selectedIds.contains);
+  }
+
+  void _toggleSelectAllVisible(bool selected) {
+    final visibleIds = _visibleRecipientIds;
+    setState(() {
+      if (selected) {
+        _selectedIds.addAll(visibleIds);
+      } else {
+        _selectedIds.removeAll(visibleIds);
+      }
     });
   }
 
@@ -5771,199 +6156,270 @@ class _BroadcastSheetState extends State<BroadcastSheet> {
   @override
   Widget build(BuildContext context) {
     final colors = Theme.of(context).colorScheme;
-    return Container(
-      height: MediaQuery.sizeOf(context).height * 0.9,
-      decoration: BoxDecoration(
-        color: colors.surface,
-        borderRadius: const BorderRadius.vertical(top: Radius.circular(28)),
-      ),
-      child: SafeArea(
-        top: false,
-        child: Column(
-          children: [
-            const SizedBox(height: 10),
-            Container(
-              width: 42,
-              height: 4,
-              decoration: BoxDecoration(
-                color: AppColors.divider,
-                borderRadius: BorderRadius.circular(4),
+    final size = MediaQuery.sizeOf(context);
+    final isWide = size.width >= 720;
+    return Align(
+      alignment: Alignment.center,
+      child: ConstrainedBox(
+        constraints: BoxConstraints(
+          maxWidth: 720,
+          maxHeight: size.height * (isWide ? 0.94 : 0.92),
+        ),
+        child: Container(
+          height: size.height * (isWide ? 0.9 : 0.92),
+          padding: EdgeInsets.only(
+            bottom: MediaQuery.viewInsetsOf(context).bottom,
+          ),
+          decoration: BoxDecoration(
+            color: colors.surface,
+            borderRadius: BorderRadius.circular(isWide ? 24 : 28),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withOpacity(0.16),
+                blurRadius: 28,
+                offset: const Offset(0, 12),
               ),
-            ),
-            Padding(
-              padding: const EdgeInsets.fromLTRB(20, 18, 20, 12),
-              child: Row(
-                children: [
-                  const Icon(Icons.campaign_rounded, color: AppColors.primary),
-                  const SizedBox(width: 10),
-                  Expanded(
-                    child: Text(
-                      _broadcastId > 0 ? 'Edit broadcast' : 'Broadcast',
-                      style: TextStyle(
-                        color: colors.onSurface,
-                        fontSize: 22,
-                        fontWeight: FontWeight.w800,
-                      ),
-                    ),
+            ],
+          ),
+          child: SafeArea(
+            top: false,
+            child: Column(
+              children: [
+                Container(
+                  width: 42,
+                  height: 4,
+                  margin: const EdgeInsets.only(top: 10, bottom: 10),
+                  decoration: BoxDecoration(
+                    color: AppColors.divider,
+                    borderRadius: BorderRadius.circular(4),
                   ),
-                  Text(
-                    '${_selectedIds.length} selected',
-                    style: TextStyle(color: colors.onSurfaceVariant),
-                  ),
-                ],
-              ),
-            ),
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 18),
-              child: Column(
-                children: [
-                  DropdownButtonFormField<int>(
-                    initialValue: _broadcastId,
-                    decoration: const InputDecoration(
-                      labelText: 'Broadcast list',
-                      prefixIcon: Icon(Icons.list_alt_rounded),
-                    ),
-                    items: [
-                      const DropdownMenuItem(
-                        value: 0,
-                        child: Text('New broadcast'),
+                ),
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 18),
+                  child: Row(
+                    children: [
+                      const Icon(
+                        Icons.campaign_rounded,
+                        color: AppColors.primary,
                       ),
-                      ..._broadcasts.map(
-                        (item) => DropdownMenuItem(
-                          value: item.id,
-                          child: Text(
-                            '${item.title} (${item.recipientCount})',
-                            overflow: TextOverflow.ellipsis,
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: Text(
+                          _broadcastId > 0 ? 'Edit broadcast' : 'Broadcast',
+                          style: TextStyle(
+                            color: colors.onSurface,
+                            fontSize: 22,
+                            fontWeight: FontWeight.w800,
                           ),
                         ),
                       ),
-                    ],
-                    onChanged: _busy ? null : (id) => _selectBroadcast(id ?? 0),
-                  ),
-                  const SizedBox(height: 10),
-                  TextField(
-                    controller: _titleController,
-                    enabled: !_busy,
-                    decoration: const InputDecoration(
-                      labelText: 'Broadcast name',
-                      prefixIcon: Icon(Icons.label_outline_rounded),
-                    ),
-                  ),
-                  const SizedBox(height: 10),
-                  TextField(
-                    controller: _messageController,
-                    enabled: !_busy,
-                    minLines: 2,
-                    maxLines: 4,
-                    decoration: const InputDecoration(
-                      labelText: 'Message',
-                      prefixIcon: Icon(Icons.chat_bubble_outline_rounded),
-                    ),
-                  ),
-                  const SizedBox(height: 10),
-                  TextField(
-                    enabled: !_busy,
-                    onChanged: _onSearchChanged,
-                    decoration: const InputDecoration(
-                      hintText: 'Search recipients',
-                      prefixIcon: Icon(Icons.search_rounded),
-                    ),
-                  ),
-                  if (_error != null) ...[
-                    const SizedBox(height: 8),
-                    Align(
-                      alignment: Alignment.centerLeft,
-                      child: Text(
-                        _error!,
-                        style: const TextStyle(color: Color(0xFFB3261E)),
+                      Text(
+                        '${_selectedIds.length} selected',
+                        style: const TextStyle(color: AppColors.primary),
                       ),
-                    ),
-                  ],
-                ],
-              ),
-            ),
-            const SizedBox(height: 8),
-            Expanded(
-              child: _loading
-                  ? const Center(child: CircularProgressIndicator())
-                  : ListView.separated(
-                      itemCount: _users.length,
-                      separatorBuilder: (_, _) => const Divider(height: 1),
-                      itemBuilder: (_, index) {
-                        final user = _users[index];
-                        final selected = _selectedIds.contains(user.empId);
-                        return CheckboxListTile(
-                          value: selected,
-                          onChanged: _busy
-                              ? null
-                              : (value) {
-                                  setState(() {
-                                    if (value ?? false) {
-                                      _selectedIds.add(user.empId);
-                                    } else {
-                                      _selectedIds.remove(user.empId);
-                                    }
-                                  });
-                                },
-                          secondary: UserAvatar(
-                            chat: ChatPreview.fromContact(user),
-                            radius: 22,
+                    ],
+                  ),
+                ),
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(18, 14, 18, 8),
+                  child: Column(
+                    children: [
+                      DropdownButtonFormField<int>(
+                        initialValue: _broadcastId,
+                        decoration: const InputDecoration(
+                          labelText: 'Broadcast list',
+                          prefixIcon: Icon(Icons.list_alt_rounded),
+                        ),
+                        items: [
+                          const DropdownMenuItem(
+                            value: 0,
+                            child: Text('New broadcast'),
                           ),
+                          ..._broadcasts.map(
+                            (item) => DropdownMenuItem(
+                              value: item.id,
+                              child: Text(
+                                '${item.title} (${item.recipientCount})',
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                            ),
+                          ),
+                        ],
+                        onChanged: _busy
+                            ? null
+                            : (id) => _selectBroadcast(id ?? 0),
+                      ),
+                      const SizedBox(height: 10),
+                      TextField(
+                        controller: _titleController,
+                        enabled: !_busy,
+                        decoration: const InputDecoration(
+                          labelText: 'Broadcast name',
+                          prefixIcon: Icon(Icons.label_outline_rounded),
+                        ),
+                      ),
+                      const SizedBox(height: 10),
+                      TextField(
+                        controller: _messageController,
+                        enabled: !_busy,
+                        minLines: 1,
+                        maxLines: 3,
+                        decoration: const InputDecoration(
+                          labelText: 'Message',
+                          prefixIcon: Icon(Icons.chat_bubble_outline_rounded),
+                        ),
+                      ),
+                      const SizedBox(height: 10),
+                      TextField(
+                        controller: _recipientSearchController,
+                        enabled: !_busy,
+                        onChanged: _onSearchChanged,
+                        decoration: const InputDecoration(
+                          hintText: 'Search recipients',
+                          prefixIcon: Icon(Icons.search_rounded),
+                        ),
+                      ),
+                      const SizedBox(height: 8),
+                      Material(
+                        color: colors.surfaceContainerHighest.withOpacity(0.45),
+                        borderRadius: BorderRadius.circular(12),
+                        child: CheckboxListTile(
+                          dense: true,
+                          value: _allVisibleRecipientsSelected,
+                          onChanged: _busy || _users.isEmpty
+                              ? null
+                              : (value) =>
+                                    _toggleSelectAllVisible(value ?? false),
+                          controlAffinity: ListTileControlAffinity.leading,
+                          secondary: const Icon(Icons.select_all_rounded),
                           title: Text(
-                            user.name,
-                            style: const TextStyle(fontWeight: FontWeight.w700),
+                            _recipientSearchController.text.trim().isEmpty
+                                ? 'Select all users'
+                                : 'Select all visible users',
+                            style: const TextStyle(fontWeight: FontWeight.w800),
                           ),
                           subtitle: Text(
-                            user.designation.isEmpty
-                                ? user.jid
-                                : user.designation,
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
+                            '${_selectedIds.length} selected from ${_users.length} visible',
                           ),
-                        );
-                      },
+                        ),
+                      ),
+                      if (_error != null) ...[
+                        const SizedBox(height: 8),
+                        Align(
+                          alignment: Alignment.centerLeft,
+                          child: Text(
+                            _error!,
+                            style: const TextStyle(color: Color(0xFFB3261E)),
+                          ),
+                        ),
+                      ],
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 4),
+                Expanded(
+                  flex: 2,
+                  child: _loading
+                      ? const Center(child: CircularProgressIndicator())
+                      : _users.isEmpty
+                      ? const Center(child: Text('No users found'))
+                      : Scrollbar(
+                          thumbVisibility: true,
+                          child: ListView.separated(
+                            padding: const EdgeInsets.only(bottom: 8),
+                            itemCount: _users.length,
+                            separatorBuilder: (_, _) =>
+                                const Divider(height: 1),
+                            itemBuilder: (_, index) {
+                              final user = _users[index];
+                              final selected = _selectedIds.contains(
+                                user.empId,
+                              );
+                              return CheckboxListTile(
+                                dense: true,
+                                value: selected,
+                                onChanged: _busy
+                                    ? null
+                                    : (value) {
+                                        setState(() {
+                                          if (value ?? false) {
+                                            _selectedIds.add(user.empId);
+                                          } else {
+                                            _selectedIds.remove(user.empId);
+                                          }
+                                        });
+                                      },
+                                secondary: UserAvatar(
+                                  chat: ChatPreview.fromContact(user),
+                                  radius: 22,
+                                ),
+                                title: Text(
+                                  user.name,
+                                  style: const TextStyle(
+                                    fontWeight: FontWeight.w700,
+                                  ),
+                                ),
+                                subtitle: Text(
+                                  user.designation.isEmpty
+                                      ? user.jid
+                                      : user.designation,
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                ),
+                              );
+                            },
+                          ),
+                        ),
+                ),
+                SafeArea(
+                  top: false,
+                  child: Padding(
+                    padding: const EdgeInsets.fromLTRB(18, 10, 18, 14),
+                    child: Wrap(
+                      spacing: 10,
+                      runSpacing: 8,
+                      alignment: WrapAlignment.end,
+                      crossAxisAlignment: WrapCrossAlignment.center,
+                      children: [
+                        TextButton(
+                          onPressed: _busy
+                              ? null
+                              : () => Navigator.pop(context),
+                          child: const Text('Cancel'),
+                        ),
+                        if (_broadcastId > 0)
+                          TextButton.icon(
+                            onPressed: _busy ? null : _deleteList,
+                            icon: const Icon(Icons.delete_outline_rounded),
+                            label: const Text('Delete'),
+                          ),
+                        OutlinedButton.icon(
+                          onPressed: _busy ? null : () => _saveList(),
+                          icon: const Icon(Icons.save_outlined),
+                          label: Text(
+                            _broadcastId > 0 ? 'Save changes' : 'Save list',
+                          ),
+                        ),
+                        FilledButton.icon(
+                          onPressed: _busy ? null : _send,
+                          icon: _busy
+                              ? const SizedBox(
+                                  width: 16,
+                                  height: 16,
+                                  child: CircularProgressIndicator(
+                                    strokeWidth: 2,
+                                  ),
+                                )
+                              : const Icon(Icons.send_rounded),
+                          label: Text(_busy ? 'Working' : 'Send broadcast'),
+                        ),
+                      ],
                     ),
+                  ),
+                ),
+              ],
             ),
-            Padding(
-              padding: const EdgeInsets.fromLTRB(18, 10, 18, 16),
-              child: Wrap(
-                spacing: 10,
-                runSpacing: 8,
-                alignment: WrapAlignment.end,
-                crossAxisAlignment: WrapCrossAlignment.center,
-                children: [
-                  TextButton(
-                    onPressed: _busy ? null : () => Navigator.pop(context),
-                    child: const Text('Cancel'),
-                  ),
-                  if (_broadcastId > 0)
-                    TextButton.icon(
-                      onPressed: _busy ? null : _deleteList,
-                      icon: const Icon(Icons.delete_outline_rounded),
-                      label: const Text('Delete'),
-                    ),
-                  OutlinedButton.icon(
-                    onPressed: _busy ? null : () => _saveList(),
-                    icon: const Icon(Icons.save_outlined),
-                    label: Text(
-                      _broadcastId > 0 ? 'Save changes' : 'Save list',
-                    ),
-                  ),
-                  FilledButton.icon(
-                    onPressed: _busy ? null : _send,
-                    icon: _busy
-                        ? const SizedBox(
-                            width: 16,
-                            height: 16,
-                            child: CircularProgressIndicator(strokeWidth: 2),
-                          )
-                        : const Icon(Icons.send_rounded),
-                    label: Text(_busy ? 'Working' : 'Send broadcast'),
-                  ),
-                ],
-              ),
-            ),
-          ],
+          ),
         ),
       ),
     );
@@ -6281,6 +6737,27 @@ class NewGroupSheetState extends State<NewGroupSheet> {
     return '${value.year}-${two(value.month)}-${two(value.day)} ${two(value.hour)}:${two(value.minute)}';
   }
 
+  List<String> get _visibleMemberIds => _users
+      .map((user) => user.empId)
+      .where((id) => id.trim().isNotEmpty)
+      .toList();
+
+  bool get _allVisibleMembersSelected {
+    final visibleIds = _visibleMemberIds;
+    return visibleIds.isNotEmpty && visibleIds.every(_selectedIds.contains);
+  }
+
+  void _toggleSelectAllVisibleMembers(bool selected) {
+    final visibleIds = _visibleMemberIds;
+    setState(() {
+      if (selected) {
+        _selectedIds.addAll(visibleIds);
+      } else {
+        _selectedIds.removeAll(visibleIds);
+      }
+    });
+  }
+
   Future<void> _create() async {
     final name = _nameController.text.trim();
     if (name.isEmpty || _creating) {
@@ -6330,297 +6807,367 @@ class NewGroupSheetState extends State<NewGroupSheet> {
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      height: MediaQuery.sizeOf(context).height * 0.88,
-      padding: EdgeInsets.only(bottom: MediaQuery.viewInsetsOf(context).bottom),
-      decoration: BoxDecoration(
-        color: Theme.of(context).colorScheme.surface,
-        borderRadius: const BorderRadius.vertical(top: Radius.circular(28)),
-      ),
-      child: Column(
-        children: [
-          Container(
-            width: 42,
-            height: 4,
-            margin: const EdgeInsets.only(top: 10, bottom: 10),
-            decoration: BoxDecoration(
-              color: AppColors.divider,
-              borderRadius: BorderRadius.circular(4),
-            ),
+    final size = MediaQuery.sizeOf(context);
+    final isWide = size.width >= 720;
+    final colors = Theme.of(context).colorScheme;
+    return Align(
+      alignment: isWide ? Alignment.center : Alignment.bottomCenter,
+      child: ConstrainedBox(
+        constraints: BoxConstraints(
+          maxWidth: 720,
+          maxHeight: size.height * (isWide ? 0.96 : 0.94),
+        ),
+        child: Container(
+          height: size.height * (isWide ? 0.94 : 0.92),
+          padding: EdgeInsets.only(
+            bottom: MediaQuery.viewInsetsOf(context).bottom,
           ),
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 18),
-            child: Row(
-              children: [
-                Expanded(
-                  child: Text(
-                    widget.isChannel ? 'New channel' : 'New group',
-                    style: TextStyle(
-                      color: Theme.of(context).colorScheme.onSurface,
-                      fontSize: 21,
-                      fontWeight: FontWeight.w800,
-                    ),
-                  ),
-                ),
-                Text(
-                  '${_selectedIds.length} selected',
-                  style: const TextStyle(color: AppColors.primary),
-                ),
-              ],
-            ),
-          ),
-          Padding(
-            padding: const EdgeInsets.fromLTRB(18, 16, 18, 10),
-            child: TextField(
-              controller: _nameController,
-              maxLength: 150,
-              decoration: InputDecoration(
-                labelText: widget.isChannel ? 'Channel name' : 'Group name',
-                prefixIcon: Icon(
-                  widget.isChannel ? Icons.tag_rounded : Icons.groups_rounded,
-                ),
-                counterText: '',
+          decoration: BoxDecoration(
+            color: colors.surface,
+            borderRadius: BorderRadius.circular(isWide ? 24 : 28),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withOpacity(0.16),
+                blurRadius: 28,
+                offset: const Offset(0, 12),
               ),
-            ),
+            ],
           ),
-          if (widget.isChannel)
-            Padding(
-              padding: const EdgeInsets.fromLTRB(18, 0, 18, 10),
-              child: Column(
-                children: [
-                  TextField(
-                    controller: _descriptionController,
-                    minLines: 2,
-                    maxLines: 4,
-                    maxLength: 4000,
-                    decoration: const InputDecoration(
-                      labelText: 'Channel description',
-                      hintText: 'Purpose, scope and operating notes',
-                      prefixIcon: Icon(Icons.description_outlined),
+          child: Column(
+            children: [
+              Container(
+                width: 42,
+                height: 4,
+                margin: const EdgeInsets.only(top: 10, bottom: 10),
+                decoration: BoxDecoration(
+                  color: AppColors.divider,
+                  borderRadius: BorderRadius.circular(4),
+                ),
+              ),
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 18),
+                child: Row(
+                  children: [
+                    Expanded(
+                      child: Text(
+                        widget.isChannel ? 'New channel' : 'New group',
+                        style: TextStyle(
+                          color: Theme.of(context).colorScheme.onSurface,
+                          fontSize: 21,
+                          fontWeight: FontWeight.w800,
+                        ),
+                      ),
                     ),
-                  ),
-                  const SizedBox(height: 10),
-                  DropdownButtonFormField<String>(
-                    initialValue: _channelType,
-                    decoration: const InputDecoration(
-                      labelText: 'Channel type',
-                      prefixIcon: Icon(Icons.category_outlined),
+                    Text(
+                      '${_selectedIds.length} selected',
+                      style: const TextStyle(color: AppColors.primary),
                     ),
-                    items: const [
-                      DropdownMenuItem(
-                        value: 'incident',
-                        child: Text('Incident'),
-                      ),
-                      DropdownMenuItem(value: 'action', child: Text('Action')),
-                      DropdownMenuItem(
-                        value: 'operational',
-                        child: Text('Operational'),
-                      ),
-                      DropdownMenuItem(
-                        value: 'project',
-                        child: Text('Project'),
-                      ),
-                      DropdownMenuItem(
-                        value: 'announcement',
-                        child: Text('Announcement'),
-                      ),
-                    ],
-                    onChanged: (value) => setState(() {
-                      _channelType = value ?? 'operational';
-                      if (_slaController.text.isEmpty) {
-                        _slaController.text = switch (_channelType) {
-                          'incident' => '240',
-                          'action' => '1440',
-                          'project' => '10080',
-                          'announcement' => '0',
-                          _ => '1440',
-                        };
-                      }
-                    }),
+                  ],
+                ),
+              ),
+              Padding(
+                padding: const EdgeInsets.fromLTRB(18, 16, 18, 10),
+                child: TextField(
+                  controller: _nameController,
+                  maxLength: 150,
+                  decoration: InputDecoration(
+                    labelText: widget.isChannel ? 'Channel name' : 'Group name',
+                    prefixIcon: Icon(
+                      widget.isChannel
+                          ? Icons.tag_rounded
+                          : Icons.groups_rounded,
+                    ),
+                    counterText: '',
                   ),
-                  const SizedBox(height: 10),
-                  Row(
+                ),
+              ),
+              if (widget.isChannel)
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(18, 0, 18, 10),
+                  child: Column(
                     children: [
-                      Expanded(
-                        child: DropdownButtonFormField<String>(
-                          initialValue: _priority,
-                          decoration: const InputDecoration(
-                            labelText: 'Priority',
+                      TextField(
+                        controller: _descriptionController,
+                        minLines: 1,
+                        maxLines: 2,
+                        maxLength: 4000,
+                        decoration: const InputDecoration(
+                          labelText: 'Channel description',
+                          hintText: 'Purpose, scope and operating notes',
+                          prefixIcon: Icon(Icons.description_outlined),
+                        ),
+                      ),
+                      const SizedBox(height: 10),
+                      DropdownButtonFormField<String>(
+                        initialValue: _channelType,
+                        decoration: const InputDecoration(
+                          labelText: 'Channel type',
+                          prefixIcon: Icon(Icons.category_outlined),
+                        ),
+                        items: const [
+                          DropdownMenuItem(
+                            value: 'incident',
+                            child: Text('Incident'),
                           ),
-                          items: const [
-                            DropdownMenuItem(value: 'Low', child: Text('Low')),
-                            DropdownMenuItem(
-                              value: 'Normal',
-                              child: Text('Normal'),
+                          DropdownMenuItem(
+                            value: 'action',
+                            child: Text('Action'),
+                          ),
+                          DropdownMenuItem(
+                            value: 'operational',
+                            child: Text('Operational'),
+                          ),
+                          DropdownMenuItem(
+                            value: 'project',
+                            child: Text('Project'),
+                          ),
+                          DropdownMenuItem(
+                            value: 'announcement',
+                            child: Text('Announcement'),
+                          ),
+                        ],
+                        onChanged: (value) => setState(() {
+                          _channelType = value ?? 'operational';
+                          if (_slaController.text.isEmpty) {
+                            _slaController.text = switch (_channelType) {
+                              'incident' => '240',
+                              'action' => '1440',
+                              'project' => '10080',
+                              'announcement' => '0',
+                              _ => '1440',
+                            };
+                          }
+                        }),
+                      ),
+                      const SizedBox(height: 10),
+                      Row(
+                        children: [
+                          Expanded(
+                            child: DropdownButtonFormField<String>(
+                              initialValue: _priority,
+                              decoration: const InputDecoration(
+                                labelText: 'Priority',
+                              ),
+                              items: const [
+                                DropdownMenuItem(
+                                  value: 'Low',
+                                  child: Text('Low'),
+                                ),
+                                DropdownMenuItem(
+                                  value: 'Normal',
+                                  child: Text('Normal'),
+                                ),
+                                DropdownMenuItem(
+                                  value: 'High',
+                                  child: Text('High'),
+                                ),
+                                DropdownMenuItem(
+                                  value: 'Critical',
+                                  child: Text('Critical'),
+                                ),
+                              ],
+                              onChanged: (value) =>
+                                  setState(() => _priority = value ?? 'Normal'),
                             ),
-                            DropdownMenuItem(
-                              value: 'High',
-                              child: Text('High'),
+                          ),
+                          const SizedBox(width: 10),
+                          Expanded(
+                            child: TextField(
+                              controller: _staleController,
+                              keyboardType: TextInputType.number,
+                              decoration: const InputDecoration(
+                                labelText: 'Stale alert min',
+                              ),
                             ),
-                            DropdownMenuItem(
-                              value: 'Critical',
-                              child: Text('Critical'),
+                          ),
+                        ],
+                      ),
+                      if (const {
+                        'ticket',
+                        'action',
+                        'incident',
+                        'project',
+                        'installation',
+                        'l2_feasibility',
+                        'protect',
+                      }.contains(_channelType)) ...[
+                        const SizedBox(height: 10),
+                        Row(
+                          children: [
+                            Expanded(
+                              child: TextField(
+                                controller: _targetDateController,
+                                readOnly: true,
+                                onTap: () =>
+                                    _pickChannelDate(_targetDateController),
+                                decoration: const InputDecoration(
+                                  labelText: 'Target date',
+                                  hintText: 'Select date',
+                                  suffixIcon: Icon(
+                                    Icons.calendar_month_outlined,
+                                  ),
+                                ),
+                              ),
+                            ),
+                            const SizedBox(width: 10),
+                            Expanded(
+                              child: TextField(
+                                controller: _nextActionController,
+                                readOnly: true,
+                                onTap: () =>
+                                    _pickChannelDate(_nextActionController),
+                                decoration: const InputDecoration(
+                                  labelText: 'Next action date',
+                                  hintText: 'Select date',
+                                  suffixIcon: Icon(
+                                    Icons.event_available_outlined,
+                                  ),
+                                ),
+                              ),
                             ),
                           ],
-                          onChanged: (value) =>
-                              setState(() => _priority = value ?? 'Normal'),
                         ),
-                      ),
-                      const SizedBox(width: 10),
-                      Expanded(
-                        child: TextField(
-                          controller: _staleController,
+                      ],
+                      if (const {
+                        'ticket',
+                        'incident',
+                        'action',
+                      }.contains(_channelType)) ...[
+                        const SizedBox(height: 10),
+                        TextField(
+                          controller: _slaController,
                           keyboardType: TextInputType.number,
                           decoration: const InputDecoration(
-                            labelText: 'Stale alert min',
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
-                  if (const {
-                    'ticket',
-                    'action',
-                    'incident',
-                    'project',
-                    'installation',
-                    'l2_feasibility',
-                    'protect',
-                  }.contains(_channelType)) ...[
-                    const SizedBox(height: 10),
-                    Row(
-                      children: [
-                        Expanded(
-                          child: TextField(
-                            controller: _targetDateController,
-                            readOnly: true,
-                            onTap: () =>
-                                _pickChannelDate(_targetDateController),
-                            decoration: const InputDecoration(
-                              labelText: 'Target date',
-                              hintText: 'Select date',
-                              suffixIcon: Icon(Icons.calendar_month_outlined),
-                            ),
-                          ),
-                        ),
-                        const SizedBox(width: 10),
-                        Expanded(
-                          child: TextField(
-                            controller: _nextActionController,
-                            readOnly: true,
-                            onTap: () =>
-                                _pickChannelDate(_nextActionController),
-                            decoration: const InputDecoration(
-                              labelText: 'Next action date',
-                              hintText: 'Select date',
-                              suffixIcon: Icon(Icons.event_available_outlined),
-                            ),
+                            labelText: 'SLA minutes',
+                            helperText:
+                                'Green 0-50%, Yellow 50-80%, Red 80-100%, Black breached',
                           ),
                         ),
                       ],
-                    ),
-                  ],
-                  if (const {
-                    'ticket',
-                    'incident',
-                    'action',
-                  }.contains(_channelType)) ...[
-                    const SizedBox(height: 10),
-                    TextField(
-                      controller: _slaController,
-                      keyboardType: TextInputType.number,
-                      decoration: const InputDecoration(
-                        labelText: 'SLA minutes',
-                        helperText:
-                            'Green 0-50%, Yellow 50-80%, Red 80-100%, Black breached',
-                      ),
-                    ),
-                  ],
-                ],
-              ),
-            ),
-          Padding(
-            padding: const EdgeInsets.fromLTRB(18, 0, 18, 10),
-            child: TextField(
-              controller: _searchController,
-              onChanged: _search,
-              decoration: const InputDecoration(
-                hintText: 'Search members',
-                prefixIcon: Icon(Icons.search_rounded),
-              ),
-            ),
-          ),
-          if (_error != null)
-            Padding(
-              padding: const EdgeInsets.fromLTRB(18, 0, 18, 8),
-              child: Text(
-                _error!,
-                style: const TextStyle(color: Color(0xFFB3261E)),
-              ),
-            ),
-          Expanded(
-            child: _loading
-                ? const Center(child: CircularProgressIndicator())
-                : ListView.builder(
-                    itemCount: _users.length,
-                    itemBuilder: (_, index) {
-                      final user = _users[index];
-                      final selected = _selectedIds.contains(user.empId);
-                      final preview = ChatPreview.fromContact(user);
-                      return CheckboxListTile(
-                        value: selected,
-                        onChanged: (value) {
-                          setState(() {
-                            if (value ?? false) {
-                              _selectedIds.add(user.empId);
-                            } else {
-                              _selectedIds.remove(user.empId);
-                            }
-                          });
-                        },
-                        secondary: UserAvatar(chat: preview, radius: 22),
-                        title: Text(
-                          preview.name,
-                          style: const TextStyle(fontWeight: FontWeight.w700),
-                        ),
-                        subtitle: Text(
-                          preview.designation.isEmpty
-                              ? 'Employee ${preview.empId}'
-                              : preview.designation,
-                        ),
-                      );
-                    },
+                    ],
                   ),
-          ),
-          SafeArea(
-            top: false,
-            child: Padding(
-              padding: const EdgeInsets.fromLTRB(18, 10, 18, 12),
-              child: FilledButton.icon(
-                onPressed: _creating ? null : _create,
-                icon: _creating
-                    ? const SizedBox(
-                        width: 18,
-                        height: 18,
-                        child: CircularProgressIndicator(
-                          strokeWidth: 2,
-                          color: Colors.white,
-                        ),
-                      )
-                    : Icon(
-                        widget.isChannel
-                            ? Icons.add_circle_outline_rounded
-                            : Icons.group_add_rounded,
-                      ),
-                label: Text(
-                  _creating
-                      ? 'Creating...'
-                      : 'Create ' + (widget.isChannel ? 'channel' : 'group'),
+                ),
+              Padding(
+                padding: const EdgeInsets.fromLTRB(18, 0, 18, 8),
+                child: TextField(
+                  controller: _searchController,
+                  onChanged: _search,
+                  decoration: const InputDecoration(
+                    hintText: 'Search members',
+                    prefixIcon: Icon(Icons.search_rounded),
+                  ),
                 ),
               ),
-            ),
+              Padding(
+                padding: const EdgeInsets.fromLTRB(18, 0, 18, 10),
+                child: Material(
+                  color: colors.surfaceContainerHighest.withOpacity(0.45),
+                  borderRadius: BorderRadius.circular(12),
+                  child: CheckboxListTile(
+                    dense: true,
+                    value: _allVisibleMembersSelected,
+                    onChanged: _creating || _users.isEmpty
+                        ? null
+                        : (value) =>
+                              _toggleSelectAllVisibleMembers(value ?? false),
+                    controlAffinity: ListTileControlAffinity.leading,
+                    secondary: const Icon(Icons.select_all_rounded),
+                    title: Text(
+                      _searchController.text.trim().isEmpty
+                          ? 'Select all users'
+                          : 'Select all visible users',
+                      style: const TextStyle(fontWeight: FontWeight.w800),
+                    ),
+                    subtitle: Text(
+                      '${_selectedIds.length} selected from ${_users.length} visible',
+                    ),
+                  ),
+                ),
+              ),
+              if (_error != null)
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(18, 0, 18, 8),
+                  child: Text(
+                    _error!,
+                    style: const TextStyle(color: Color(0xFFB3261E)),
+                  ),
+                ),
+              Expanded(
+                flex: 2,
+                child: _loading
+                    ? const Center(child: CircularProgressIndicator())
+                    : _users.isEmpty
+                    ? const Center(child: Text('No users found'))
+                    : Scrollbar(
+                        thumbVisibility: true,
+                        child: ListView.builder(
+                          padding: const EdgeInsets.only(bottom: 8),
+                          itemCount: _users.length,
+                          itemBuilder: (_, index) {
+                            final user = _users[index];
+                            final selected = _selectedIds.contains(user.empId);
+                            final preview = ChatPreview.fromContact(user);
+                            return CheckboxListTile(
+                              dense: true,
+                              value: selected,
+                              onChanged: (value) {
+                                setState(() {
+                                  if (value ?? false) {
+                                    _selectedIds.add(user.empId);
+                                  } else {
+                                    _selectedIds.remove(user.empId);
+                                  }
+                                });
+                              },
+                              secondary: UserAvatar(chat: preview, radius: 22),
+                              title: Text(
+                                preview.name,
+                                style: const TextStyle(
+                                  fontWeight: FontWeight.w700,
+                                ),
+                              ),
+                              subtitle: Text(
+                                preview.designation.isEmpty
+                                    ? 'Employee ${preview.empId}'
+                                    : preview.designation,
+                              ),
+                            );
+                          },
+                        ),
+                      ),
+              ),
+              SafeArea(
+                top: false,
+                child: Padding(
+                  padding: const EdgeInsets.fromLTRB(18, 10, 18, 12),
+                  child: FilledButton.icon(
+                    onPressed: _creating ? null : _create,
+                    icon: _creating
+                        ? const SizedBox(
+                            width: 18,
+                            height: 18,
+                            child: CircularProgressIndicator(
+                              strokeWidth: 2,
+                              color: Colors.white,
+                            ),
+                          )
+                        : Icon(
+                            widget.isChannel
+                                ? Icons.add_circle_outline_rounded
+                                : Icons.group_add_rounded,
+                          ),
+                    label: Text(
+                      _creating
+                          ? 'Creating...'
+                          : 'Create ' +
+                                (widget.isChannel ? 'channel' : 'group'),
+                    ),
+                  ),
+                ),
+              ),
+            ],
           ),
-        ],
+        ),
       ),
     );
   }

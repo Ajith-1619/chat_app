@@ -15,11 +15,35 @@ if (!isset($_FILES['file']) || !is_array($_FILES['file'])) {
 $file = $_FILES['file'];
 $error = (int)($file['error'] ?? UPLOAD_ERR_NO_FILE);
 if ($error !== UPLOAD_ERR_OK) {
-    chat_json(['status' => false, 'error' => 'Upload failed with code ' . $error], 422);
+    $limits = 'upload_max_filesize=' . ini_get('upload_max_filesize') . ', post_max_size=' . ini_get('post_max_size');
+    $messages = [
+        UPLOAD_ERR_INI_SIZE => 'The file is larger than the server upload limit.',
+        UPLOAD_ERR_FORM_SIZE => 'The file is larger than the form upload limit.',
+        UPLOAD_ERR_PARTIAL => 'The file upload was interrupted before completion.',
+        UPLOAD_ERR_NO_FILE => 'No file was received by the server.',
+        UPLOAD_ERR_NO_TMP_DIR => 'The server upload temp folder is missing.',
+        UPLOAD_ERR_CANT_WRITE => 'The server could not write the uploaded file.',
+        UPLOAD_ERR_EXTENSION => 'A server extension blocked the upload.',
+    ];
+    chat_json([
+        'status' => false,
+        'error' => ($messages[$error] ?? ('Upload failed with code ' . $error)) . ' ' . $limits,
+        'upload_error_code' => $error,
+        'upload_max_filesize' => ini_get('upload_max_filesize'),
+        'post_max_size' => ini_get('post_max_size'),
+    ], 422);
 }
 $size = (int)($file['size'] ?? 0);
 if ($size <= 0) {
     chat_json(['status' => false, 'error' => 'File must be at least 1 byte.'], 422);
+}
+$maxUploadBytes = 50 * 1024 * 1024;
+if ($size > $maxUploadBytes) {
+    chat_json([
+        'status' => false,
+        'error' => 'File is too large. Maximum allowed size is 50 MB.',
+        'max_upload_bytes' => $maxUploadBytes,
+    ], 413);
 }
 
 $pdo = chat_db();
@@ -72,3 +96,5 @@ chat_json([
     'mime_type' => $mime,
     'size' => $plainSize,
 ]);
+
+

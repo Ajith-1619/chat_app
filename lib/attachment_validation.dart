@@ -1,4 +1,4 @@
-const int skylinkDefaultMaxUploadBytes = 2 * 1024 * 1024 * 1024;
+const int skylinkDefaultMaxUploadBytes = 50 * 1024 * 1024;
 
 const Set<String> skylinkSupportedAttachmentExtensions = {
   'jpg',
@@ -15,7 +15,11 @@ const Set<String> skylinkSupportedAttachmentExtensions = {
 };
 
 bool isSupportedAttachmentName(String name) {
-  return skylinkSupportedAttachmentExtensions.contains(_fileExtension(name));
+  final trimmed = name.trim();
+  if (trimmed.isEmpty) return false;
+  // Flow supports any business file type; size and server-side security checks
+  // decide whether the upload can proceed.
+  return true;
 }
 
 String? validateAttachmentCandidate({
@@ -27,9 +31,7 @@ String? validateAttachmentCandidate({
   if (trimmed.isEmpty) {
     return 'Attachment name is missing.';
   }
-  if (!isSupportedAttachmentName(trimmed)) {
-    return 'Unsupported file type for $trimmed.';
-  }
+  if (!isSupportedAttachmentName(trimmed)) return 'Attachment name is missing.';
   if (size <= 0) {
     return 'Attachment is empty.';
   }
@@ -37,12 +39,6 @@ String? validateAttachmentCandidate({
     return 'Attachment is too large. Maximum allowed is ${_formatBytes(maxUploadBytes)}.';
   }
   return null;
-}
-
-String _fileExtension(String name) {
-  final dot = name.lastIndexOf('.');
-  if (dot < 0 || dot == name.length - 1) return '';
-  return name.substring(dot + 1).toLowerCase();
 }
 
 String _formatBytes(int bytes) {

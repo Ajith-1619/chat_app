@@ -96,8 +96,21 @@ function chat_ai_endpoint(array $provider): string
 function chat_ai_model(array $provider): string
 {
     $model = trim((string)($provider['model_name'] ?? ''));
-    if ($model === '' || strcasecmp($model, 'Open Router API') === 0 || strcasecmp($model, 'OpenRouter API') === 0) {
-        return 'openai/gpt-4o-mini';
+    $haystack = strtolower(implode(' ', [
+        $provider['provider_name'] ?? '',
+        $provider['api_type'] ?? '',
+        $model,
+        $provider['api_endpoint'] ?? '',
+    ]));
+    $isOpenRouter = str_contains($haystack, 'open router')
+        || str_contains($haystack, 'openrouter')
+        || str_contains($haystack, 'openai/gpt-4o-mini')
+        || str_contains($haystack, 'openrouter/gpt-4o-mini');
+    if ($model === ''
+        || strcasecmp($model, 'Open Router API') === 0
+        || strcasecmp($model, 'OpenRouter API') === 0
+        || ($isOpenRouter && preg_match('/^(openai\/|openrouter\/)?gpt-4o-mini$/i', $model))) {
+        return 'auto';
     }
     return $model;
 }

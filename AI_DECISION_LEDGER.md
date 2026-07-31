@@ -413,3 +413,121 @@
 - Decision: Register Android and Windows as draft releases, not live rollout, so Employee 302 remains the production approval gate.
 - Decision: Upload web ZIP as artifact but do not overwrite live /chat web app during this draft release request.
 
+
+## DEC-2026-07-29-OPENROUTER-AUTO-MODEL
+- Decision: Use OpenRouter model auto so provider-side routing can choose the model automatically.
+- Decision: Keep old gpt-4o-mini stored values accepted but normalize them to auto during API calls.
+
+
+## DEC-2026-07-29-BROADCAST-CHANNEL-CREATE-UX
+- Decision: Select All applies to the currently visible/search-filtered users so admins can bulk-select all users or filtered subsets safely.
+- Decision: Keep create flow as a modal bottom sheet on mobile but constrain it as a polished modal card on wider screens.
+
+
+## DEC-2026-07-29-RECENT-CHAT-HIGH-VOLUME-SYNC
+- Decision: Queue one missed refresh rather than running overlapping recent-list calls, preserving server safety while preventing stale left-list state.
+- Decision: Raise recent-list limits moderately and add indexes instead of loading all conversations unbounded.
+
+
+## 2026-07-29 - High-volume chat history pagination
+- Requirement: Make high-message groups/channels faster like WhatsApp/Telegram by loading only recent messages first and loading older messages on scroll-up.
+- Change: Added limit and efore_message_id support to chat/history.php, defaulting to 50 messages instead of 1000.
+- Change: Updated Flutter ChatApi.getHistory and ChatScreen to fetch latest 50 messages, trim old persisted cache, and lazy-prepend older messages when users scroll near the top.
+- Impact: Reduces initial chat payload, first render work, and repeated refresh cost for high-volume support groups/channels.
+- Verification: php -l server_patch/chat/history.php passed. lutter analyze lib/chat_api.dart lib/chat/chat_screen.dart completed with existing warnings/info only, no compile errors.
+- Updated: 2026-07-29 14:59:38
+
+## DEC-2026-07-29-CHANNEL-TYPE-API
+- Decision: Do not force channel definitions fallback to operational when an unknown channel type is supplied.
+- Reason: Flow channel architecture is metadata-driven; custom types such as 	ask should be preserved and routed to Workspace instead of being mislabeled Operational.
+- Updated: 2026-07-29 15:37:44 +05:30
+
+## DEC-2026-07-29-SLASH-COMMAND-BEHAVIOR
+- Decision: Keep slash commands lightweight: UI intercept only where a real creation flow exists; send other commands as messages so backend can record auditable metadata events without blocking chat.
+- Reason: Preserves chat speed and avoids introducing a large command framework regression.
+- Updated: 2026-07-29 16:06:09 +05:30
+
+
+## DEC-2026-07-29-NEW-CHANNEL-MEMBER-LIST-SCROLL
+- Decision: Fix the new channel member picker by resizing the dialog and giving the member results their own scrollable area instead of changing member search or selection logic.
+- Reason: The bug was caused by available vertical space collapsing under the channel form fields; a layout-only fix has lower regression risk.
+- Updated: 2026-07-29 16:40:00 +05:30
+
+## DEC-2026-07-29-BROADCAST-MODAL-PICKER
+- Decision: Convert broadcast from bottom drawer to centered dialog modal while preserving existing BroadcastSheet state/API methods.
+- Reason: This improves desktop/web usability and avoids repeating the channel modal issue where form controls can consume the recipient list space.
+- Updated: 2026-07-29 17:05:00 +05:30
+
+## DEC-2026-07-29-MYHUB-SUGGESTIONS-COMPLAINTS
+- Decision: Store Suggestions & Complaints in the chat/xmpp database through chat_db(), adding assigned_to_emp_id columns to the existing suggestion_complaints table rather than using task DB.
+- Reason: User specified the table lives beside xmpp_users/xmpp tables, and receiver-specific visibility needs a durable assigned-user field.
+- Updated: 2026-07-29 17:45:00 +05:30
+
+## AI-DECISION-2026-07-29-CHAT-LIST-NEXT-ACTION-BADGE
+- Decision: Keep the badge as a compact single pill with owner name plus due date/time instead of adding a second row or backend-derived label.
+- Reason: Matches user request, preserves chat list density, and avoids API/data model changes.
+
+## AI-DECISION-2026-07-29-WEB-NEXT-ACTION-BADGE
+- Decision: Use the standard web release command with `/chat/` base href.
+- Reason: Matches the existing Flow deployment path documented in build.md.
+
+## AI-DECISION-2026-07-29-DIRECT-USER-SEND-API
+- Decision: Add a convenience employee-id based direct-message endpoint instead of changing the existing JID-based `/messages` endpoint.
+- Reason: External portals can send DMs without constructing JIDs, while existing group/channel/direct API compatibility remains stable.
+
+## AI-DECISION-2026-07-29-DIRECT-MESSAGE-API-404-FALLBACK
+- Decision: Add a physical route fallback instead of relying only on `.htaccess` rewrite.
+- Reason: Production Apache rewrite/AllowOverride differences can cause 404; physical route keeps the documented URL stable.
+
+## AI-DECISION-2026-07-29-DIRECT-MESSAGE-POSTMAN-BODY-FALLBACK
+- Decision: Make the endpoint tolerant of multiple Postman/external client body formats instead of requiring strict raw JSON only.
+- Reason: External integrations commonly send form-data or x-www-form-urlencoded during testing; accepting aliases reduces integration friction without weakening auth.
+
+## AI-DECISION-2026-07-30-DIRECT-MESSAGE-BODY-DIAGNOSTICS
+- Decision: Add safe parser diagnostics instead of guessing whether Postman, proxy, or old server code is dropping the body.
+- Reason: The screenshot request is correct; debug fields will separate deployment mismatch from request transport/body parsing issues.
+
+## AI-DECISION-2026-07-30-DIRECT-MESSAGE-PHYSICAL-HANDLER
+- Decision: Make the physical fallback route self-contained.
+- Reason: Persistent same validation response indicates the shared dispatcher or old live file may be handling the request; self-contained physical route removes PATH_INFO/rewrite uncertainty.
+
+## AI-DECISION-2026-07-30-DIRECT-SEND-PHYSICAL-ENDPOINT
+- Decision: Add a new physical `direct_send.php` endpoint.
+- Reason: The screenshot response lacks debug markers from the latest route, proving the request is not reaching the updated handler; a new physical file avoids rewrite/opcache route ambiguity.
+
+## DECISION-2026-07-30-NEXT-ACTION-MONITOR
+- Decision: Integrate next-action reminders and due polls into the existing notification worker instead of creating a separate always-on service.
+- Reason: Reuses the current cron/deployment path, avoids app-side polling, and keeps Flow faster while preventing duplicate operational messages through state hashes.
+
+## DECISION-2026-07-30-TASK-CREATE-PHYSICAL-ENDPOINT
+- Decision: Add a physical `create.php` endpoint instead of changing the generic `/tasks/v1` dispatcher.
+- Reason: Live/Postman behavior indicates route or cached dispatcher ambiguity; a physical create file gives a deterministic integration URL.
+- [2026-07-30] DEC-SHARE-ANDROID-INBOUND: Used native Kotlin MethodChannel instead of new dependency so Android content URI files are copied to app cache and existing Flow attachment preview/send path remains unchanged.
+
+## DEC-VIDEO-ATTACHMENT-SEND-20260730
+- Decision: Use FilePicker media type for gallery selection and stream native video/large file uploads from file path.
+- Reason: Android videos can be large; reading full bytes before upload can fail or slow the app.
+
+- 2026-07-30 | DEC-BUILD-208 | Versioned next release as 2.0.8+31 because current pubspec was 2.0.7+30 and user requested next version web/APK build.
+
+- 2026-07-30 | DEC-DEPLOY-208 | Registered only Android in release governance because current version.php/release validation tracks android/windows/linux and no web platform is exposed to client update checks. Web ZIP uploaded as supporting artifact.
+
+## DECISION-2026-07-31-CHAT-UPLOAD-50MB
+- Decision: Enforce 50 MB at both Flutter and PHP layers instead of relying only on server ini limits.
+- Reason: Client-side rejection gives immediate UX feedback; server-side guard protects external clients and misconfigured PHP limits.
+
+## DECISION-2026-07-31-LMS-LEAD-WEBHOOK
+- Decision: Use async queue + worker and server-local token config instead of direct synchronous webhook call in send_message.php.
+- Reason: Prevents LMS downtime/latency from breaking Flow messaging and keeps bearer token out of logs/UI/repo config.
+
+## 2026-07-31 - Attachment read strategy
+- Decision: Prefer a local native-path byte fallback for non-streamed attachments instead of forcing every picker path to preload bytes.
+- Why: Minimal safe fix, preserves current video/large-file streaming behavior, and directly targets the observed Unable to read failure.
+
+## 2026-07-31 - Horizon interaction design
+- Decision: Keep a single all-employees overview on the main Horizon screen and reuse the existing per-employee route experience as an inline drilldown plus optional full-screen view.
+- Why: Matches the user's request while preserving the already-working single-user route map.
+
+## 2026-07-31 - Broadcast error diagnosis
+- Decision: Fix the backend send action instead of only improving client-side error messaging.
+- Why: The observed failure was caused by an actual server-side variable bug, so masking it in UI would not solve delivery.

@@ -135,6 +135,38 @@ Body:
 }
 ```
 
+
+### 4.2.a Send One-to-One Message By Employee ID
+
+Use this when an external portal has employee IDs but not JIDs.
+
+```http
+POST https://dns.watchtower247.in/router_login/api/chat/v1/direct/messages
+Authorization: Bearer <api_key>
+X-Flow-Actor-Emp-Id: 302
+Content-Type: application/json
+```
+
+```json
+{
+  "sender_emp_id": 302,
+  "recipient_emp_id": 116,
+  "body": "Hi from external portal",
+  "source_name": "External Portal",
+  "client_message_id": "portal-dm-1001"
+}
+```
+
+`sender_emp_id` is optional. If omitted, Flow uses `X-Flow-Actor-Emp-Id` or the API client owner. Scope required: `chat:write`.
+
+Fetch direct history:
+
+```http
+GET https://dns.watchtower247.in/router_login/api/chat/v1/direct/messages?recipient_emp_id=116&sender_emp_id=302&limit=50
+Authorization: Bearer <api_key>
+```
+
+Response key: `messages`.
 Group/channel body:
 
 ```json
@@ -481,12 +513,14 @@ Body:
 {
   "name": "Flow Rollout",
   "description": "Channel purpose and operating context",
-  "channel_kind": "operational",
+  "channel_type": "task",
   "member_emp_ids": [302, 116],
   "owner_emp_id": 302,
   "priority": "Normal"
 }
 ```
+
+`channel_type` is the preferred field. `channel_kind`, `type_key`, and `kind` are accepted as backward-compatible aliases. Standard channel types (`incident`, `action`, `operational`, `project`, `announcement`) appear under Channels; custom types such as `task` are preserved and appear under Workspace.
 
 ### 7.4 Update Channel
 
@@ -500,7 +534,7 @@ Body can include:
 {
   "room_name": "Updated Channel Name",
   "description": "Updated channel purpose",
-  "channel_kind": "incident",
+  "channel_type": "incident",
   "status": "Open",
   "priority": "High",
   "next_action_text": "Complete rollout checklist",
@@ -979,7 +1013,7 @@ Body:
 {
   "title": "Open Router API",
   "ai_name": "custom",
-  "model": "openrouter/gpt-4o-mini",
+  "model": "auto",
   "endpoint": "https://openrouter.ai/api/v1/chat/completions",
   "api_key": "sk-or-REPLACE_WITH_REAL_KEY",
   "other_details": "Used for Flow channel AI",

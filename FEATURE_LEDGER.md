@@ -350,3 +350,117 @@
 - Android and Windows registered as Draft releases for 302 approval.
 - Status: Complete.
 
+
+## 2026-07-29 - High-volume chat history pagination
+- Requirement: Make high-message groups/channels faster like WhatsApp/Telegram by loading only recent messages first and loading older messages on scroll-up.
+- Change: Added limit and efore_message_id support to chat/history.php, defaulting to 50 messages instead of 1000.
+- Change: Updated Flutter ChatApi.getHistory and ChatScreen to fetch latest 50 messages, trim old persisted cache, and lazy-prepend older messages when users scroll near the top.
+- Impact: Reduces initial chat payload, first render work, and repeated refresh cost for high-volume support groups/channels.
+- Verification: php -l server_patch/chat/history.php passed. lutter analyze lib/chat_api.dart lib/chat/chat_screen.dart completed with existing warnings/info only, no compile errors.
+- Updated: 2026-07-29 14:59:38
+
+## FEAT-CHANNEL-TYPE-PRESERVATION
+- Status: Complete
+- Area: External APIs, channel creation, workspace classification.
+- Behavior: channel_type, channel_kind, 	ype_key, and kind aliases normalize to a stored xmpp_groups.channel_kind; unknown/custom values no longer fall back to operational.
+- Updated: 2026-07-29 15:37:44 +05:30
+
+## FEAT-SLASH-COMMANDS
+- Status: Complete
+- Area: Chat composer, group/channel metadata, reminders/follow-ups.
+- Behavior: /help opens guide, /ai triggers AI, /reminder and /followup open creation flow, /update /decision /meeting /tags update metadata, /assign /action /followup /reminder update next-action behavior through backend.
+- Updated: 2026-07-29 16:06:09 +05:30
+
+
+## FEAT-CHANNEL-MEMBER-PICKER
+- Status: Complete
+- Area: New group/channel creation.
+- Behavior: Member search results remain selectable inside a dedicated scrollable list even when channel description/type/priority fields are visible.
+- Updated: 2026-07-29 16:40:00 +05:30
+
+## FEAT-BROADCAST-MODAL-PICKER
+- Status: Complete
+- Area: Broadcast creation and recipient selection.
+- Behavior: Broadcast list/name/message/search/select-all/send controls are shown in a centered modal, while recipients remain scrollable with an empty state.
+- Updated: 2026-07-29 17:05:00 +05:30
+
+## FEAT-MYHUB-SUGGESTIONS-COMPLAINTS
+- Status: Complete
+- Area: MyHub feedback workflow.
+- Behavior: Users can submit suggestions or complaints to a selected employee; sender and selected receiver can see the item list; attachments up to 5 files are supported.
+- Updated: 2026-07-29 17:45:00 +05:30
+
+## FEAT-CHAT-LIST-NEXT-ACTION-BADGE
+- Status: Completed
+- Summary: Channel chat list next-action indicator now renders a compact owner/date pill instead of the old fixed text label.
+- Files: lib/home/home_screen.dart
+
+## FEAT-WEB-BUILD-NEXT-ACTION-BADGE
+- Status: Completed
+- Summary: Generated the web release artifact with base href `/chat/` for server deployment.
+
+## FEAT-DIRECT-USER-SEND-API
+- Status: Completed
+- Summary: External portals can send and fetch direct one-to-one messages by employee ID using API-key authentication.
+- Endpoint: POST/GET `/api/chat/v1/direct/messages`.
+
+## FEAT-DIRECT-MESSAGE-API-PHYSICAL-ROUTE
+- Status: Completed
+- Summary: Added a physical fallback route for `/api/chat/v1/direct/messages` so the endpoint works even when Apache rewrite/PATH_INFO is not forwarding.
+
+## FEAT-DIRECT-MESSAGE-POSTMAN-COMPATIBILITY
+- Status: Completed
+- Summary: Direct message API now accepts JSON, form-data, x-www-form-urlencoded, query aliases, and alternate field names for sender/recipient/message.
+
+## FEAT-DIRECT-MESSAGE-BODY-DIAGNOSTICS
+- Status: Completed
+- Summary: Direct message API now parses raw JSON locally, falls back to form/query input, accepts aliases, and returns safe debug fields when required input is missing.
+
+## FEAT-DIRECT-MESSAGE-PHYSICAL-HANDLER
+- Status: Completed
+- Summary: `/api/chat/v1/direct/messages/index.php` now handles GET/POST direct messages itself instead of only forwarding to the shared dispatcher.
+
+## FEAT-DIRECT-SEND-PHYSICAL-ENDPOINT
+- Status: Completed
+- Summary: Added `/api/chat/v1/direct_send.php`, a rewrite-independent direct one-to-one message API endpoint.
+
+## FEATURE-2026-07-30-NEXT-ACTION-MONITOR
+- Status: Implemented
+- Area: Channel operations / Flow Marshal
+- Summary: Monitors channel next-action metadata, sends due reminders, and creates completion polls without duplicating messages.
+
+## FEATURE-2026-07-30-TASK-CREATE-PHYSICAL-ENDPOINT
+- Status: Implemented
+- Area: External API / Tasks
+- Summary: Added `/api/tasks/v1/create.php` as a POST-only task create endpoint with robust JSON/form/query parsing and debug marker.
+- [2026-07-30] FEAT-SHARE-ANDROID-INBOUND: Added native Android ACTION_SEND/ACTION_SEND_MULTIPLE bridge, Flow target picker, and ChatScreen pending-share attachment preview flow.
+
+## FEAT-VIDEO-ATTACHMENT-SEND
+- Status: Completed
+- Feature: Photo/video picker and native large-file streaming upload for attachments.
+- Platforms: Android/native, Web unchanged.
+
+- 2026-07-30 | FEAT-RELEASE-BUILD | COMPLETE | Generated Flow Messenger Web and Android APK release artifacts for v2.0.8+31.
+
+- 2026-07-30 | FEAT-RELEASE-GOVERNANCE | COMPLETE | v2.0.8+31 artifacts uploaded to live downloads; Android draft release registered without production exposure.
+
+## FEATURE-2026-07-31-CHAT-UPLOAD-50MB
+- Status: Implemented
+- Feature: 50 MB attachment/video upload policy.
+- Behavior: Files/videos over 50 MB are rejected before preview/send on the client and by the server if bypassed.
+
+## FEATURE-2026-07-31-LMS-LEAD-WEBHOOK
+- Status: Implemented
+- Feature: Bidirectional LMS lead timeline sync from Flow participant messages.
+- Behavior: Real participant text messages in LMS lead channels are queued and delivered to LMS; LMS/API/system messages are skipped.
+
+## 2026-07-31 - Attachment upload reliability
+- Feature area: Chat attachments
+- Update: Added native-path byte fallback for non-streamed uploads so picker/share sourced files can still enter the normal upload pipeline.
+- User impact: Prevents premature Unable to read <file> failures before upload starts.
+
+## 2026-07-31 - Horizon overview drilldown
+- Added a shared all-employee Horizon map with named markers, quick employee chips, inline selected-user route/timeline drilldown, and retained full-screen route view.
+
+## 2026-07-31 - Broadcast reliability
+- Broadcast send flow now preserves/derives a valid title during send requests so saved lists can be updated and sent without PHP runtime failure.

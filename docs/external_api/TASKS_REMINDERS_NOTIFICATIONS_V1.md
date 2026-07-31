@@ -20,6 +20,13 @@ Date: 2026-07-24
 
 ## Create Task
 
+Preferred live URL:
+
+```text
+POST https://dns.watchtower247.in/router_login/api/tasks/v1/create.php
+```
+
+Use this physical endpoint when Postman or Apache rewrite returns a task list from `/api/tasks/v1`.
 ```json
 {
   "title": "Router check",

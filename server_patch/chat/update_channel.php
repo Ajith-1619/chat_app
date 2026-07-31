@@ -27,8 +27,8 @@ if (!in_array((string)$channel['role'], ['owner', 'admin'], true)) {
 $description = trim((string)($input['description'] ?? ''));
 if (mb_strlen($description) > 4000) $description = mb_substr($description, 0, 4000);
 $kind = strtolower(trim((string)($input['channel_type'] ?? $input['channel_kind'] ?? $channel['channel_kind'] ?? 'operational')));
-$allowedKinds = ['incident', 'action', 'operational', 'project', 'announcement', 'ticket', 'installation', 'l2_feasibility', 'protect'];
-if (!in_array($kind, $allowedKinds, true)) $kind = (string)($channel['channel_kind'] ?? 'operational');
+$kind = preg_replace('/[^a-z0-9_-]+/i', '-', $kind) ?: 'operational';
+$kind = trim($kind, '-_') ?: 'operational';
 $status = trim((string)($input['status'] ?? $channel['status'] ?? 'Open')) ?: 'Open';
 $priority = trim((string)($input['priority'] ?? $channel['priority'] ?? 'Normal')) ?: 'Normal';
 $targetDateRaw = trim((string)($input['target_date'] ?? ''));

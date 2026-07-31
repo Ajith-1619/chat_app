@@ -578,6 +578,179 @@ function myhub_horizon_timeline(PDO $employeePdo, int $viewerEmpId): never
     chat_json(['status' => true, 'employee' => $person, 'punch_in' => date('Y-m-d H:i:s', $inTs), 'punch_out' => $outTs > $inTs ? date('Y-m-d H:i:s', $outTs) : '', 'working_seconds' => max(0, $endTs - $inTs), 'working_hours' => myhub_horizon_duration(max(0, $endTs - $inTs)), 'point_count' => count($points), 'points' => $points, 'half_hour_points' => $halfHour, 'start_marker' => $points[0] ?? null, 'end_marker' => $points ? $points[count($points) - 1] : null]);
 }
 
+
+function myhub_ensure_suggestion_complaints_table(PDO $pdo): void
+{
+    $pdo->exec("CREATE TABLE IF NOT EXISTS suggestion_complaints (
+        id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
+        username VARCHAR(128) NOT NULL,
+        emp_id INT NULL,
+        assigned_to_emp_id INT NULL,
+        assigned_to_username VARCHAR(128) NULL,
+        entry_type ENUM('suggestion','complaint') NOT NULL DEFAULT 'suggestion',
+        category VARCHAR(80) NULL,
+        subject VARCHAR(180) NULL,
+        message TEXT NOT NULL,
+        attachment_paths TEXT NULL,
+        priority ENUM('low','normal','high','critical') NOT NULL DEFAULT 'normal',
+        status ENUM('open','in_review','resolved','closed','rejected') NOT NULL DEFAULT 'open',
+        created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+        INDEX idx_suggestion_emp (emp_id, created_at),
+        INDEX idx_suggestion_assigned (assigned_to_emp_id, status, created_at),
+        INDEX idx_suggestion_status (status, created_at)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
+    chat_ensure_column($pdo, 'suggestion_complaints', 'assigned_to_emp_id', "INT NULL AFTER emp_id");
+    chat_ensure_column($pdo, 'suggestion_complaints', 'assigned_to_username', "VARCHAR(128) NULL AFTER assigned_to_emp_id");
+}
+
+function myhub_suggestion_upload_files(int $empId): string
+{
+    if (empty($_FILES)) return '';
+    $files = [];
+    foreach ($_FILES as $input) {
+        if (!is_array($input)) continue;
+        if (is_array($input['name'] ?? null)) {
+            $count = count($input['name']);
+            for ($i = 0; $i < $count; $i++) {
+                $files[] = [
+                    'name' => $input['name'][$i] ?? '',
+                    'tmp_name' => $input['tmp_name'][$i] ?? '',
+                    'error' => $input['error'][$i] ?? UPLOAD_ERR_NO_FILE,
+                    'size' => $input['size'][$i] ?? 0,
+                ];
+            }
+        } else {
+            $files[] = $input;
+        }
+    }
+    $stored = [];
+    $root = dirname(__DIR__);
+    $relativeDir = 'uploads/suggestions/' . $empId . '/' . date('Ymd');
+    $targetDir = $root . DIRECTORY_SEPARATOR . str_replace('/', DIRECTORY_SEPARATOR, $relativeDir);
+    if (!is_dir($targetDir) && !mkdir($targetDir, 0775, true) && !is_dir($targetDir)) {
+        chat_json(['status' => false, 'error' => 'Suggestion upload directory is unavailable.'], 500);
+    }
+    foreach ($files as $file) {
+        $error = (int)($file['error'] ?? UPLOAD_ERR_NO_FILE);
+        if ($error === UPLOAD_ERR_NO_FILE) continue;
+        if ($error !== UPLOAD_ERR_OK) {
+            chat_json(['status' => false, 'error' => 'Suggestion file upload failed with code ' . $error], 422);
+        }
+        if ((int)($file['size'] ?? 0) > 10 * 1024 * 1024) {
+            chat_json(['status' => false, 'error' => 'Each suggestion file must be 10MB or smaller.'], 422);
+        }
+        $name = preg_replace('/[^A-Za-z0-9._-]+/', '_', basename((string)($file['name'] ?? 'file')));
+        $name = $name !== '' ? $name : 'file';
+        $targetName = date('His') . '_' . bin2hex(random_bytes(4)) . '_' . $name;
+        $target = $targetDir . DIRECTORY_SEPARATOR . $targetName;
+        if (!move_uploaded_file((string)$file['tmp_name'], $target)) {
+            chat_json(['status' => false, 'error' => 'Unable to save suggestion file.'], 500);
+        }
+        $stored[] = $relativeDir . '/' . $targetName;
+        if (count($stored) >= 5) break;
+    }
+    return implode(',', $stored);
+}
+
+function myhub_suggestion_row(PDO $employeePdo, array $row): array
+{
+    $people = myhub_people($employeePdo, [(int)($row['emp_id'] ?? 0), (int)($row['assigned_to_emp_id'] ?? 0)]);
+    $by = $people[0] ?? ['emp_id' => (int)($row['emp_id'] ?? 0), 'name' => (string)($row['username'] ?? ''), 'designation' => ''];
+    $to = $people[1] ?? ['emp_id' => (int)($row['assigned_to_emp_id'] ?? 0), 'name' => (string)($row['assigned_to_username'] ?? ''), 'designation' => ''];
+    return [
+        'id' => (int)($row['id'] ?? 0),
+        'username' => (string)($row['username'] ?? ''),
+        'emp_id' => (int)($row['emp_id'] ?? 0),
+        'created_by' => $by,
+        'assigned_to_emp_id' => (int)($row['assigned_to_emp_id'] ?? 0),
+        'assigned_to' => $to,
+        'entry_type' => (string)($row['entry_type'] ?? 'suggestion'),
+        'category' => (string)($row['category'] ?? ''),
+        'subject' => (string)($row['subject'] ?? ''),
+        'message' => (string)($row['message'] ?? ''),
+        'attachment_paths' => (string)($row['attachment_paths'] ?? ''),
+        'priority' => (string)($row['priority'] ?? 'normal'),
+        'status' => (string)($row['status'] ?? 'open'),
+        'created_at' => (string)($row['created_at'] ?? ''),
+        'updated_at' => (string)($row['updated_at'] ?? ''),
+    ];
+}
+
+function myhub_suggestions(int $empId): never
+{
+    $chatPdo = chat_db();
+    $employeePdo = myhub_employee_db();
+    myhub_ensure_suggestion_complaints_table($chatPdo);
+    $stmt = $chatPdo->prepare(
+        'SELECT * FROM suggestion_complaints
+         WHERE emp_id = :emp_id OR assigned_to_emp_id = :emp_id
+         ORDER BY created_at DESC, id DESC
+         LIMIT 200'
+    );
+    $stmt->execute([':emp_id' => $empId]);
+    $rows = array_map(
+        static fn(array $row): array => myhub_suggestion_row($employeePdo, $row),
+        $stmt->fetchAll(PDO::FETCH_ASSOC) ?: []
+    );
+    chat_json(['status' => true, 'items' => $rows]);
+}
+
+function myhub_create_suggestion(int $empId): never
+{
+    $entryType = strtolower(trim((string)($_POST['entry_type'] ?? $_POST['type'] ?? 'suggestion')));
+    if (!in_array($entryType, ['suggestion', 'complaint'], true)) $entryType = 'suggestion';
+    $category = mb_substr(trim((string)($_POST['category'] ?? 'General')), 0, 80);
+    $priority = strtolower(trim((string)($_POST['priority'] ?? 'normal')));
+    if (!in_array($priority, ['low', 'normal', 'high', 'critical'], true)) $priority = 'normal';
+    $subject = mb_substr(trim((string)($_POST['subject'] ?? '')), 0, 180);
+    $message = trim((string)($_POST['message'] ?? ''));
+    $assignedTo = (int)($_POST['assigned_to_emp_id'] ?? $_POST['to_emp_id'] ?? 0);
+    if ($assignedTo <= 0) chat_json(['status' => false, 'error' => 'Select the user this suggestion or complaint is for.'], 422);
+    if ($subject === '') chat_json(['status' => false, 'error' => 'Subject is required.'], 422);
+    if ($message === '') chat_json(['status' => false, 'error' => 'Message is required.'], 422);
+
+    $chatPdo = chat_db();
+    $employeePdo = myhub_employee_db();
+    myhub_ensure_suggestion_complaints_table($chatPdo);
+    $targetPeople = myhub_people($employeePdo, [$assignedTo]);
+    $target = $targetPeople[0] ?? ['emp_id' => $assignedTo, 'name' => (string)$assignedTo];
+    $attachmentPaths = myhub_suggestion_upload_files($empId);
+    $stmt = $chatPdo->prepare(
+        'INSERT INTO suggestion_complaints
+         (username, emp_id, assigned_to_emp_id, assigned_to_username, entry_type, category, subject, message, attachment_paths, priority, status)
+         VALUES (:username, :emp_id, :assigned_to_emp_id, :assigned_to_username, :entry_type, :category, :subject, :message, :attachment_paths, :priority, :status)'
+    );
+    $stmt->execute([
+        ':username' => myhub_activity_username($empId),
+        ':emp_id' => $empId,
+        ':assigned_to_emp_id' => $assignedTo,
+        ':assigned_to_username' => myhub_activity_username($assignedTo),
+        ':entry_type' => $entryType,
+        ':category' => $category !== '' ? $category : 'General',
+        ':subject' => $subject,
+        ':message' => $message,
+        ':attachment_paths' => $attachmentPaths,
+        ':priority' => $priority,
+        ':status' => 'open',
+    ]);
+    $id = (int)$chatPdo->lastInsertId();
+    try {
+        $creator = myhub_people($employeePdo, [$empId])[0] ?? ['name' => (string)$empId, 'emp_id' => $empId];
+        $body = ucfirst($entryType) . " received\n"
+            . 'ID: ' . $id . "\n"
+            . 'From: ' . myhub_people_label([$creator]) . "\n"
+            . 'For: ' . myhub_people_label([$target]) . "\n"
+            . 'Category: ' . ($category !== '' ? $category : 'General') . "\n"
+            . 'Priority: ' . ucfirst($priority) . "\n"
+            . 'Subject: ' . $subject . "\n"
+            . 'Message: ' . mb_substr($message, 0, 1200);
+        chat_send_system_notification($assignedTo, $body, 'suggestion_complaint', 'suggestion-' . $id . '-' . $assignedTo);
+    } catch (Throwable $e) {
+        error_log('Suggestion notification skipped: ' . $e->getMessage());
+    }
+    chat_json(['status' => true, 'suggestion_id' => $id, 'message' => 'Suggestion or complaint submitted successfully.']);
+}
 function myhub_verticals(PDO $pdo): never
 {
     $table = myhub_first_table($pdo, ['tbl_vertical', 'vertical', 'verticals']);
@@ -1172,6 +1345,9 @@ try {
     if ($_SERVER['REQUEST_METHOD'] === 'POST' && $section === 'activity') {
         myhub_create_activity($empId);
     }
+    if ($_SERVER['REQUEST_METHOD'] === 'POST' && $section === 'suggestions') {
+        myhub_create_suggestion($empId);
+    }
     match ($section) {
         'directory' => myhub_directory(myhub_employee_db()),
         'verticals' => myhub_verticals(myhub_employee_db()),
@@ -1179,6 +1355,7 @@ try {
         'task_detail' => myhub_task_detail($empId),
         'leave' => myhub_leave(myhub_employee_db(), $empId),
         'activity' => myhub_activity_logs($empId),
+        'suggestions' => myhub_suggestions($empId),
         'horizon' => myhub_horizon(myhub_employee_db(), $empId),
         'horizon_timeline' => myhub_horizon_timeline(myhub_employee_db(), $empId),
         default => chat_json(['status' => false, 'error' => 'Unknown MyHub section.'], 404),
@@ -1187,4 +1364,5 @@ try {
     error_log('MyHub failed: ' . $e->getMessage());
     chat_json(['status' => false, 'error' => 'Unable to load MyHub data.'], 500);
 }
+
 

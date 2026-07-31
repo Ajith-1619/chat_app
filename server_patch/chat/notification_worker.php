@@ -36,6 +36,8 @@ try {
     }
 
     require_once __DIR__ . '/wakeup_helpers.php';
+    require_once __DIR__ . '/channel_action_helper.php';
+    require_once __DIR__ . '/next_action_monitor_helpers.php';
 
     if (PHP_SAPI !== 'cli') {
         $fixedToken = 'skylink_worker_20260702_Ajith_9xK4mP7qR2vN8sL5';
@@ -53,14 +55,16 @@ try {
         scheduled_message_process($pdo);
     }
     $wakeupCount = wakeup_process_due($pdo);
+    $nextActionStats = next_action_monitor_process($pdo);
 
     if (PHP_SAPI === 'cli') {
-        fwrite(STDOUT, "Notification and wake-up queues processed. Wake-up sent: {$wakeupCount}. Scheduled helper: " . ($scheduledAvailable ? 'ok' : 'missing') . "\n");
+        fwrite(STDOUT, 'Notification, wake-up, and next-action queues processed. Wake-up sent: ' . $wakeupCount . '. Next-action reminders: ' . (int)$nextActionStats['reminders_sent'] . '. Next-action polls: ' . (int)$nextActionStats['polls_sent'] . '. Scheduled helper: ' . ($scheduledAvailable ? 'ok' : 'missing') . "\n");
         exit(0);
     }
     chat_json([
         'status' => true,
         'wakeup_sent' => $wakeupCount,
+        'next_action' => $nextActionStats,
         'scheduled_helper' => $scheduledAvailable ? 'ok' : 'missing',
     ]);
 } catch (Throwable $e) {

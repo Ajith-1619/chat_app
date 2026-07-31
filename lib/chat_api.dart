@@ -1907,12 +1907,17 @@ class ChatApi {
     double? readLongitude,
     String readLocationAddress = '',
     int targetMessageId = 0,
+    int beforeMessageId = 0,
+    int limit = 50,
   }) async {
     _validateJid(jid);
     // System Notifications are persisted by Flow's server notification pipeline.
     // Always load them through history.php so older DB-backed notifications are
     // included and opening the conversation clears the unread count reliably.
-    if (_useDirectWebXmpp && jid.toLowerCase() != systemNotificationJid) {
+    if (_useDirectWebXmpp &&
+        beforeMessageId <= 0 &&
+        limit >= 200 &&
+        jid.toLowerCase() != systemNotificationJid) {
       try {
         final result = (await _xmpp.getHistory(
           jid,
@@ -1934,6 +1939,8 @@ class ChatApi {
       query: {
         'jid': jid,
         if (targetMessageId > 0) 'target_message_id': '$targetMessageId',
+        if (beforeMessageId > 0) 'before_message_id': '$beforeMessageId',
+        'limit': '${limit.clamp(20, 100)}',
         if (!markRead) 'peek': '1',
         if (markRead && readLatitude != null) 'read_latitude': '$readLatitude',
         if (markRead && readLongitude != null)
@@ -1952,11 +1959,13 @@ class ChatApi {
         .whereType<Map>()
         .map((item) => ApiMessage.fromJson(Map<String, dynamic>.from(item)))
         .toList();
-    _historyCache[jid.toLowerCase()] = result;
-    await AppCache.instance.writeJson(
-      'history:${jid.toLowerCase()}',
-      result.map((message) => message.toJson()).toList(),
-    );
+    if (beforeMessageId <= 0) {
+      _historyCache[jid.toLowerCase()] = result;
+      await AppCache.instance.writeJson(
+        'history:${jid.toLowerCase()}',
+        result.map((message) => message.toJson()).toList(),
+      );
+    }
     return result;
   }
 
@@ -2206,6 +2215,24 @@ class ChatApi {
     return body;
   }
 
+  Future<Map<String, dynamic>> respondNextActionPrompt({
+    required int messageId,
+    required String response,
+    String notes = '',
+    String nextActionDate = '',
+  }) async {
+    if (messageId <= 0) {
+      throw const ApiException('Next action prompt is not synced yet.');
+    }
+    final body = await _postJson('chat/next_action_response.php', {
+      'message_id': messageId,
+      'response': response,
+      'notes': notes,
+      'next_action_date': nextActionDate,
+    });
+    return body;
+  }
+
   Future<Map<String, dynamic>> toggleChecklistItem(
     int messageId,
     int itemIndex,
@@ -2444,7 +2471,7 @@ class ChatApi {
   Future<Uint8List> readAttachmentBytes(ChatAttachment attachment) async {
     final response = await _client
         .get(_attachmentFetchUri(attachment))
-        .timeout(const Duration(minutes: 3));
+        .timeout(const Duration(minutes: 10));
     if (response.statusCode < 200 || response.statusCode >= 300) {
       throw ApiException(
         'Download failed (' + response.statusCode.toString() + ').',
@@ -2783,6 +2810,65 @@ class ChatApi {
         body['status'] != true) {
       throw ApiException(
         _errorMessage(body, fallback: 'Unable to save activity.'),
+        statusCode: response.statusCode,
+      );
+    }
+  }
+
+  Future<Map<String, dynamic>> getMyHubSuggestions() async {
+    final body = await _getJson(
+      'chat/myhub.php',
+      query: {'section': 'suggestions'},
+    );
+    return Map<String, dynamic>.from(body);
+  }
+
+  Future<void> saveMyHubSuggestionComplaint({
+    required String entryType,
+    required String category,
+    required String priority,
+    required String subject,
+    required String message,
+    required int assignedToEmpId,
+    required List<({String name, List<int> bytes})> files,
+  }) async {
+    final request = http.MultipartRequest(
+      'POST',
+      _uri('chat/myhub.php', query: {'section': 'suggestions'}),
+    );
+    request.headers.addAll(_headers());
+    request.fields.addAll({
+      'entry_type': entryType.trim().toLowerCase(),
+      'category': category.trim(),
+      'priority': priority.trim().toLowerCase(),
+      'subject': subject.trim(),
+      'message': message.trim(),
+      'assigned_to_emp_id': '$assignedToEmpId',
+    });
+    for (final file in files.take(5)) {
+      if (file.bytes.isEmpty) continue;
+      request.files.add(
+        http.MultipartFile.fromBytes(
+          'files[]',
+          file.bytes,
+          filename: file.name,
+        ),
+      );
+    }
+    final streamed = await _client
+        .send(request)
+        .timeout(const Duration(minutes: 5));
+    final response = await http.Response.fromStream(streamed);
+    _captureCookie(response);
+    final body = _decode(response);
+    if (response.statusCode < 200 ||
+        response.statusCode >= 300 ||
+        body['status'] != true) {
+      throw ApiException(
+        _errorMessage(
+          body,
+          fallback: 'Unable to submit suggestion or complaint.',
+        ),
         statusCode: response.statusCode,
       );
     }
@@ -3371,7 +3457,7 @@ class ChatApi {
             headers: {...slot.headers, 'Content-Type': mimeType},
             body: bytes,
           )
-          .timeout(const Duration(minutes: 3));
+          .timeout(const Duration(minutes: 10));
       if (response.statusCode < 200 || response.statusCode >= 300) {
         throw ApiException(
           'File upload failed (${response.statusCode}).',
@@ -3409,6 +3495,147 @@ class ChatApi {
       connectionStatus.value = 'disconnected';
       throw ApiException(_xmppError(error));
     }
+  }
+
+  Future<ChatAttachment> sendAttachmentFromPath({
+    required String to,
+    required String name,
+    required String path,
+    required String mimeType,
+    String caption = '',
+    String replyToId = '',
+    List<String> mentions = const [],
+    String threadRootId = '',
+    double? latitude,
+    double? longitude,
+    String locationAddress = '',
+    String clientMessageId = '',
+    int forwardedFromMessageId = 0,
+    String originalSenderJid = '',
+    String originalSenderName = '',
+    String originalSourceName = '',
+    void Function(double progress)? onProgress,
+    bool restricted = false,
+  }) async {
+    _validateJid(to);
+    final source = File(path);
+    if (!await source.exists()) {
+      throw ApiException('Unable to read $name.');
+    }
+    final size = await source.length();
+    if (size <= 0) throw const ApiException('The selected file is empty.');
+    if (_useDirectWebXmpp) {
+      return sendAttachment(
+        to: to,
+        name: name,
+        mimeType: mimeType,
+        bytes: await source.readAsBytes(),
+        caption: caption,
+        replyToId: replyToId,
+        mentions: mentions,
+        threadRootId: threadRootId,
+        latitude: latitude,
+        longitude: longitude,
+        locationAddress: locationAddress,
+        clientMessageId: clientMessageId,
+        forwardedFromMessageId: forwardedFromMessageId,
+        originalSenderJid: originalSenderJid,
+        originalSenderName: originalSenderName,
+        originalSourceName: originalSourceName,
+        onProgress: onProgress,
+        restricted: restricted,
+      );
+    }
+
+    onProgress?.call(0.1);
+    final uploadTraceId = _newTraceId('upload');
+    final uploadStopwatch = Stopwatch()..start();
+    final request = http.MultipartRequest('POST', _uri('chat/upload_file.php'));
+    request.headers.addAll(_headers(traceId: uploadTraceId));
+    request.files.add(
+      await http.MultipartFile.fromPath('file', path, filename: name),
+    );
+    final streamed = await _client
+        .send(request)
+        .timeout(const Duration(minutes: 30));
+    final response = await http.Response.fromStream(streamed);
+    _captureCookie(response);
+    unawaited(
+      _recordDiagnostic(
+        traceId: uploadTraceId,
+        category: 'android',
+        operation: 'file_upload_stream_end_to_end',
+        durationMs: uploadStopwatch.elapsedMicroseconds / 1000,
+        eventStatus: response.statusCode < 400 ? 'success' : 'error',
+        metadata: {
+          'http_status': response.statusCode,
+          'original_bytes': size,
+          'uploaded_bytes': size,
+          'mime': mimeType,
+        },
+      ),
+    );
+    final uploaded = _decode(response);
+    if (response.statusCode < 200 ||
+        response.statusCode >= 300 ||
+        uploaded['status'] != true) {
+      throw ApiException(
+        _errorMessage(uploaded, fallback: 'Unable to upload the file.'),
+        statusCode: response.statusCode,
+      );
+    }
+    onProgress?.call(0.8);
+    final url = '${uploaded['url'] ?? ''}'.trim();
+    if (url.isEmpty) throw const ApiException('Upload URL was not returned.');
+    AppDeviceInfo device;
+    try {
+      device = await DeviceService.instance.info;
+    } catch (_) {
+      device = const AppDeviceInfo(
+        id: 'web-session',
+        name: 'web browser',
+        platform: 'web',
+        source: 'web',
+      );
+    }
+    final sourceName = await _deviceSourceName();
+    final sent = await _postJson('chat/send_message.php', {
+      'to': to,
+      'message': caption.trim(),
+      'file_url': url,
+      'file_name': name,
+      'file_type': mimeType,
+      'file_size': size,
+      if (restricted) 'file_restricted': true,
+      if (replyToId.isNotEmpty) 'reply_to_id': replyToId,
+      if (mentions.isNotEmpty) 'mentions': mentions,
+      if (threadRootId.isNotEmpty) 'thread_root_id': threadRootId,
+      if (latitude != null) 'latitude': latitude,
+      if (longitude != null) 'longitude': longitude,
+      if (locationAddress.trim().isNotEmpty)
+        'location_address': locationAddress.trim(),
+      if (clientMessageId.isNotEmpty) 'client_message_id': clientMessageId,
+      if (forwardedFromMessageId > 0)
+        'forwarded_from_message_id': forwardedFromMessageId,
+      if (originalSenderJid.isNotEmpty)
+        'original_sender_jid': originalSenderJid,
+      if (originalSenderName.isNotEmpty)
+        'original_sender_name': originalSenderName,
+      if (originalSourceName.isNotEmpty)
+        'original_source_name': originalSourceName,
+      'source_device': device.source,
+      'source_name': sourceName,
+    });
+    onProgress?.call(1);
+    return ChatAttachment(
+      name: name,
+      url: url,
+      mimeType: mimeType,
+      size: size,
+      caption: caption.trim(),
+      messageId: int.tryParse((sent['message_id'] ?? '').toString()) ?? 0,
+      isRestricted: restricted,
+    );
   }
 
   Future<ChatAttachment> _sendNativeAttachment({

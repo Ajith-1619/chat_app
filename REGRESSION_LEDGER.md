@@ -583,3 +583,168 @@
 - flutter build web/apk/windows: Passed.
 - Risk: Full analyzer still has legacy warnings in chat_screen.dart; no release blocker found during build.
 
+
+## REG-2026-07-29-OPENROUTER-AUTO-MODEL
+- PHP lint passed for server_patch/chat/ai_room_helper.php.
+- Scope limited to OpenRouter model selection and docs; no UI/build changes made.
+
+
+## REG-2026-07-29-BROADCAST-CHANNEL-CREATE-UX
+- PHP lint passed for server_patch/chat/create_channel.php.
+- flutter analyze lib/home/home_screen.dart completed with existing warnings/info only; no syntax/build-blocking errors from this change.
+- Scope limited to broadcast recipient selection, new group/channel picker UI, and channel create backend bootstrapping.
+
+
+## REG-2026-07-29-RECENT-CHAT-HIGH-VOLUME-SYNC
+- PHP lint passed for server_patch/chat/recent_chats.php and bootstrap.php.
+- flutter analyze lib/home/home_screen.dart completed with existing warnings/info only; no syntax/blocking errors from this change.
+- Risk reduced for support/high-volume users where slow recent-list calls previously caused refreshes to be skipped.
+
+
+## 2026-07-29 - High-volume chat history pagination
+- Requirement: Make high-message groups/channels faster like WhatsApp/Telegram by loading only recent messages first and loading older messages on scroll-up.
+- Change: Added limit and efore_message_id support to chat/history.php, defaulting to 50 messages instead of 1000.
+- Change: Updated Flutter ChatApi.getHistory and ChatScreen to fetch latest 50 messages, trim old persisted cache, and lazy-prepend older messages when users scroll near the top.
+- Impact: Reduces initial chat payload, first render work, and repeated refresh cost for high-volume support groups/channels.
+- Verification: php -l server_patch/chat/history.php passed. lutter analyze lib/chat_api.dart lib/chat/chat_screen.dart completed with existing warnings/info only, no compile errors.
+- Updated: 2026-07-29 14:59:38
+
+## 2026-07-29 - Web Build Completed
+- Request: Build web release after high-volume chat history pagination update.
+- Command: flutter build web --release --base-href /chat/
+- Output: build/web
+- Status: Success
+- Report: BUILD_REPORT_2026-07-29_web_history_pagination.md
+- Updated: 2026-07-29 15:07:37
+
+## REG-2026-07-29-CHANNEL-TYPE-API
+- Scope: Channel creation/update type routing.
+- Risk: Existing standard channel types could be affected by normalization.
+- Verification: Syntax checks passed; aliases remain backward compatible for channel_kind; standard types still stored as same normalized values.
+- Status: Passed for static verification. Runtime server deployment/test still required.
+- Updated: 2026-07-29 15:37:44 +05:30
+
+## REG-2026-07-29-SLASH-COMMAND-BEHAVIOR
+- Scope: Chat send, command suggestions, AI trigger, reminder/follow-up creation, channel metadata updates.
+- Risk: Slash command interception could block normal message send.
+- Verification: /ai remains normal send; unknown slash text remains normal send; only /help /reminder /followup are intercepted intentionally.
+- Status: Static verification passed. Manual runtime check recommended.
+- Updated: 2026-07-29 16:06:09 +05:30
+
+
+## REG-2026-07-29-WEB-SLASH-COMMANDS
+- Scope: Web release build after slash command behavior update.
+- Verification: Flutter web release build succeeded for /chat/ base href.
+- Residual Risk: Manual runtime verification needed for /ai, /help, /reminder, /followup and metadata commands on live backend.
+- Updated: 2026-07-29 16:25:38 +05:30
+
+
+## REG-2026-07-29-NEW-CHANNEL-MEMBER-LIST-SCROLL
+- Scope: New group/channel dialog, member search, select-all visible users, and create button layout.
+- Verification: Static UI check and scoped Flutter analyze completed; selection logic was not rewritten.
+- Residual Risk: Manual browser check recommended with long employee lists and filtered search results.
+- Updated: 2026-07-29 16:40:00 +05:30
+
+## REG-2026-07-29-BROADCAST-MODAL-PICKER
+- Scope: Broadcast open flow, list selection, select all visible users, save list, delete list, send broadcast.
+- Verification: Static UI/code verification and scoped Flutter analyze completed; broadcast API calls and selection state logic were preserved.
+- Residual Risk: Manual browser check recommended with long recipient lists and keyboard-open state.
+- Updated: 2026-07-29 17:05:00 +05:30
+
+## REG-2026-07-29-WEB-BROADCAST-MODAL
+- Scope: Web release build after broadcast modal and channel member picker UI updates.
+- Verification: Flutter web release build succeeded for /chat/ base href.
+- Residual Risk: Manual browser verification recommended for broadcast modal recipient scroll, select-all, and send flow.
+- Updated: 2026-07-29 17:20:00 +05:30
+
+## REG-2026-07-29-MYHUB-SUGGESTIONS-COMPLAINTS
+- Scope: MyHub grid routing, directory search, suggestion/complaint submission, file upload, sender/receiver list visibility, existing MyHub activity/tasks/leave/horizon sections.
+- Verification: Static/code verification completed; existing MyHub dispatcher sections preserved and suggestions added as a new section.
+- Residual Risk: Manual live check recommended after deploying server_patch/chat/myhub.php because schema migration runs against production chat DB.
+- Updated: 2026-07-29 17:45:00 +05:30
+
+## REG-2026-07-29-CHAT-LIST-NEXT-ACTION-BADGE
+- Scope: Chat list rendering for channel next-action badges.
+- Verified: Old "NEXT ACTION" literal removed from source; date label field added; badge remains capped to avoid list overflow.
+- Residual Risk: Existing analyzer warnings in home_screen.dart remain unrelated.
+
+## REG-2026-07-29-WEB-NEXT-ACTION-BADGE
+- Status: Passed by compile/build verification
+- Verified: Web release build compiles after the chat-list next-action badge change.
+- Residual Risk: Runtime UI behavior should still be checked in browser after deployment.
+
+## REG-2026-07-29-DIRECT-USER-SEND-API
+- Scope: External API chat message sending/fetching.
+- Verified: Existing generic chat endpoint remains in place; new direct endpoint handles only `/direct/messages` before falling through to existing handlers.
+- Residual Risk: Live server runtime should be tested with a real API key after uploading the server patch.
+
+## REG-2026-07-29-DIRECT-MESSAGE-API-404-FALLBACK
+- Scope: `/api/chat/v1/direct/messages` routing.
+- Verified: Physical route PHP syntax passes and forwards to existing v1 chat dispatcher.
+- Residual Risk: Server must receive the new file and the existing `_shared/extended.php` direct handler.
+
+## REG-2026-07-29-DIRECT-MESSAGE-POSTMAN-BODY-FALLBACK
+- Scope: External direct message API.
+- Verified: PHP lint passes and required-field parsing supports more Postman body modes.
+- Residual Risk: Live server must be updated with the latest `extended.php` for this fix to take effect.
+
+## REG-2026-07-30-DIRECT-MESSAGE-BODY-DIAGNOSTICS
+- Scope: External direct message API.
+- Verified: PHP lint passes; validation errors now show content type, raw length, JSON parse status, and input keys for troubleshooting.
+- Residual Risk: Live server must be updated with the latest file for debug output and tolerant parsing to take effect.
+
+## REG-2026-07-30-DIRECT-MESSAGE-PHYSICAL-HANDLER
+- Scope: Direct external API route.
+- Verified: Physical route syntax passes and returns debug handler marker on validation failure.
+- Residual Risk: Live server must be updated with this physical file exactly at `/var/www/html/router_login/api/chat/v1/direct/messages/index.php`.
+
+## REG-2026-07-30-DIRECT-SEND-PHYSICAL-ENDPOINT
+- Scope: External direct user message API.
+- Verified: New endpoint lint passes and uses same authentication, JID resolution, persistence, plugin events, and XMPP send behavior.
+- Residual Risk: Live server must upload the new physical file and call `/direct_send.php` URL.
+
+## REG-2026-07-30-DIRECT-SEND-LIVE-API-VERIFY
+- Scope: External direct send endpoint.
+- Verified: Live `direct_send.php` parses JSON body and persists one-to-one message.
+- Residual Risk: Pretty route `/direct/messages` may still hit older server route; use `/direct_send.php` until server rewrite/cache is cleaned.
+
+## REG-2026-07-30-NEXT-ACTION-MONITOR
+- Status: Passed static verification
+- Checks: Existing notification worker remains the scheduler entrypoint; wake-up and scheduled-message flow preserved; generated messages use existing `xmpp_messages` and `SKYLINK_POLL:` payload format.
+- Manual Follow-up: Run the live notification worker cron and verify one due channel emits exactly one reminder and one poll.
+
+## REG-2026-07-30-TASK-CREATE-PHYSICAL-ENDPOINT
+- Status: Passed static verification
+- Checks: New route is POST-only, requires `tasks:write`, returns singular `task`, and does not alter existing list endpoint.
+- Manual Follow-up: Upload `server_patch/api/tasks/v1/create.php` to live `/var/www/html/router_login/api/tasks/v1/create.php` and test in Postman.
+- [2026-07-30] REG-SHARE-ANDROID-INBOUND: Verified flutter analyze has no hard errors via error filter; existing repo warnings remain. Verified flutter build apk --debug completed successfully.
+
+## REG-VIDEO-ATTACHMENT-SEND-20260730
+- Status: Verified by analyzer error filter
+- Risk: Attachment send regressions for image/file uploads.
+- Mitigation: Existing sendAttachment path remains for web/small files/images; new streaming path is limited to native videos or files over 20 MB.
+
+- 2026-07-30 | REG-BUILD-208 | PASSED | Compile verification passed for main entry, web build, and Android release build. Manual runtime QA not executed in this turn.
+
+- 2026-07-30 | REG-DEPLOY-208 | PASSED | Public artifact URLs returned HTTP 200; production version endpoint did not expose draft before 302 approval.
+
+## REGRESSION-2026-07-31-CHAT-UPLOAD-50MB
+- Risk: Existing file upload flow could reject valid attachments or break video uploads.
+- Verification: PHP lint passed for server_patch/chat/upload_file.php. Flutter analyze on changed Dart files completed with no new hard errors; repo still has pre-existing warnings in chat_screen/chat_api.
+
+## REGRESSION-2026-07-31-LMS-LEAD-WEBHOOK
+- Risk: Message send flow could be slowed or fail if LMS is down.
+- Mitigation: Webhook delivery is queued and worker-based; failures are isolated and logged without exposing tokens.
+- Verification: PHP lint passed for send_message.php, lms_webhook_helper.php, lms_webhook_worker.php, and lms_webhook_config.sample.php.
+
+## 2026-07-31 - Attachment upload regression check
+- Verified: lutter analyze lib/chat/chat_screen.dart completed with existing warnings/infos only; no new compile errors from the attachment fallback change.
+- Residual: Workspace still misses PROJECT_STATE.md and CHANGE_LEDGER_SPEC.md.
+
+## 2026-07-31 - Horizon map verification
+- Verified: lutter analyze lib/myhub_horizon_screen.dart passed with no issues.
+- Residual: PROJECT_STATE.md and CHANGE_LEDGER_SPEC.md are still missing from workspace.
+
+## 2026-07-31 - Broadcast send verification
+- Verified: php -l server_patch/chat/broadcast.php passed.
+- Residual: Patched server file still needs to be deployed to the live server if the live endpoint is still failing.

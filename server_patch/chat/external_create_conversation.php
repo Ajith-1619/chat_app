@@ -119,14 +119,11 @@ function flow_api_create_channel(PDO $pdo, PDO $employeePdo, array $input, int $
         chat_json(['status' => false, 'error' => 'Valid channel name is required.'], 422);
     }
     $channelKind = strtolower(trim((string)($input['channel_type'] ?? $input['channel_kind'] ?? 'operational')));
+$channelKind = preg_replace('/[^a-z0-9_-]+/i', '-', $channelKind) ?: 'operational';
+$channelKind = trim($channelKind, '-_') ?: 'operational';
     $definitionStmt = $pdo->prepare('SELECT * FROM xmpp_channel_definitions WHERE type_key = :type_key AND active = 1 LIMIT 1');
     $definitionStmt->execute([':type_key' => $channelKind]);
     $definition = $definitionStmt->fetch(PDO::FETCH_ASSOC) ?: null;
-    if (!$definition) {
-        $channelKind = 'operational';
-        $definitionStmt->execute([':type_key' => $channelKind]);
-        $definition = $definitionStmt->fetch(PDO::FETCH_ASSOC) ?: null;
-    }
     $definitionId = $definition ? (int)$definition['id'] : null;
     $definitionName = $definition ? (string)$definition['name'] : ucfirst($channelKind);
     $definitionSla = $definition ? (json_decode((string)($definition['sla_json'] ?? '{}'), true) ?: []) : [];
@@ -152,6 +149,7 @@ function flow_api_create_channel(PDO $pdo, PDO $employeePdo, array $input, int $
         'incident' => 'INC',
         'project' => 'PRJ',
         'action' => 'ACT',
+        'task' => 'TSK',
         'announcement' => 'ANN',
         default => 'OPS',
     };

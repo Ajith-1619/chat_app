@@ -408,3 +408,141 @@
 - Status: Complete.
 - Version: 2.0.7+30.
 
+
+## 2026-07-29 - High-volume chat history pagination
+- Requirement: Make high-message groups/channels faster like WhatsApp/Telegram by loading only recent messages first and loading older messages on scroll-up.
+- Change: Added limit and efore_message_id support to chat/history.php, defaulting to 50 messages instead of 1000.
+- Change: Updated Flutter ChatApi.getHistory and ChatScreen to fetch latest 50 messages, trim old persisted cache, and lazy-prepend older messages when users scroll near the top.
+- Impact: Reduces initial chat payload, first render work, and repeated refresh cost for high-volume support groups/channels.
+- Verification: php -l server_patch/chat/history.php passed. lutter analyze lib/chat_api.dart lib/chat/chat_screen.dart completed with existing warnings/info only, no compile errors.
+- Updated: 2026-07-29 14:59:38
+
+## REQ-2026-07-29-CHANNEL-TYPE-API
+- Status: Complete
+- Request: External/API channel creation must respect supplied channel type such as 	ask instead of defaulting to operational.
+- Outcome: channel_type is now accepted and preserved by v1 API, chat channel create, external conversation create, and channel update paths. Custom non-core types remain Workspace channels.
+- Updated: 2026-07-29 15:37:44 +05:30
+
+## REQ-2026-07-29-SLASH-COMMAND-BEHAVIOR
+- Status: Complete
+- Request: Add proper behavior/functions for group/channel slash commands instead of only showing comments/help.
+- Outcome: Slash commands now route to AI/help/reminder/follow-up UI flows or backend metadata/action handlers.
+- Updated: 2026-07-29 16:06:09 +05:30
+
+
+## REQ-2026-07-29-NEW-CHANNEL-MEMBER-LIST-SCROLL
+- Status: Complete
+- Request: New channel dialog search shows matching users count but the users list is not visible/scrollable, making member selection impossible.
+- Outcome: New group/channel member picker now keeps a visible scrollable users list with a scrollbar and empty state while preserving select-all and create behavior.
+- Updated: 2026-07-29 16:40:00 +05:30
+
+## REQ-2026-07-29-BROADCAST-MODAL-PICKER
+- Status: Complete
+- Request: Broadcast creation must use a proper modal view instead of a bottom drawer, and the member list must not collapse like the channel create dialog issue.
+- Outcome: Broadcast opens as a centered modal with bounded height and a dedicated scrollable recipient list.
+- Updated: 2026-07-29 17:05:00 +05:30
+
+## REQ-2026-07-29-MYHUB-SUGGESTIONS-COMPLAINTS
+- Status: Complete
+- Request: Add MyHub Suggestions & Complaints where users can select the target user, submit suggestion/complaint with category/priority/subject/message/files, and the selected user can see it in their list.
+- Outcome: Added MyHub UI, ChatApi methods, and chat DB-backed myhub.php section using suggestion_complaints with assigned user visibility.
+- Updated: 2026-07-29 17:45:00 +05:30
+
+## REQ-2026-07-29-CHAT-LIST-NEXT-ACTION-BADGE
+- Status: Completed
+- Request: Chat list next-action badge should not show the literal "NEXT ACTION" text; it should show only the assigned person/name, flex to the name length, and include the next-action date/time.
+- Scope: Flutter web/app chat list UI only.
+
+## REQ-2026-07-29-WEB-BUILD-NEXT-ACTION-BADGE
+- Status: Completed
+- Request: Produce a web release build after the chat-list next-action badge UI update.
+- Scope: Flutter web release build.
+
+## REQ-2026-07-29-DIRECT-USER-SEND-API
+- Status: Completed
+- Request: Add an external API to send one-to-one messages between Flow users without requiring browser session authentication.
+- Scope: Versioned external API under `/api/chat/v1`.
+
+## REQ-2026-07-29-DIRECT-MESSAGE-API-404-FALLBACK
+- Status: Completed
+- Request: Resolve HTTP 404 when calling the direct one-to-one message API from Postman.
+- Scope: External API route compatibility.
+
+## REQ-2026-07-29-DIRECT-MESSAGE-POSTMAN-BODY-FALLBACK
+- Status: Completed
+- Request: Direct user message API returned `recipient_emp_id is required` even when Postman body contained the field.
+- Scope: External direct message API input parsing.
+
+## REQ-2026-07-30-DIRECT-MESSAGE-VALIDATION-DIAGNOSTIC
+- Status: Completed
+- Request: Diagnose why Postman direct message API returns `recipient_emp_id is required` even with a visible JSON body.
+- Scope: External direct message API validation/debug behavior.
+
+## REQ-2026-07-30-DIRECT-MESSAGE-PHYSICAL-HANDLER
+- Status: Completed
+- Request: Fix persistent `recipient_emp_id is required` from Postman direct message API despite correct JSON body.
+- Scope: Physical fallback API route.
+
+## REQ-2026-07-30-DIRECT-SEND-PHYSICAL-ENDPOINT
+- Status: Completed
+- Request: Persistent validation error on `/api/chat/v1/direct/messages` after uploading API folder; provide a reliable endpoint that bypasses routing/cache ambiguity.
+- Scope: External direct message physical endpoint.
+
+## REQ-2026-07-30-DIRECT-SEND-LIVE-API-VERIFY
+- Status: Completed
+- Request: Verify whether the one-to-one direct send API works on the live server.
+- Scope: Live HTTP API test.
+
+## REQ-2026-07-30-NEXT-ACTION-REMINDER-POLL
+- Status: Completed
+- Request: Send a reminder one hour before channel next-action due time and post a completion poll after the due time passes.
+- Scope: Channel next-action backend monitor and existing notification worker integration.
+
+## REQ-2026-07-30-TASK-CREATE-PHYSICAL-ENDPOINT
+- Status: Completed
+- Request: Task create API returns task list even when Postman sends POST, so provide a reliable create endpoint.
+- Scope: External Tasks API physical create route.
+- [2026-07-30] REQ-SHARE-ANDROID-INBOUND: Android external share sheet must list Flow for text/files/images/videos/audio and route shared content to a selected user/group/channel.
+
+## REQ-VIDEO-ATTACHMENT-SEND-20260730
+- Date: 2026-07-30 16:53:00
+- Status: Completed
+- Request: Users must be able to select and send video files reliably from Flow chat.
+- Scope: Flutter chat attachment picker and native upload path.
+
+- 2026-07-30 | REQ-BUILD-208 | COMPLETE | Next version Web and APK release build requested and produced as v2.0.8+31.
+
+- 2026-07-30 | REQ-DEPLOY-208 | COMPLETE | Move v2.0.8+31 Web/APK artifacts to live server downloads and register Android draft for employee 302 approval.
+
+## REQ-2026-07-31-VIDEO-UPLOAD-LIMIT
+- Status: Completed
+- Request: Video file upload shows Upload failed with code 1 and cannot send.
+- Outcome: Server upload limit patch added for large video/file uploads; upload errors now return readable diagnostics with PHP limits.
+
+## REQ-2026-07-31-TELEGRAM-STYLE-UPLOAD-UX
+- Status: Completed
+- Request: Video/files should appear in chat immediately like Telegram, then upload in the background with a better UI.
+- Outcome: Added optimistic attachment bubbles with per-file upload progress, file/video icons, pending state, and failed state.
+
+## REQ-2026-07-31-CHAT-UPLOAD-50MB
+- Status: Implemented
+- Requirement: Flow chat must support files and videos up to a maximum of 50 MB and keep upload timeout long enough for slower networks.
+- Scope: Chat attachment validation, server upload guard, PHP upload/runtime limits, attachment transfer timeout.
+
+## REQ-2026-07-31-LMS-LEAD-WEBHOOK
+- Status: Implemented
+- Requirement: Flow must POST participant messages from LMS-created lead channels to the LMS webhook with stable message IDs and tenant slug.
+- Scope: Backend send-message hook, async queue, retry worker, server-local secret config, LMS sync documentation.
+
+## 2026-07-31 - Attachment upload read fallback
+- Requirement: Users must be able to upload regular files from Android/Desktop pickers even when the picker returns only a native file path and no in-memory bytes.
+- Scope: Chat attachment send flow.
+- Status: Fixed in code; analyzer smoke-check completed.
+
+## 2026-07-31 - Horizon all-employee map view
+- Requirement: Horizon must show all visible employees on one map using last known coordinates, with pin/name selection opening that employee's full-day timeline.
+- Status: Implemented in UI.
+
+## 2026-07-31 - Broadcast send failure
+- Requirement: Broadcast send must complete without generic Unable to send failures.
+- Status: Backend send flow fixed in patch.

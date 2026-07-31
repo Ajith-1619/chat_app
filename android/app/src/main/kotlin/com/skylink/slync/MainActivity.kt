@@ -3,20 +3,26 @@ package com.skylink.slync
 import android.app.Activity
 import android.content.ContentValues
 import android.content.Intent
+import android.net.Uri
 import android.media.MediaScannerConnection
 import android.os.Build
 import android.os.Environment
 import android.provider.ContactsContract
 import android.provider.MediaStore
+import android.provider.OpenableColumns
 import android.provider.Settings
 import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodChannel
 import java.io.File
+import java.util.UUID
 
 class MainActivity : FlutterActivity() {
     private val contactPickRequestCode = 4207
+    private val shareChannelName = "skylink/share_intent"
     private var pendingContactResult: MethodChannel.Result? = null
+    private var shareChannel: MethodChannel? = null
+    private var pendingSharePayload: Map<String, Any?>? = null
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
@@ -41,6 +47,103 @@ class MainActivity : FlutterActivity() {
                 else -> result.notImplemented()
             }
         }
+        shareChannel = MethodChannel(
+            flutterEngine.dartExecutor.binaryMessenger,
+            shareChannelName,
+        ).also { channel ->
+            channel.setMethodCallHandler { call, result ->
+                when (call.method) {
+                    "getInitialShare" -> {
+                        val payload = pendingSharePayload ?: sharePayloadFromIntent(intent)
+                        pendingSharePayload = null
+                        result.success(payload)
+                    }
+                    else -> result.notImplemented()
+                }
+            }
+        }
+        pendingSharePayload = sharePayloadFromIntent(intent)
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        val payload = sharePayloadFromIntent(intent) ?: return
+        pendingSharePayload = payload
+        shareChannel?.invokeMethod("incomingShare", payload)
+    }
+
+    private fun sharePayloadFromIntent(intent: Intent?): Map<String, Any?>? {
+        if (intent == null) return null
+        val action = intent.action ?: return null
+        if (action != Intent.ACTION_SEND && action != Intent.ACTION_SEND_MULTIPLE) return null
+        val files = sharedUrisFrom(intent).mapNotNull { uri -> sharedFilePayload(uri) }
+        val text = intent.getStringExtra(Intent.EXTRA_TEXT).orEmpty()
+        val subject = intent.getStringExtra(Intent.EXTRA_SUBJECT).orEmpty()
+        if (files.isEmpty() && text.isBlank()) return null
+        return mapOf(
+            "text" to text,
+            "subject" to subject,
+            "files" to files,
+            "receivedAt" to System.currentTimeMillis().toString(),
+        )
+    }
+
+    @Suppress("DEPRECATION")
+    private fun sharedUrisFrom(intent: Intent): List<Uri> {
+        val uris = mutableListOf<Uri>()
+        if (intent.action == Intent.ACTION_SEND_MULTIPLE) {
+            intent.getParcelableArrayListExtra<Uri>(Intent.EXTRA_STREAM)?.let { uris.addAll(it) }
+        } else {
+            intent.getParcelableExtra<Uri>(Intent.EXTRA_STREAM)?.let { uris.add(it) }
+        }
+        return uris.distinctBy { it.toString() }
+    }
+
+    private fun sharedFilePayload(uri: Uri): Map<String, Any?>? {
+        return try {
+            val name = displayNameFor(uri).ifBlank { "shared-file-${System.currentTimeMillis()}" }
+            val target = copySharedUriToCache(uri, name)
+            mapOf(
+                "uri" to uri.toString(),
+                "path" to target.absolutePath,
+                "name" to name,
+                "mimeType" to (contentResolver.getType(uri) ?: "application/octet-stream"),
+                "size" to target.length(),
+            )
+        } catch (_: Exception) {
+            null
+        }
+    }
+
+    private fun displayNameFor(uri: Uri): String {
+        var name = ""
+        contentResolver.query(uri, null, null, null, null)?.use { cursor ->
+            val nameIndex = cursor.getColumnIndex(OpenableColumns.DISPLAY_NAME)
+            if (nameIndex >= 0 && cursor.moveToFirst()) {
+                name = cursor.getString(nameIndex).orEmpty()
+            }
+        }
+        if (name.isBlank()) name = uri.lastPathSegment.orEmpty().substringAfterLast('/')
+        return sanitizeSharedFileName(name)
+    }
+
+    private fun sanitizeSharedFileName(value: String): String {
+        val cleaned = value.trim().replace(Regex("[^A-Za-z0-9._ -]"), "_")
+        return cleaned.ifBlank { "shared-file" }
+    }
+
+    private fun copySharedUriToCache(uri: Uri, displayName: String): File {
+        val targetDir = File(cacheDir, "incoming_shares")
+        if (!targetDir.exists()) targetDir.mkdirs()
+        val target = File(
+            targetDir,
+            "${System.currentTimeMillis()}-${UUID.randomUUID()}-${sanitizeSharedFileName(displayName)}",
+        )
+        contentResolver.openInputStream(uri)?.use { input ->
+            target.outputStream().use { output -> input.copyTo(output) }
+        } ?: throw IllegalStateException("Unable to read shared file.")
+        return target
     }
 
     private fun savePublicDownload(

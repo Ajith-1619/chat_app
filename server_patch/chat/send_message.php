@@ -5,6 +5,7 @@ require_once __DIR__ . '/PluginEventBus.php';
 require_once __DIR__ . '/ai_room_helper.php';
 require_once __DIR__ . '/channel_action_helper.php';
 require_once __DIR__ . '/conversation_metadata_helper.php';
+require_once __DIR__ . '/lms_webhook_helper.php';
 
 
 function chat_spawn_external_delivery_worker(): void
@@ -409,6 +410,12 @@ try {
         } catch (Throwable $metadataError) {
             error_log('chat/send_message conversation metadata skipped: ' . $metadataError->getMessage());
         }
+            try {
+            chat_lms_webhook_queue_message($pdo, $group, $messageId, (int)$session['emp_id'], $from, $body, $sourceDevice, $sourceName);
+            chat_lms_webhook_spawn_worker(20);
+        } catch (Throwable $lmsWebhookError) {
+            error_log('chat/send_message LMS webhook queue skipped: ' . $lmsWebhookError->getMessage());
+        }
     }
     $responsePayload = [
         'status' => true,
@@ -482,6 +489,7 @@ chat_json([
     'xmpp_delivered' => $xmppDelivered ?? false,
     'visibility_mode' => $visibilityMode ?? 'all',
 ]);
+
 
 
 

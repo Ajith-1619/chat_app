@@ -53,7 +53,7 @@ try {
          LEFT JOIN xmpp_conversation_preferences pref
            ON pref.emp_id = :pref_emp AND pref.target_jid = latest.peer_jid
          ORDER BY is_pinned DESC, m.created_at DESC
-         LIMIT 75'
+         LIMIT 150'
     );
     $msgStmt->execute([
         ':me_peer_from' => $me,
@@ -131,8 +131,17 @@ try {
                   SELECT COUNT(*)
                   FROM xmpp_messages unread
                   WHERE unread.to_jid = g.room_jid
-                    AND unread.from_jid <> :me_unread_group
+                    AND unread.from_jid <> :me_unread_group_exclude
                     AND unread.id > COALESCE(gr.last_read_message_id, 0)
+                    AND (gm.history_visible_from IS NULL OR unread.created_at >= gm.history_visible_from)
+                    AND (
+                        COALESCE(unread.visibility_mode, \'all\') = \'all\'
+                        OR unread.from_jid = :me_unread_group_sender
+                        OR EXISTS (
+                            SELECT 1 FROM xmpp_message_recipients ur
+                            WHERE ur.message_id = unread.id AND ur.emp_id = gm.emp_id
+                        )
+                    )
                     AND (unread.deleted_at IS NULL OR unread.deleted_at = \'0000-00-00 00:00:00\')
                 ) AS unread_count,
                 0 AS mentioned
@@ -147,17 +156,28 @@ try {
              SELECT m2.id
              FROM xmpp_messages m2
              WHERE m2.to_jid = g.room_jid
+               AND (gm.history_visible_from IS NULL OR m2.created_at >= gm.history_visible_from)
+               AND (
+                   COALESCE(m2.visibility_mode, \'all\') = \'all\'
+                   OR m2.from_jid = :me_last_group_sender
+                   OR EXISTS (
+                       SELECT 1 FROM xmpp_message_recipients lr
+                       WHERE lr.message_id = m2.id AND lr.emp_id = gm.emp_id
+                   )
+               )
                AND (m2.deleted_at IS NULL OR m2.deleted_at = \'0000-00-00 00:00:00\')
              ORDER BY m2.id DESC
              LIMIT 1
            )
          WHERE gm.emp_id = :emp_id AND g.is_archived = 0
          ORDER BY is_pinned DESC, COALESCE(last_msg.created_at, g.created_at) DESC, g.created_at DESC
-         LIMIT 100'
+         LIMIT 250'
     );
     $stmt->execute([
         ':emp_id' => (int)$session['emp_id'],
-        ':me_unread_group' => $me,
+        ':me_unread_group_exclude' => $me,
+        ':me_unread_group_sender' => $me,
+        ':me_last_group_sender' => $me,
     ]);
     foreach (($stmt->fetchAll(PDO::FETCH_ASSOC) ?: []) as $row) {
         $groups[] = [

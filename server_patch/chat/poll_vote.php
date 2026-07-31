@@ -35,6 +35,9 @@ try {
     if (!is_array($poll) || !isset($poll['options']) || !is_array($poll['options']) || !isset($poll['options'][$optionIndex])) {
         chat_json(['status' => false, 'error' => 'Poll option not found'], 404);
     }
+    if ((string)($poll['kind'] ?? '') === 'next_action_due') {
+        chat_json(['status' => false, 'error' => 'Use the next action update dialog for this prompt.'], 422);
+    }
     $allowMultiple = !empty($poll['allow_multiple']);
     foreach ($poll['options'] as $idx => &$option) {
         if (!isset($option['votes']) || !is_array($option['votes'])) $option['votes'] = [];

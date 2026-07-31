@@ -193,6 +193,8 @@ if ($listId > 0 && !$inputRecipients) {
 if (!$recipients) chat_json(['status' => false, 'error' => 'Select at least one valid recipient.'], 422);
 $sourceName = trim((string)($in['source_name'] ?? 'Broadcast'));
 $sourceDevice = trim((string)($in['source_device'] ?? 'api')) ?: 'api';
+$title = trim((string)($in['title'] ?? 'Broadcast'));
+if ($title === '') $title = 'Broadcast';
 $fromJid = chat_jid($senderEmpId);
 $sender = chat_user_payload($employeePdo, $senderEmpId, $fromJid, false);
 

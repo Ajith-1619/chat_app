@@ -256,6 +256,43 @@ function flow_api_jid_for_emp(PDO $pdo, int $empId): string
     $jid = (string)($stmt->fetchColumn() ?: '');
     return $jid !== '' ? $jid : $empId . '@chat.skylinkonline.net';
 }
+function flow_api_employee_name_map(array $empIds): array
+{
+    $ids = array_values(array_unique(array_filter(array_map('intval', $empIds), static fn($id) => $id > 0)));
+    if (!$ids) return [];
+    try {
+        $employeePdo = flow_api_employee_db();
+        foreach (['employee', 'employees', 'users', 'tbl_employee'] as $table) {
+            $columns = flow_api_columns($employeePdo, $table);
+            if (!$columns || !in_array('emp_id', $columns, true)) continue;
+            $nameCol = flow_api_pick($columns, ['name', 'employee_name', 'emp_name', 'full_name', 'username']);
+            if ($nameCol === null) continue;
+            $placeholders = implode(',', array_fill(0, count($ids), '?'));
+            $stmt = $employeePdo->prepare("SELECT emp_id, `{$nameCol}` AS username FROM `{$table}` WHERE emp_id IN ({$placeholders})");
+            $stmt->execute($ids);
+            $map = [];
+            foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $row) {
+                $name = trim((string)($row['username'] ?? ''));
+                if ($name !== '') $map[(int)$row['emp_id']] = $name;
+            }
+            return $map;
+        }
+    } catch (Throwable $e) {
+        error_log('Flow API user name lookup skipped: ' . $e->getMessage());
+    }
+    return [];
+}
+
+function flow_api_apply_usernames(array $rows): array
+{
+    $names = flow_api_employee_name_map(array_column($rows, 'emp_id'));
+    foreach ($rows as &$row) {
+        $empId = (int)($row['emp_id'] ?? 0);
+        $row['username'] = $names[$empId] ?? (string)($row['jid'] ?? ($empId > 0 ? $empId . '@chat.skylinkonline.net' : ''));
+    }
+    unset($row);
+    return $rows;
+}
 
 function flow_api_list_users(int $limit): array
 {
@@ -263,7 +300,7 @@ function flow_api_list_users(int $limit): array
     $stmt = $pdo->prepare('SELECT emp_id, jid, avatar_url, status, created_at, updated_at FROM xmpp_users ORDER BY emp_id LIMIT :limit');
     $stmt->bindValue(':limit', max(1, min(500, $limit)), PDO::PARAM_INT);
     $stmt->execute();
-    return $stmt->fetchAll(PDO::FETCH_ASSOC);
+    return flow_api_apply_usernames($stmt->fetchAll(PDO::FETCH_ASSOC));
 }
 
 function flow_api_group_query(string $type, int $limit): array
@@ -274,6 +311,23 @@ function flow_api_group_query(string $type, int $limit): array
     $stmt->bindValue(':limit', max(1, min(500, $limit)), PDO::PARAM_INT);
     $stmt->execute();
     return $stmt->fetchAll(PDO::FETCH_ASSOC);
+}
+function flow_api_sender_from_input(PDO $pdo, array $auth, array $input): array
+{
+    $fromJid = trim((string)($input['from_jid'] ?? $input['sender_jid'] ?? flow_api_header('X-Flow-From-Jid') ?? ''));
+    if ($fromJid !== '') {
+        $fromJid = strtolower($fromJid);
+        if (!preg_match('/^[a-z0-9._%+\-]+@chat\.skylinkonline\.net$/', $fromJid)) {
+            flow_api_error('from_jid must be a Flow user JID like 302@chat.skylinkonline.net.', 422, 'VALIDATION_ERROR');
+        }
+        $local = strstr($fromJid, '@', true);
+        $senderEmpId = ctype_digit((string)$local) ? (int)$local : (int)$auth['actor_emp_id'];
+        return ['jid' => $fromJid, 'emp_id' => $senderEmpId];
+    }
+
+    $senderEmpId = (int)($input['sender_emp_id'] ?? $input['from_emp_id'] ?? $input['sender_id'] ?? $input['from'] ?? $auth['actor_emp_id']);
+    if ($senderEmpId <= 0) flow_api_error('sender_emp_id is invalid.', 422, 'VALIDATION_ERROR');
+    return ['jid' => flow_api_jid_for_emp($pdo, $senderEmpId), 'emp_id' => $senderEmpId];
 }
 
 function flow_api_group_detail(int $id): array
@@ -298,7 +352,11 @@ function flow_api_create_group_like(array $auth, string $type, array $input): ar
     $slug = trim($slug ?: ('room-' . bin2hex(random_bytes(3))), '-');
     $prefix = $type === 'channel' ? 'channel' : 'group';
     $jid = (string)($input['room_jid'] ?? ($prefix . '-' . $slug . '-' . bin2hex(random_bytes(3)) . '@conference.chat.skylinkonline.net'));
-    $kind = (string)($input['channel_kind'] ?? $input['kind'] ?? ($type === 'channel' ? 'operational' : 'group'));
+    $kind = $type === 'channel'
+        ? strtolower(trim((string)($input['channel_type'] ?? $input['channel_kind'] ?? $input['type_key'] ?? $input['kind'] ?? 'operational')))
+        : 'group';
+    $kind = preg_replace('/[^a-z0-9_-]+/i', '-', $kind) ?: ($type === 'channel' ? 'operational' : 'group');
+    $kind = trim($kind, '-_') ?: ($type === 'channel' ? 'operational' : 'group');
     $members = array_values(array_unique(array_map('intval', $input['member_emp_ids'] ?? [])));
     $owner = (int)($input['owner_emp_id'] ?? $auth['actor_emp_id']);
     if (!in_array($owner, $members, true)) $members[] = $owner;
@@ -361,7 +419,8 @@ function flow_api_handle_chat(array $auth, array $segments): never
         $to = trim((string)($input['to_jid'] ?? ''));
         $body = trim((string)($input['body'] ?? ''));
         if ($to === '' || $body === '') flow_api_error('to_jid and body are required.', 422, 'VALIDATION_ERROR');
-        $from = flow_api_jid_for_emp($pdo, (int)$auth['actor_emp_id']);
+        $sender = flow_api_sender_from_input($pdo, $auth, $input);
+        $from = $sender['jid'];
         $messageType = (string)($input['message_type'] ?? '');
         if ($messageType === '') {
             $messageType = stripos($to, '@conference.') !== false ? 'groupchat' : 'chat';
@@ -380,12 +439,12 @@ function flow_api_handle_chat(array $auth, array $segments): never
         $id = (int)$pdo->lastInsertId();
         flow_plugin_emit($pdo, 'message.sent', [
             'event_id' => 'api-message-sent-' . $id,
-            'actor_emp_id' => (int)$auth['actor_emp_id'],
+            'actor_emp_id' => (int)$sender['emp_id'],
             'message' => ['id' => $id, 'from_jid' => $from, 'to_jid' => $to, 'body' => $body, 'message_type' => $messageType, 'created_at' => date('c')],
         ]);
         flow_plugin_emit($pdo, 'message.received', [
             'event_id' => 'api-message-received-' . $id,
-            'actor_emp_id' => (int)$auth['actor_emp_id'],
+            'actor_emp_id' => (int)$sender['emp_id'],
             'message' => ['id' => $id, 'from_jid' => $from, 'to_jid' => $to, 'body' => $body, 'message_type' => $messageType, 'created_at' => date('c')],
         ]);
         try { chat_ejabberd_send_message($from, $to, $body); } catch (Throwable $e) {}
@@ -405,6 +464,7 @@ function flow_api_handle_users(array $auth, array $segments): never
         $stmt->execute([':emp_id' => $empId]);
         $user = $stmt->fetch(PDO::FETCH_ASSOC);
         if (!$user) flow_api_error('User not found.', 404, 'NOT_FOUND');
+        $user = flow_api_apply_usernames([$user])[0];
         $presence = $pdo->prepare('SELECT * FROM xmpp_user_presence WHERE emp_id = :emp_id ORDER BY last_seen_at DESC LIMIT 5');
         $presence->execute([':emp_id' => $empId]);
         $user['presence'] = $presence->fetchAll(PDO::FETCH_ASSOC);
@@ -426,6 +486,12 @@ function flow_api_handle_groups_channels(array $auth, array $segments, string $t
     }
     if (($method === 'PATCH' || $method === 'POST') && isset($segments[0]) && ctype_digit($segments[0])) {
         $input = flow_api_input();
+        if (isset($input['channel_type']) && !isset($input['channel_kind'])) {
+            $input['channel_kind'] = $input['channel_type'];
+        }
+        if (isset($input['channel_kind'])) {
+            $input['channel_kind'] = trim(preg_replace('/[^a-z0-9_-]+/i', '-', strtolower((string)$input['channel_kind'])), '-_') ?: 'operational';
+        }
         $allowed = ['room_name', 'description', 'channel_kind', 'status', 'priority', 'target_date', 'next_action_text', 'next_action_persons', 'next_action_date', 'wakeup_enabled', 'wakeup_interval_minutes', 'is_archived'];
         $sets = [];$params = [':id' => (int)$segments[0]];
         foreach ($allowed as $field) if (array_key_exists($field, $input)) { $sets[] = "$field = :$field"; $params[":$field"] = $input[$field]; }

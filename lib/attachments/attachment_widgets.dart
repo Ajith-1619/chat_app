@@ -53,10 +53,19 @@ import '../chat/chat_screen.dart';
 import '../attachments/attachment_widgets.dart';
 
 class AttachmentContent extends StatelessWidget {
-  const AttachmentContent({required this.attachment, this.onOpen});
+  const AttachmentContent({
+    required this.attachment,
+    this.onOpen,
+    this.isUploading = false,
+    this.isFailed = false,
+    this.uploadProgress,
+  });
 
   final ChatAttachment attachment;
   final VoidCallback? onOpen;
+  final bool isUploading;
+  final bool isFailed;
+  final double? uploadProgress;
 
   Future<void> _open(BuildContext context) async {
     onOpen?.call();
@@ -114,7 +123,7 @@ class AttachmentContent extends StatelessWidget {
       children: [
         if (attachment.isLocation)
           _LocationAttachmentPreview(attachment: attachment)
-        else if (attachment.isImage)
+        else if (attachment.isImage && !isPendingUpload)
           InkWell(
             onTap: isPendingUpload ? null : () => _open(context),
             borderRadius: BorderRadius.circular(12),
@@ -136,13 +145,12 @@ class AttachmentContent extends StatelessWidget {
                           ),
                     errorBuilder: (_, _, _) => _FileTile(
                       attachment: attachment,
-                      onTap: isPendingUpload ? null : () => _open(context),
-                      onDownload: isPendingUpload
-                          ? null
-                          : () => _download(context),
-                      onOpenWith: isPendingUpload
-                          ? null
-                          : () => _openWith(context),
+                      onTap: null,
+                      onDownload: null,
+                      onOpenWith: null,
+                      isUploading: isUploading,
+                      isFailed: isFailed,
+                      uploadProgress: uploadProgress,
                     ),
                   ),
                   if (!attachment.isRestricted)
@@ -196,12 +204,15 @@ class AttachmentContent extends StatelessWidget {
           _FileTile(
             attachment: attachment,
             onTap: isPendingUpload ? null : () => _open(context),
-            onDownload: attachment.isRestricted
+            onDownload: attachment.isRestricted || isPendingUpload
                 ? null
                 : () => _download(context),
-            onOpenWith: attachment.isRestricted
+            onOpenWith: attachment.isRestricted || isPendingUpload
                 ? null
                 : () => _openWith(context),
+            isUploading: isUploading,
+            isFailed: isFailed,
+            uploadProgress: uploadProgress,
           ),
         if (attachment.caption.isNotEmpty)
           Padding(
@@ -226,15 +237,31 @@ class _FileTile extends StatelessWidget {
     required this.onTap,
     this.onDownload,
     this.onOpenWith,
+    this.isUploading = false,
+    this.isFailed = false,
+    this.uploadProgress,
   });
 
   final ChatAttachment attachment;
   final VoidCallback? onTap;
   final VoidCallback? onDownload;
   final VoidCallback? onOpenWith;
+  final bool isUploading;
+  final bool isFailed;
+  final double? uploadProgress;
 
   @override
   Widget build(BuildContext context) {
+    final progress = (uploadProgress ?? 0).clamp(0.0, 1.0);
+    final showActions = !isUploading && !isFailed && onDownload != null;
+    final statusText = isFailed
+        ? 'Upload failed'
+        : isUploading
+        ? progress > 0
+              ? 'Uploading ${(progress * 100).round()}%'
+              : 'Preparing upload'
+        : formatFileSize(attachment.size);
+    final accent = isFailed ? Colors.red : AppColors.primary;
     return InkWell(
       onTap: onTap,
       borderRadius: BorderRadius.circular(12),
@@ -242,15 +269,18 @@ class _FileTile extends StatelessWidget {
         width: 260,
         padding: const EdgeInsets.all(10),
         decoration: BoxDecoration(
-          color: AppColors.primary.withValues(alpha: 0.08),
+          color: accent.withValues(alpha: 0.08),
           borderRadius: BorderRadius.circular(12),
+          border: Border.all(
+            color: accent.withValues(alpha: isFailed ? 0.45 : 0.10),
+          ),
         ),
         child: Row(
           children: [
-            const CircleAvatar(
-              backgroundColor: AppColors.primary,
+            CircleAvatar(
+              backgroundColor: accent,
               foregroundColor: Colors.white,
-              child: Icon(Icons.insert_drive_file_rounded),
+              child: Icon(_attachmentIcon(attachment.mimeType)),
             ),
             const SizedBox(width: 10),
             Expanded(
@@ -268,21 +298,51 @@ class _FileTile extends StatelessWidget {
                   ),
                   const SizedBox(height: 3),
                   Text(
-                    formatFileSize(attachment.size),
-                    style: const TextStyle(
-                      color: AppColors.muted,
+                    statusText,
+                    style: TextStyle(
+                      color: isFailed ? Colors.red : AppColors.muted,
                       fontSize: 12,
+                      fontWeight: isUploading || isFailed
+                          ? FontWeight.w700
+                          : FontWeight.w400,
                     ),
                   ),
+                  if (isUploading) ...[
+                    const SizedBox(height: 7),
+                    ClipRRect(
+                      borderRadius: BorderRadius.circular(999),
+                      child: LinearProgressIndicator(
+                        value: progress <= 0 ? null : progress,
+                        minHeight: 4,
+                        backgroundColor: AppColors.primary.withValues(
+                          alpha: 0.12,
+                        ),
+                      ),
+                    ),
+                  ],
                 ],
               ),
             ),
-            if (attachment.isRestricted)
+            if (isUploading)
+              const Padding(
+                padding: EdgeInsets.only(left: 10),
+                child: SizedBox(
+                  width: 20,
+                  height: 20,
+                  child: CircularProgressIndicator(strokeWidth: 2),
+                ),
+              )
+            else if (isFailed)
+              const Tooltip(
+                message: 'Upload failed',
+                child: Icon(Icons.error_outline_rounded, color: Colors.red),
+              )
+            else if (attachment.isRestricted)
               const Tooltip(
                 message: 'Restricted',
                 child: Icon(Icons.lock_rounded, color: AppColors.primary),
               )
-            else
+            else if (showActions)
               PopupMenuButton<String>(
                 tooltip: 'File actions',
                 icon: const Icon(
@@ -302,6 +362,23 @@ class _FileTile extends StatelessWidget {
         ),
       ),
     );
+  }
+
+  IconData _attachmentIcon(String mimeType) {
+    final mime = mimeType.toLowerCase();
+    if (mime.startsWith('image/')) return Icons.image_outlined;
+    if (mime.startsWith('video/')) return Icons.movie_creation_outlined;
+    if (mime.startsWith('audio/')) return Icons.audiotrack_outlined;
+    if (mime.contains('pdf')) return Icons.picture_as_pdf_outlined;
+    if (mime.contains('sheet') ||
+        mime.contains('excel') ||
+        mime.contains('csv')) {
+      return Icons.table_chart_outlined;
+    }
+    if (mime.contains('zip') || mime.contains('compressed')) {
+      return Icons.folder_zip_outlined;
+    }
+    return Icons.insert_drive_file_rounded;
   }
 }
 
@@ -1329,6 +1406,88 @@ class LivePollCard extends StatelessWidget {
           total +
           ((option['votes'] is List) ? (option['votes'] as List).length : 0),
     );
+    final isNextActionPrompt = data['kind'] == 'next_action_due';
+    if (isNextActionPrompt) {
+      final response = '${data['response'] ?? ''}'.trim();
+      final responseName = '${data['responded_by_name'] ?? ''}'.trim();
+      return SizedBox(
+        width: 320,
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Icon(
+                  Icons.assignment_turned_in_outlined,
+                  color: AppColors.primary,
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    '${data['question'] ?? 'Next action update required'}',
+                    style: const TextStyle(fontWeight: FontWeight.w800),
+                  ),
+                ),
+              ],
+            ),
+            if ('${data['owner_label'] ?? ''}'.trim().isNotEmpty) ...[
+              const SizedBox(height: 8),
+              Text(
+                'Assigned to: ${data['owner_label']}',
+                style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                  color: AppColors.muted,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+            ],
+            const SizedBox(height: 12),
+            if (response.isNotEmpty) ...[
+              Container(
+                width: double.infinity,
+                padding: const EdgeInsets.all(10),
+                decoration: BoxDecoration(
+                  color: AppColors.primary.withValues(alpha: 0.08),
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                child: Text(
+                  '${response == 'complete' ? 'Completed' : 'Not complete'}${responseName.isNotEmpty ? ' by $responseName' : ''}',
+                  style: const TextStyle(fontWeight: FontWeight.w800),
+                ),
+              ),
+            ] else ...[
+              Row(
+                children: [
+                  Expanded(
+                    child: OutlinedButton.icon(
+                      onPressed: onVote == null ? null : () => onVote!(0),
+                      icon: const Icon(Icons.check_circle_outline_rounded),
+                      label: const Text('Complete'),
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: OutlinedButton.icon(
+                      onPressed: onVote == null ? null : () => onVote!(1),
+                      icon: const Icon(Icons.event_repeat_rounded),
+                      label: const Text('Not complete'),
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 6),
+              Text(
+                'Only the assigned next action person can update this.',
+                style: Theme.of(
+                  context,
+                ).textTheme.bodySmall?.copyWith(color: AppColors.muted),
+              ),
+            ],
+          ],
+        ),
+      );
+    }
     return SizedBox(
       width: 300,
       child: Column(

@@ -617,3 +617,218 @@
 - Uploaded to /var/www/html/router_login/downloads.
 - Draft registered: Android release_id=35, Windows release_id=36.
 
+
+## 2026-07-29 - High-volume chat history pagination
+- Requirement: Make high-message groups/channels faster like WhatsApp/Telegram by loading only recent messages first and loading older messages on scroll-up.
+- Change: Added limit and efore_message_id support to chat/history.php, defaulting to 50 messages instead of 1000.
+- Change: Updated Flutter ChatApi.getHistory and ChatScreen to fetch latest 50 messages, trim old persisted cache, and lazy-prepend older messages when users scroll near the top.
+- Impact: Reduces initial chat payload, first render work, and repeated refresh cost for high-volume support groups/channels.
+- Verification: php -l server_patch/chat/history.php passed. lutter analyze lib/chat_api.dart lib/chat/chat_screen.dart completed with existing warnings/info only, no compile errors.
+- Updated: 2026-07-29 14:59:38
+
+## 2026-07-29 - Web Build Completed
+- Request: Build web release after high-volume chat history pagination update.
+- Command: flutter build web --release --base-href /chat/
+- Output: build/web
+- Status: Success
+- Report: BUILD_REPORT_2026-07-29_web_history_pagination.md
+- Updated: 2026-07-29 15:07:37
+
+## BUILD-2026-07-29-CHANNEL-TYPE-API
+- Status: No app build requested.
+- Verification: PHP lint completed for modified backend files.
+- Artifact: BUILD_REPORT_2026-07-29_channel_type_api.md
+- Updated: 2026-07-29 15:37:44 +05:30
+
+## BUILD-2026-07-29-SLASH-COMMAND-BEHAVIOR
+- Status: No build requested.
+- Verification: PHP lint passed; Flutter analyze completed with existing warnings/info.
+- Artifact: BUILD_REPORT_2026-07-29_slash_command_behavior.md
+- Updated: 2026-07-29 16:06:09 +05:30
+
+
+## BUILD-2026-07-29-WEB-SLASH-COMMANDS
+- Status: Complete
+- Command: flutter build web --release --base-href /chat/
+- Output: build/web
+- Verification: Build succeeded. Pre-build analyze completed with existing warnings/info.
+- Artifact: BUILD_REPORT_2026-07-29_web_slash_commands.md
+- Updated: 2026-07-29 16:25:38 +05:30
+
+
+## BUILD-2026-07-29-NEW-CHANNEL-MEMBER-LIST-SCROLL
+- Status: No build requested
+- Command: flutter analyze .\lib\home\home_screen.dart
+- Output: Not applicable
+- Verification: Analyze completed with existing warnings/info and no new blocking errors identified.
+- Artifact: BUILD_REPORT_2026-07-29_new_channel_member_list_scroll.md
+- Updated: 2026-07-29 16:40:00 +05:30
+
+## BUILD-2026-07-29-BROADCAST-MODAL-PICKER
+- Status: No build requested
+- Command: dart format .\lib\home\home_screen.dart; flutter analyze .\lib\home\home_screen.dart
+- Output: Not applicable
+- Verification: Format passed; analyze completed with existing warnings/info and no new blocking errors identified.
+- Artifact: BUILD_REPORT_2026-07-29_broadcast_modal_picker.md
+- Updated: 2026-07-29 17:05:00 +05:30
+
+## BUILD-2026-07-29-WEB-BROADCAST-MODAL
+- Status: Complete
+- Command: flutter build web --release --base-href /chat/
+- Output: build/web
+- Verification: Build succeeded. Scoped pre-build analyze completed with existing warnings/info.
+- Artifact: BUILD_REPORT_2026-07-29_web_broadcast_modal.md
+- Updated: 2026-07-29 17:20:00 +05:30
+
+## BUILD-2026-07-29-MYHUB-SUGGESTIONS-COMPLAINTS
+- Status: No build requested
+- Command: php -l server_patch/chat/myhub.php; dart format touched Dart files; flutter analyze touched Dart files
+- Output: Not applicable
+- Verification: PHP lint and Dart format passed; Flutter analyze completed with existing warnings/info and no new blocking errors identified.
+- Artifact: BUILD_REPORT_2026-07-29_myhub_suggestions_complaints.md
+- Updated: 2026-07-29 17:45:00 +05:30
+
+## BUILD-2026-07-29-CHAT-LIST-NEXT-ACTION-BADGE
+- Status: Verification only; build not requested.
+- Commands: dart format lib/home/home_screen.dart; flutter analyze lib/home/home_screen.dart.
+- Result: Format passed. Analyze reported existing warnings/info only; no new compile errors from this change.
+
+## BUILD-2026-07-29-WEB-NEXT-ACTION-BADGE
+- Status: Passed
+- Command: flutter build web --release --base-href /chat/
+- Output: build/web
+- Notes: Flutter reported dependency update notices and successful icon tree-shaking; build completed successfully.
+
+## BUILD-2026-07-29-DIRECT-USER-SEND-API
+- Status: Verification only; app build not requested.
+- Commands: PHP lint on `server_patch/api/_shared/extended.php` and `server_patch/api/chat/v1/index.php`.
+- Result: Passed with no syntax errors.
+
+## BUILD-2026-07-29-DIRECT-MESSAGE-API-404-FALLBACK
+- Status: Verification only; app build not required.
+- Command: PHP lint on fallback route.
+- Result: Passed with no syntax errors.
+
+## BUILD-2026-07-29-DIRECT-MESSAGE-POSTMAN-BODY-FALLBACK
+- Status: Verification only
+- Command: `php -l server_patch/api/_shared/extended.php`
+- Result: Passed with no syntax errors.
+
+## BUILD-2026-07-30-DIRECT-MESSAGE-BODY-DIAGNOSTICS
+- Status: Verification only
+- Command: `php -l server_patch/api/_shared/extended.php`
+- Result: Passed with no syntax errors.
+
+## BUILD-2026-07-30-DIRECT-MESSAGE-PHYSICAL-HANDLER
+- Status: Verification only
+- Command: `php -l server_patch/api/chat/v1/direct/messages/index.php`
+- Result: Passed with no syntax errors.
+
+## BUILD-2026-07-30-DIRECT-SEND-PHYSICAL-ENDPOINT
+- Status: Verification only
+- Command: `php -l server_patch/api/chat/v1/direct_send.php`
+- Result: Passed with no syntax errors.
+
+## BUILD-2026-07-30-DIRECT-SEND-LIVE-API-VERIFY
+- Status: Passed
+- Command: Live POST to `/router_login/api/chat/v1/direct_send.php` with API key header and JSON body.
+- Result: HTTP 201; direct message created successfully.
+
+## BUILD-2026-07-30-NEXT-ACTION-MONITOR
+- Status: Verification only; app build not requested.
+- Commands: `php -l server_patch/chat/next_action_monitor_helpers.php`; `php -l server_patch/chat/notification_worker.php`.
+- Result: Passed with no syntax errors after rewriting notification_worker.php without BOM.
+
+## BUILD-2026-07-30-TASK-CREATE-PHYSICAL-ENDPOINT
+- Status: Verification only; app build not requested.
+- Command: `php -l server_patch/api/tasks/v1/create.php`.
+- Result: Passed with no syntax errors.
+- [2026-07-30] BUILD-SHARE-ANDROID-INBOUND: Ran flutter build apk --debug; output built at build\app\outputs\flutter-apk\app-debug.apk. Release/web builds not run for this implementation turn.
+
+## BUILD-VIDEO-ATTACHMENT-SEND-20260730
+- Status: No build requested
+- Verification: flutter analyze error filter returned no hard analyzer errors. Existing warnings remain.
+
+- 2026-07-30 | BUILD-208 | COMPLETE | flutter analyze .\lib\main.dart passed; flutter build web --release --base-href /chat/ passed; flutter build apk --release passed; artifacts saved under release/.
+
+- 2026-07-30 | DEPLOY-208 | COMPLETE | Uploaded Skylink-Chat-v2.0.8.apk, SHA256, Web ZIP, SHA256; register URL returned android draft release_id=37; production version endpoint remains approved v2.0.6 for Android.
+
+## BUILD-2026-07-31-VIDEO-UPLOAD-LIMIT
+- Status: Verification only; app build not requested.
+- Command: php -l server_patch/chat/upload_file.php
+- Result: Passed with no syntax errors.
+
+## BUILD-2026-07-31-TELEGRAM-STYLE-UPLOAD-UX
+- Status: Verification only; app build not requested.
+- Command: lutter analyze .\lib\chat\chat_screen.dart .\lib\attachments\attachment_widgets.dart
+- Result: No hard compile errors. Analyzer still reports pre-existing warnings/infos in these split files.
+
+## BUILD-2026-07-31-CHAT-UPLOAD-50MB
+- Build requested: No
+- Verification run: dart format on changed Dart files; php -l server_patch/chat/upload_file.php; flutter analyze targeted changed Dart files.
+- Result: Syntax pass. Analyze exits non-zero due existing warnings only.
+
+## BUILD-2026-07-31-LMS-LEAD-WEBHOOK
+- Build requested: No
+- Verification run: PHP syntax checks for changed webhook/send-message files.
+- Result: Passed.
+
+## 2026-07-31 - Attachment upload hotfix
+- Work type: Code fix / no release build
+- Summary: Fixed path-only attachment upload failures in chat send flow.
+- Validation: dart format lib/chat/chat_screen.dart; lutter analyze lib/chat/chat_screen.dart (existing warnings only).
+
+## 2026-07-31 - Horizon overview map UI update
+- Work type: UI/feature implementation
+- Validation: dart format lib/myhub_horizon_screen.dart; lutter analyze lib/myhub_horizon_screen.dart
+"@; Set-Content -Path .\BUILD_REPORT_2026-07-31_horizon_overview_map.md -Value @"
+# Build Report - 2026-07-31 - Horizon Overview Map
+
+## Summary
+Added a shared Horizon map that shows all visible employees with last-known pins and lets users click a pin or employee name to load that employee's full-day route and timeline inline on the same screen.
+
+## Changed Files
+- lib/myhub_horizon_screen.dart
+
+## What Changed
+- Added all-employee overview map section.
+- Added named marker selection.
+- Added quick employee chip list below the map.
+- Added inline selected employee route/timeline panel.
+- Preserved the existing full-screen employee route screen.
+
+## Validation
+- dart format lib/myhub_horizon_screen.dart
+- lutter analyze lib/myhub_horizon_screen.dart
+  - Result: No issues found.
+
+## Notes
+- PROJECT_STATE.md and CHANGE_LEDGER_SPEC.md were still missing from the workspace during mandatory doc review.
+- No build was run in this task.
+
+## 2026-07-31 - Broadcast backend hotfix
+- Work type: Server patch
+- Validation: php -l server_patch/chat/broadcast.php
+"@; Set-Content -Path .\BUILD_REPORT_2026-07-31_broadcast_send_fix.md -Value @"
+# Build Report - 2026-07-31 - Broadcast Send Fix
+
+## Summary
+Fixed a backend broadcast send failure where the send action referenced $title before defining it, causing the request to fail and the UI to show a generic unable-to-send message.
+
+## Changed Files
+- server_patch/chat/broadcast.php
+
+## Root Cause
+The broadcast send branch updated or created broadcast list records using $title, but that variable was only prepared in other action branches.
+
+## Fix
+- Added local title initialization in the send action.
+- Preserved the existing fallback default of Broadcast when the request title is empty.
+
+## Validation
+- php -l server_patch/chat/broadcast.php
+  - Result: No syntax errors detected.
+
+## Notes
+- Live server must receive the updated server_patch/chat/broadcast.php if it has not been deployed yet.
+- PROJECT_STATE.md and CHANGE_LEDGER_SPEC.md remain missing from workspace.

@@ -436,6 +436,8 @@ class ChatAttachment {
     this.shareId = '',
     this.messageId = 0,
     this.isRestricted = false,
+    this.previewBytes,
+    this.localPath = '',
   });
 
   static const _filePrefix = 'SKYLINK_FILE:';
@@ -526,6 +528,8 @@ class ChatAttachment {
   final String shareId;
   final int messageId;
   final bool isRestricted;
+  final Uint8List? previewBytes;
+  final String localPath;
 
   bool get isAudio {
     if (mimeType.toLowerCase().startsWith('audio/')) return true;
@@ -539,6 +543,14 @@ class ChatAttachment {
     if (mimeType.toLowerCase().startsWith('image/')) return true;
     return RegExp(
       r'\.(jpe?g|png|gif|webp|bmp|svg|tiff?|heic|heif)$',
+      caseSensitive: false,
+    ).hasMatch(name);
+  }
+
+  bool get isVideo {
+    if (mimeType.toLowerCase().startsWith('video/')) return true;
+    return RegExp(
+      r'\.(mp4|m4v|mov|avi|mkv|webm|3gp|mpeg|mpg)$',
       caseSensitive: false,
     ).hasMatch(name);
   }
@@ -4289,3 +4301,4 @@ class ChatApi {
     }
   }
 }
+

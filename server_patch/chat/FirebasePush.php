@@ -16,17 +16,18 @@ final class FirebasePush
             throw new RuntimeException('Firebase project_id is missing');
         }
 
+        $silent = $this->isMutedOperationalInfo($data, $title, $body);
         $payload = [
             'message' => [
                 'token' => $token,
                 'notification' => ['title' => $title, 'body' => $body],
                 'data' => array_map('strval', $data),
                 'android' => [
-                    'priority' => 'HIGH',
-                    'notification' => [
-                        'channel_id' => 'skylink_messages',
-                        'sound' => 'default',
-                    ],
+                    'priority' => $silent ? 'NORMAL' : 'HIGH',
+                    'notification' => array_filter([
+                        'channel_id' => $silent ? 'skylink_system_info' : 'skylink_messages',
+                        'sound' => $silent ? null : 'default',
+                    ], static fn($value) => $value !== null),
                 ],
             ],
         ];
@@ -37,6 +38,20 @@ final class FirebasePush
             ['Authorization: Bearer ' . $this->accessToken()]
         );
         return $response['status'] >= 200 && $response['status'] < 300;
+    }
+
+    private function isMutedOperationalInfo(array $data, string $title, string $body): bool
+    {
+        $eventType = strtolower(trim((string)($data['event_type'] ?? '')));
+        if (in_array($eventType, ['punch_in', 'punch_out', 'location_off', 'location_disabled', 'location_permission_off'], true)) {
+            return true;
+        }
+        $haystack = strtolower($title . ' ' . $body);
+        return str_contains($haystack, 'punch in')
+            || str_contains($haystack, 'punch out')
+            || str_contains($haystack, 'location off')
+            || str_contains($haystack, 'location disabled')
+            || str_contains($haystack, 'gps off');
     }
 
     private function accessToken(): string

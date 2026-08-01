@@ -464,3 +464,41 @@
 
 ## 2026-07-31 - Broadcast reliability
 - Broadcast send flow now preserves/derives a valid title during send requests so saved lists can be updated and sent without PHP runtime failure.
+
+## FEAT-20260801-HORIZON-LIVE-VIEW-PAGE
+- Added a separate Horizon all-employees live view entry point instead of embedding the overview map inside the main Horizon page.
+- Horizon employee payload now carries latest location metadata for overview markers.
+- Chat preview text now uses readable attachment labels instead of corrupted placeholder glyphs.
+
+- 2026-08-01 | Chat composer mentions | Active @mention detection follows cursor position instead of only end-of-text.
+
+- 2026-08-01 | Notification routing | Added muted operational-info notification path for punch/location alerts on Android push/local notifications.
+
+- 2026-08-01 | External channel lifecycle API | Channel close/archive and delete now support both noun-prefixed and compact versioned paths.
+
+## FEAT-20260801-WEB-FILE-PICKER-BYTES
+- Added a dedicated web browser file-picker bridge so manual attachment selection reads browser File bytes directly before upload.
+- Manual file select now uses the same reliable byte-loading path as drag/drop and clipboard paste.
+
+## FEAT-20260801-COMPOSER-UPLOAD-LATENCY
+- Composer slash and mention suggestions now use cursor-aware token parsing instead of full-text regex matching.
+- Web picker, Android share, and drag/drop attachment preparation now convert selected files in parallel for lower wait time before preview/send.
+- Chat upload server patch now includes both .user.ini and .htaccess limit configuration for 50MB attachment support.
+
+## 2026-08-01 - Attachment Preview Enhancements
+- Added local preview metadata support for optimistic image/video attachments.
+- Added inline video bubble rendering path for web using embedded HTML video.
+- Added in-app video preview screen support for uploaded and pending video attachments.
+
+## FEAT-20260801-ATTENDANCE-CALENDAR-STATE-COLORS
+- Attendance month grid now classifies each day as punched, week off/holiday, missed, or future.
+- Punch days keep the green success indicator, week off/holiday uses a separate amber state, missed past days use a distinct alert state, and future days stay muted.
+
+## FEAT-20260801-LEAVE-TYPE-OTP-ALIGNMENT
+- Leave application dropdown now exposes only `Leave` and `Comp Off`.
+- Leave OTP flow now targets the configured testing approver employee and persists OTP / approver fields when those columns exist in `track_leave_request`.
+
+## FEAT-20260801-RELEASE-2-0-9
+- Version updated to `2.0.9+32` for the next release cycle.
+- Added draft registration script `server_patch/register_draft_2_0_9.php` for Android release registration.
+- Added release deploy helpers `tool/deploy_2_0_9.ps1` and `tool/deploy_2_0_9.psftp` for APK artifact upload.

@@ -770,3 +770,84 @@
 - File: server_patch/chat/broadcast.php
 - Change: Added missing $title initialization in the broadcast send action before list update/insert.
 - Root cause: Send branch used $title without defining it, causing backend failure and generic UI error.
+
+## CHANGE-20260801-HORIZON-LIVE-VIEW-AND-PREVIEW
+- Timestamp: 2026-08-01 18:55 +05:30
+- Files changed:
+  - lib/myhub_horizon_screen.dart
+  - server_patch/chat/myhub.php
+  - server_patch/chat/bootstrap.php
+- Summary:
+  - Replaced inline Horizon overview section with separate-page launcher.
+  - Added latest employee latitude/longitude/address metadata to Horizon employee list payload.
+  - Normalized file/attachment preview labels in backend preview helpers.
+
+- 2026-08-01 | Updated next-action monitor to send due prompt once only; updated chat composer mention parsing for mid-text cursor mentions.
+
+- 2026-08-01 | Patched app and server notification channels so punch_in, punch_out, location_off and related alerts use muted delivery.
+
+- 2026-08-01 | Patched flow_api_ext_groups_channels route parsing to strip optional leading groups/channels segment before id-based lifecycle handling.
+
+## CHG-20260801-EXTERNAL-CHANNEL-BODY-CLOSE
+- Date: 2026-08-01 20:10:00 +05:30
+- Files: server_patch/api/_shared/extended.php
+- Change: Added body-based lifecycle handling for external group/channel API. Base POST to /router_login/api/channels/v1 or /groups/v1 now accepts action=close|archive|unarchive|delete plus channel_id/group_id/id or room_jid, so lifecycle updates work without relying on path routing.
+- Root cause: Live Apache path routing can return 404 before PHP reaches /channels/{id}/close style handlers.
+- Risk: Change is intentionally narrow and only activates when explicit lifecycle action is present in the POST body.
+
+
+## CHG-20260801-PHYSICAL-CHANNEL-ACTION-ENDPOINT
+- Date: 2026-08-01 20:25:00 +05:30
+- Files: server_patch/api/channels/v1/action.php, server_patch/api/channels/v1/close.php
+- Change: Added physical file endpoints for channel lifecycle actions so external callers can close/archive/unarchive/delete a channel by JSON body without depending on rewrite/dispatcher behavior.
+- Root cause: Live /api/channels/v1 requests were still falling through to channel listing instead of lifecycle action handling.
+
+
+## CHG-20260801-WEB-FILE-PICKER-UPLOAD
+- Date: 2026-08-01 21:15:00 +05:30
+- Files: lib/chat/chat_screen.dart, lib/web_attachment_bridge_web.dart, lib/web_attachment_bridge_stub.dart
+- Change: Routed web media/file attachment selection through a browser FileUpload helper that reads bytes directly and returns PlatformFile objects ready for the existing upload pipeline.
+- Root cause: On Flutter web, FilePicker can return selected PlatformFile entries without bytes for some manual picker flows, causing the existing send path to fail before upload starts.
+- Risk: Low. Non-web picker flow remains unchanged; web drag/drop and paste behavior is preserved.
+
+## CHG-20260801-COMPOSER-UPLOAD-LATENCY
+- Date: 2026-08-01 22:05:00 +05:30
+- Files: lib/chat/chat_screen.dart, lib/web_attachment_bridge_web.dart, lib/shared/android_share_intent.dart, server_patch/chat/.user.ini, server_patch/chat/.htaccess
+- Change: Replaced regex-heavy in-composer slash/@ detection with lightweight cursor token parsing; parallelized browser/share/drop file conversion; raised deployable upload-limit config to support 50MB attachments.
+- Root cause: In-between composer triggers were scanning the full text with end-anchored regex, and live upload failures were caused by server PHP limits still capped at 2MB/8MB.
+- Risk: Low-to-medium. Composer behavior changed only for trigger detection near cursor; attachment upload path is unchanged after file conversion, but live server must receive hidden config files.
+
+## 2026-08-01 - Attachment/video UX
+- Extended ChatAttachment with previewBytes/localPath and isVideo helper.
+- Updated temp attachment creation in chat send flow to carry local preview data for image/video uploads.
+- Added video preview embed helpers for web/stub platforms.
+- Upgraded attachment widget rendering to show inline image/video cards with upload progress overlays.
+- Updated attachment preview screen to open video inside Flow instead of generic binary fallback.
+
+## 2026-08-01 - Attendance calendar state styling
+- Date: 2026-08-01 22:45:00 +05:30
+- Files: lib/profile/profile_screens.dart
+- Change: Replaced the binary present/empty calendar rendering with explicit day-state helpers so only real punch days show the green tick while week off, missed, and future dates render with their own visual states.
+- Root cause: The calendar treated every non-null attendance row as a punched day, so week offs and empty attendance records were incorrectly rendered as successful punch days.
+- Risk: Low. Change is isolated to attendance calendar presentation and reuses existing backend attendance flags.
+
+## 2026-08-01 - Leave apply schema alignment
+- Date: 2026-08-01 23:20:00 +05:30
+- Files: lib/myhub_leave_screens.dart, server_patch/chat/myhub.php
+- Change: Reduced leave-type choices to the two business-approved options, redirected leave OTP notifications to employee 302 for testing, and aligned leave request inserts with `track_leave_request` columns such as `otp`, `approval_status`, `approver_emp_id`, and `updated_at` when available.
+- Root cause: The UI still exposed legacy leave types and the backend leave insert logic did not fully map to the live employee-database table structure shown by the user.
+- Risk: Low-to-medium. Flow is isolated to leave apply only, but live server patch deployment is required for OTP recipient and insert mapping changes to take effect.
+
+## 2026-08-01 - Leave OTP notification key length fix
+- Date: 2026-08-01 23:45:00 +05:30
+- Files: server_patch/chat/SystemNotification.php
+- Change: Added a bounded system-notification client-message-id normalizer so notification references fit within the `xmpp_messages.client_message_id` column.
+- Root cause: Leave OTP notification references were prefixed with `notification:` after an 80-char trim, pushing the final stored value past the DB column limit and causing SQLSTATE 1406.
+- Risk: Low. Change is isolated to system-notification dedupe/storage keys.
+
+## 2026-08-01 - Release 2.0.9 build and draft registration
+- Date: 2026-08-01 17:55:00 +05:30
+- Files: pubspec.yaml, server_patch/register_draft_2_0_9.php, tool/deploy_2_0_9.ps1, tool/deploy_2_0_9.psftp
+- Change: Bumped app version to 2.0.9+32, generated new release helpers, built web/APK artifacts, uploaded the Android APK to the live server, and registered Android draft release id 38 for employee 302 approval.
+- Root cause: The previous published version was 2.0.8+31 and could not be reused safely for a fresh approval cycle.
+- Risk: Low. Change is isolated to release packaging/deployment metadata and does not alter runtime product logic.

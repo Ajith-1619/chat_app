@@ -8,3 +8,15 @@ class WebAttachmentBridge {
 
   void dispose() {}
 }
+
+Future<List<PlatformFile>> pickBrowserFiles({
+  bool allowMultiple = false,
+  List<String>? acceptedMimeTypes,
+}) async {
+  final result = await FilePicker.pickFiles(
+    allowMultiple: allowMultiple,
+    type: FileType.any,
+    withData: true,
+  );
+  return result?.files ?? const <PlatformFile>[];
+}

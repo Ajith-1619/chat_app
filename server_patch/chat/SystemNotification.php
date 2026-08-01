@@ -14,6 +14,13 @@ function chat_ensure_system_notification_account(): void
     $client->register('notification', $password);
 }
 
+function chat_system_notification_client_message_id(string $referenceId): string
+{
+    $prefix = 'notification:';
+    $normalized = preg_replace('/[^a-z0-9:_-]+/i', '_', trim($referenceId)) ?: '';
+    return $prefix . mb_substr($normalized, 0, max(0, 80 - strlen($prefix)));
+}
+
 function chat_send_system_notification(
     int $recipientEmpId,
     string $body,
@@ -28,19 +35,20 @@ function chat_send_system_notification(
         throw new InvalidArgumentException('Notification body must contain 1 to 4000 characters.');
     }
     $event = preg_replace('/[^a-z0-9_-]+/i', '_', strtolower(trim($eventType))) ?: 'system';
-    $reference = mb_substr(trim($referenceId), 0, 80);
+    $reference = trim($referenceId);
+    $clientMessageId = $reference !== '' ? chat_system_notification_client_message_id($reference) : null;
     $to = chat_jid($recipientEmpId);
     $pdo = chat_db();
     chat_ensure_schema($pdo);
 
-    if ($reference !== '') {
+    if ($clientMessageId !== null) {
         $existing = $pdo->prepare(
             'SELECT id FROM xmpp_messages
              WHERE from_jid = :from_jid AND client_message_id = :reference LIMIT 1'
         );
         $existing->execute([
             ':from_jid' => SKYCHAT_SYSTEM_NOTIFICATION_JID,
-            ':reference' => 'notification:' . $reference,
+            ':reference' => $clientMessageId,
         ]);
         $existingId = (int)($existing->fetchColumn() ?: 0);
         if ($existingId > 0) {
@@ -73,7 +81,7 @@ function chat_send_system_notification(
         ':body' => $message,
         ':message_type' => 'chat',
         ':status' => 'sent',
-        ':client_message_id' => $reference !== '' ? 'notification:' . $reference : null,
+        ':client_message_id' => $clientMessageId,
         ':source_device' => 'system',
         ':source_name' => 'System ' . ucfirst($event),
     ]);

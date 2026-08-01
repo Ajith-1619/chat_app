@@ -673,6 +673,67 @@ class _AttendanceCalendarScreenState extends State<AttendanceCalendarScreen> {
     return TimeOfDay.fromDateTime(parsed.toLocal()).format(context);
   }
 
+  DateTime _dayOnly(DateTime value) => DateTime(value.year, value.month, value.day);
+
+  bool _hasPunchRecord(AttendanceDay? day) {
+    if (day == null) return false;
+    if (day.punchIn.isNotEmpty || day.punchOut.isNotEmpty) return true;
+    final normalizedStatus = day.status.trim().toLowerCase();
+    return normalizedStatus.contains('present') ||
+        normalizedStatus.contains('punch') ||
+        normalizedStatus.contains('worked');
+  }
+
+  _AttendanceCalendarCellState _calendarStateForDay({
+    required DateTime dayDate,
+    required DateTime today,
+    required AttendanceDay? row,
+  }) {
+    final currentDay = _dayOnly(dayDate);
+    final todayOnly = _dayOnly(today);
+    if (currentDay.isAfter(todayOnly)) {
+      return _AttendanceCalendarCellState.future;
+    }
+    if (row?.isWeekoff == true || row?.isHoliday == true) {
+      return _AttendanceCalendarCellState.weekOff;
+    }
+    if (_hasPunchRecord(row)) {
+      return _AttendanceCalendarCellState.punched;
+    }
+    return _AttendanceCalendarCellState.missed;
+  }
+
+  ({Color background, Color icon, Color text, IconData symbol})
+  _calendarPaletteFor(_AttendanceCalendarCellState state, BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    return switch (state) {
+      _AttendanceCalendarCellState.punched => (
+        background: scheme.primaryContainer,
+        icon: Colors.green.shade600,
+        text: scheme.onPrimaryContainer,
+        symbol: Icons.check_circle_rounded,
+      ),
+      _AttendanceCalendarCellState.weekOff => (
+        background: Colors.orange.shade50,
+        icon: Colors.orange.shade700,
+        text: Colors.orange.shade900,
+        symbol: Icons.event_busy_rounded,
+      ),
+      _AttendanceCalendarCellState.missed => (
+        background: Colors.red.shade50,
+        icon: Colors.red.shade600,
+        text: Colors.red.shade900,
+        symbol: Icons.close_rounded,
+      ),
+      _AttendanceCalendarCellState.future => (
+        background: scheme.surfaceContainerHighest,
+        icon: AppColors.muted,
+        text: scheme.onSurfaceVariant,
+        symbol: Icons.schedule_rounded,
+      ),
+    };
+  }
+
   @override
   Widget build(BuildContext context) {
     final rows = _attendance?.monthDays ?? const <AttendanceDay>[];
@@ -713,13 +774,18 @@ class _AttendanceCalendarScreenState extends State<AttendanceCalendarScreen> {
                     itemBuilder: (_, index) {
                       if (index < offset) return const SizedBox.shrink();
                       final dayNumber = index - offset + 1;
+                      final dayDate = DateTime(now.year, now.month, dayNumber);
                       final date =
                           '${now.year}-${now.month.toString().padLeft(2, '0')}-${dayNumber.toString().padLeft(2, '0')}';
                       final row = byDate[date];
+                      final state = _calendarStateForDay(
+                        dayDate: dayDate,
+                        today: now,
+                        row: row,
+                      );
+                      final palette = _calendarPaletteFor(state, context);
                       return Card(
-                        color: row == null
-                            ? null
-                            : Theme.of(context).colorScheme.primaryContainer,
+                        color: palette.background,
                         child: Padding(
                           padding: const EdgeInsets.all(6),
                           child: Column(
@@ -727,19 +793,16 @@ class _AttendanceCalendarScreenState extends State<AttendanceCalendarScreen> {
                             children: [
                               Text(
                                 '$dayNumber',
-                                style: const TextStyle(
+                                style: TextStyle(
                                   fontWeight: FontWeight.w800,
+                                  color: palette.text,
                                 ),
                               ),
                               const SizedBox(height: 4),
                               Icon(
-                                row == null
-                                    ? Icons.remove_rounded
-                                    : Icons.check_circle_rounded,
+                                palette.symbol,
                                 size: 16,
-                                color: row == null
-                                    ? AppColors.muted
-                                    : Colors.green,
+                                color: palette.icon,
                               ),
                             ],
                           ),
@@ -793,6 +856,8 @@ class _AttendanceCalendarScreenState extends State<AttendanceCalendarScreen> {
     'December',
   ][month - 1];
 }
+
+enum _AttendanceCalendarCellState { punched, weekOff, missed, future }
 
 class ActiveSessionsScreen extends StatefulWidget {
   const ActiveSessionsScreen({super.key});

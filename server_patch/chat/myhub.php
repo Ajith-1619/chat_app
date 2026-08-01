@@ -34,6 +34,26 @@ function myhub_employee_db(): PDO
     return chat_db();
 }
 
+function myhub_leave_db(): PDO
+{
+    static $leavePdo = null;
+    if ($leavePdo instanceof PDO) {
+        return $leavePdo;
+    }
+    foreach ([myhub_employee_db(), myhub_task_db(), chat_db()] as $candidate) {
+        try {
+            if (myhub_first_table($candidate, ['track_leave_request']) !== '') {
+                $leavePdo = $candidate;
+                return $leavePdo;
+            }
+        } catch (Throwable $e) {
+            error_log('MyHub leave DB probe failed: ' . $e->getMessage());
+        }
+    }
+    $leavePdo = myhub_employee_db();
+    return $leavePdo;
+}
+
 function myhub_first_column(array $columns, array $candidates): string
 {
     foreach ($candidates as $candidate) {
@@ -477,6 +497,54 @@ function myhub_horizon_employee_map(PDO $employeePdo, array $empIds): array
     return $people;
 }
 
+function myhub_horizon_latest_locations(PDO $taskPdo, array $rows): array
+{
+    if (!$rows) return [];
+    if (myhub_first_table($taskPdo, ['locations_test']) === '') return [];
+    $locationColumns = myhub_columns($taskPdo, 'locations_test');
+    $addressCol = myhub_first_column($locationColumns, ['address', 'location_address', 'place_address', 'formatted_address']);
+    $addressSql = $addressCol !== '' ? ", `{$addressCol}` AS address" : ", '' AS address";
+    $stmt = $taskPdo->prepare(
+        'SELECT latitude, longitude, timestamp, date_created, username, ip_address' . $addressSql . '
+         FROM locations_test
+         WHERE user_id = :user_id
+           AND COALESCE(latitude, "") <> ""
+           AND COALESCE(longitude, "") <> ""
+           AND ((date_created BETWEEN :from_dt AND :to_dt) OR (timestamp BETWEEN :from_ts AND :to_ts))
+         ORDER BY date_created DESC, id DESC
+         LIMIT 1'
+    );
+    $locations = [];
+    foreach ($rows as $empId => $row) {
+        $inTs = myhub_horizon_ts($row, 'punch_in', 'date_created');
+        if ($inTs <= 0) continue;
+        $outTs = myhub_horizon_ts($row, 'punch_out', 'out_time');
+        $endTs = $outTs > $inTs ? $outTs : time();
+        $chatId = myhub_horizon_chat_id($taskPdo, (int)$empId);
+        $stmt->execute([
+            ':user_id' => $chatId,
+            ':from_dt' => date('Y-m-d H:i:s', $inTs),
+            ':to_dt' => date('Y-m-d H:i:s', $endTs),
+            ':from_ts' => (string)$inTs,
+            ':to_ts' => (string)$endTs,
+        ]);
+        $point = $stmt->fetch(PDO::FETCH_ASSOC) ?: null;
+        if (!is_array($point)) continue;
+        $lat = (float)($point['latitude'] ?? 0);
+        $lng = (float)($point['longitude'] ?? 0);
+        if ($lat < -90 || $lat > 90 || $lng < -180 || $lng > 180 || ($lat == 0.0 && $lng == 0.0)) continue;
+        $capturedTs = (int)($point['timestamp'] ?? 0);
+        if ($capturedTs <= 1) $capturedTs = strtotime((string)($point['date_created'] ?? '')) ?: 0;
+        $locations[(int)$empId] = [
+            'latitude' => $lat,
+            'longitude' => $lng,
+            'location_address' => trim((string)($point['address'] ?? '')),
+            'location_updated_at' => $capturedTs > 0 ? date('Y-m-d H:i:s', $capturedTs) : (string)($point['date_created'] ?? ''),
+        ];
+    }
+    return $locations;
+}
+
 function myhub_horizon(PDO $employeePdo, int $viewerEmpId): never
 {
     if (!myhub_horizon_allowed($viewerEmpId)) chat_json(['status' => false, 'error' => 'Horizon access is restricted.'], 403);
@@ -488,12 +556,19 @@ function myhub_horizon(PDO $employeePdo, int $viewerEmpId): never
     $people = myhub_horizon_employee_map($employeePdo, array_keys($rows));
     $employees = [];
     $now = time();
+    $latestLocations = [];
+    try {
+        $latestLocations = myhub_horizon_latest_locations(myhub_task_db(), $rows);
+    } catch (Throwable $e) {
+        error_log('MyHub Horizon latest locations failed: ' . $e->getMessage());
+    }
     foreach ($rows as $empId => $row) {
         $inTs = myhub_horizon_ts($row, 'punch_in', 'date_created');
         $outTs = myhub_horizon_ts($row, 'punch_out', 'out_time');
         if ($inTs <= 0) continue;
         $seconds = max(0, ($outTs > $inTs ? $outTs : $now) - $inTs);
         $person = $people[$empId] ?? ['emp_id' => $empId, 'name' => 'Employee ' . $empId, 'designation' => ''];
+        $location = $latestLocations[(int)$empId] ?? [];
         $employees[] = [
             'emp_id' => $empId,
             'name' => (string)($person['name'] ?? ('Employee ' . $empId)),
@@ -504,6 +579,10 @@ function myhub_horizon(PDO $employeePdo, int $viewerEmpId): never
             'working_hours' => myhub_horizon_duration($seconds),
             'status' => $outTs > $inTs ? 'Punched out' : 'Running',
             'shift_id' => (string)($row['shift_id'] ?? ''),
+            'latitude' => (float)($location['latitude'] ?? 0),
+            'longitude' => (float)($location['longitude'] ?? 0),
+            'location_address' => (string)($location['location_address'] ?? ''),
+            'location_updated_at' => (string)($location['location_updated_at'] ?? ''),
         ];
     }
     usort($employees, fn(array $a, array $b): int => strcmp($a['name'], $b['name']));
@@ -1154,6 +1233,8 @@ function myhub_active_leave_otp(PDO $pdo, string $requestKey): ?array
     return $row ?: null;
 }
 
+define('MYHUB_LEAVE_TEST_APPROVER_EMP_ID', 302);
+
 function myhub_dispatch_leave_otp(PDO $pdo, int $empId, array $otpRow): array
 {
     $body = sprintf(
@@ -1165,7 +1246,7 @@ function myhub_dispatch_leave_otp(PDO $pdo, int $empId, array $otpRow): array
         (string)$otpRow['otp_code']
     );
     $sent = chat_send_system_notification(
-        232,
+        MYHUB_LEAVE_TEST_APPROVER_EMP_ID,
         $body,
         'leave_otp',
         'leave-otp-' . $otpRow['request_key']
@@ -1257,10 +1338,11 @@ function myhub_apply_leave(PDO $pdo, int $empId): never
                     'INSERT INTO xmpp_leave_otp_requests
                      (emp_id, approver_emp_id, request_key, from_date, to_date, leave_type_id, reason, no_of_days, otp_code, requested_at, expires_at)
                      VALUES
-                     (:emp_id, 232, :request_key, :from_date, :to_date, :leave_type_id, :reason, :no_of_days, :otp_code, NOW(), DATE_ADD(NOW(), INTERVAL 3 DAY))'
+                     (:emp_id, :approver_emp_id, :request_key, :from_date, :to_date, :leave_type_id, :reason, :no_of_days, :otp_code, NOW(), DATE_ADD(NOW(), INTERVAL 3 DAY))'
                 );
                 $stmt->execute([
                     ':emp_id' => $empId,
+                    ':approver_emp_id' => MYHUB_LEAVE_TEST_APPROVER_EMP_ID,
                     ':request_key' => $requestKey,
                     ':from_date' => $fromDate,
                     ':to_date' => $toDate,
@@ -1281,7 +1363,7 @@ function myhub_apply_leave(PDO $pdo, int $empId): never
             'otp_required' => true,
             'request_key' => $requestKey,
             'no_of_days' => $noOfDays,
-            'otp_sent_to_emp_id' => 232,
+            'otp_sent_to_emp_id' => MYHUB_LEAVE_TEST_APPROVER_EMP_ID,
             'expires_at' => $existingOtp['expires_at'],
             'notification_message_id' => $sent['message_id'] ?? 0,
             'message' => 'OTP sent for leave approval. Enter the same OTP to submit.',
@@ -1309,8 +1391,11 @@ function myhub_apply_leave(PDO $pdo, int $empId): never
     elseif (isset($columns['leave_reason'])) $insert['leave_reason'] = $reason;
     $daysColumn = myhub_first_column($columns, ['no_of_days', 'nodays', 'total_days', 'leave_days', 'days_count']);
     if ($daysColumn !== '') $insert[$daysColumn] = $noOfDays;
-    if (isset($columns['approval_status'])) $insert['approval_status'] = 0;
+    if (isset($columns['otp'])) $insert['otp'] = $otp;
+    if (isset($columns['approval_status'])) $insert['approval_status'] = 1;
+    if (isset($columns['approver_emp_id'])) $insert['approver_emp_id'] = (string)MYHUB_LEAVE_TEST_APPROVER_EMP_ID;
     if (isset($columns['created_at'])) $insert['created_at'] = date('Y-m-d H:i:s');
+    if (isset($columns['updated_at'])) $insert['updated_at'] = date('Y-m-d H:i:s');
     $fieldSql = implode(', ', array_map(static fn(string $field): string => "`{$field}`", array_keys($insert)));
     $placeholderSql = implode(', ', array_map(static fn(string $field): string => ':' . $field, array_keys($insert)));
     $stmt = $pdo->prepare("INSERT INTO track_leave_request ({$fieldSql}) VALUES ({$placeholderSql})");
@@ -1334,13 +1419,14 @@ function myhub_apply_leave(PDO $pdo, int $empId): never
     ]);
 }
 
+$section = strtolower(trim((string)($_GET['section'] ?? 'directory')));
+
 try {
-    $section = strtolower(trim((string)($_GET['section'] ?? 'directory')));
     if ($_SERVER['REQUEST_METHOD'] === 'POST' && $section === 'task_create') {
         myhub_create_task($empId);
     }
     if ($_SERVER['REQUEST_METHOD'] === 'POST' && $section === 'leave_apply') {
-        myhub_apply_leave(myhub_employee_db(), $empId);
+        myhub_apply_leave(myhub_leave_db(), $empId);
     }
     if ($_SERVER['REQUEST_METHOD'] === 'POST' && $section === 'activity') {
         myhub_create_activity($empId);
@@ -1353,7 +1439,7 @@ try {
         'verticals' => myhub_verticals(myhub_employee_db()),
         'tasks' => myhub_tasks($empId),
         'task_detail' => myhub_task_detail($empId),
-        'leave' => myhub_leave(myhub_employee_db(), $empId),
+        'leave' => myhub_leave(myhub_leave_db(), $empId),
         'activity' => myhub_activity_logs($empId),
         'suggestions' => myhub_suggestions($empId),
         'horizon' => myhub_horizon(myhub_employee_db(), $empId),
@@ -1361,8 +1447,12 @@ try {
         default => chat_json(['status' => false, 'error' => 'Unknown MyHub section.'], 404),
     };
 } catch (Throwable $e) {
-    error_log('MyHub failed: ' . $e->getMessage());
-    chat_json(['status' => false, 'error' => 'Unable to load MyHub data.'], 500);
+    error_log('MyHub failed [' . $section . ']: ' . $e->getMessage());
+    $message = 'Unable to load MyHub data.';
+    if ($section === 'leave' || $section === 'leave_apply' || chat_diagnostics_allowed($empId)) {
+        $message = $e->getMessage() !== '' ? $e->getMessage() : $message;
+    }
+    chat_json(['status' => false, 'error' => $message], 500);
 }
 
 

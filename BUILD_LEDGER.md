@@ -832,3 +832,76 @@ The broadcast send branch updated or created broadcast list records using $title
 ## Notes
 - Live server must receive the updated server_patch/chat/broadcast.php if it has not been deployed yet.
 - PROJECT_STATE.md and CHANGE_LEDGER_SPEC.md remain missing from workspace.
+
+## 2026-08-01 - Web release build
+- Command: lutter build web --release
+- Result: Success
+- Output: uild/web
+- Notes: Web build completed after extending timeout. Wasm dry run succeeded.
+
+## BUILD-STATUS-20260801-HORIZON-PREVIEW-FIX
+- Timestamp: 2026-08-01 18:55 +05:30
+- Build: Not run.
+- Validation: PHP lint passed for Horizon/backend preview helpers; Flutter analyze passed for Horizon screen.
+
+- 2026-08-01 | BUILD_REPORT_2026-08-01_next_action_prompt_mentions.md | Duplicate next-action prompt removed; mid-text mention detection improved.
+
+- 2026-08-01 | BUILD_REPORT_2026-08-01_muted_operational_notifications.md | Muted punch/location notifications added without affecting normal chat message alerts.
+
+- 2026-08-01 | BUILD_REPORT_2026-08-01_external_channel_lifecycle_route_fix.md | External channel close/delete route parsing fixed.
+
+## BUILD-20260801-EXTERNAL-CHANNEL-BODY-CLOSE-VALIDATION
+- Date: 2026-08-01 20:10:00 +05:30
+- Type: Validation only; no Flutter build requested or run.
+- Checks: PHP syntax check passed for server_patch/api/_shared/extended.php.
+- Status: Ready for deployment and Postman verification on live.
+
+
+## BUILD-20260801-PHYSICAL-CHANNEL-ACTION-ENDPOINT
+- Date: 2026-08-01 20:25:00 +05:30
+- Type: Validation only.
+- Checks: PHP lint passed for server_patch/api/channels/v1/action.php and close.php.
+
+
+## BUILD-20260801-WEB-FILE-PICKER-UPLOAD
+- Date: 2026-08-01 21:15:00 +05:30
+- Type: Validation only; no release build requested in this turn.
+- Checks: flutter analyze lib/chat/chat_screen.dart lib/web_attachment_bridge_web.dart lib/web_attachment_bridge_stub.dart
+- Status: No new compile errors from this fix. Existing repo warnings remain pre-existing.
+
+## BUILD-20260801-COMPOSER-UPLOAD-LATENCY
+- Date: 2026-08-01 22:05:00 +05:30
+- Type: Validation only.
+- Checks: flutter analyze lib/chat/chat_screen.dart lib/web_attachment_bridge_web.dart lib/shared/android_share_intent.dart
+- Status: No new compile errors from the changes; analyzer reports existing/pre-existing warnings only.
+
+## 2026-08-01 - Attachment/video UX patch
+- Scope: chat attachment optimistic preview, inline video bubble rendering, in-app web video preview.
+- Verification: flutter analyze on touched files completed with no hard errors; existing repository warnings remain.
+- Build: not executed in this step.
+
+## BUILD-20260801-ATTENDANCE-CALENDAR-STATE-COLORS
+- Date: 2026-08-01 22:45:00 +05:30
+- Type: Validation only.
+- Checks: flutter analyze lib/profile/profile_screens.dart
+- Status: No new compile errors from this patch; analyzer surfaced only pre-existing warnings in the file.
+
+## BUILD-20260801-LEAVE-TYPE-OTP-ALIGNMENT
+- Date: 2026-08-01 23:20:00 +05:30
+- Type: Validation only.
+- Checks: flutter analyze lib/myhub_leave_screens.dart; php -l server_patch/chat/myhub.php
+- Status: No new analyzer or PHP syntax errors.
+
+## BUILD-20260801-LEAVE-OTP-CLIENT-ID-LIMIT
+- Date: 2026-08-01 23:45:00 +05:30
+- Type: Validation only.
+- Checks: php -l server_patch/chat/SystemNotification.php
+- Status: No PHP syntax errors.
+
+## BUILD-20260801-RELEASE-2-0-9
+- Date: 2026-08-01 17:55:00 +05:30
+- Type: Release build + draft deployment.
+- Checks: flutter analyze; php -l server_patch/chat/SystemNotification.php; php -l server_patch/chat/myhub.php; php -l server_patch/register_draft_2_0_9.php; flutter build web --release; flutter build apk --release.
+- Artifacts: release/Skylink-Chat-Web-v2.0.9.zip, release/Skylink-Chat-Web-v2.0.9.zip.sha256, release/Skylink-Chat-v2.0.9.apk, release/Skylink-Chat-v2.0.9.apk.sha256.
+- Live Deploy: Uploaded APK + checksum and executed https://dns.watchtower247.in/router_login/register_draft_2_0_9.php => android draft release_id=38.
+- Status: Success. Analyzer still reports pre-existing repository warnings only.

@@ -235,6 +235,20 @@ class _SlashCommand {
   final IconData icon;
 }
 
+class _ComposerTokenMatch {
+  const _ComposerTokenMatch({
+    required this.start,
+    required this.end,
+    required this.token,
+    required this.query,
+  });
+
+  final int start;
+  final int end;
+  final String token;
+  final String query;
+}
+
 const _flowSlashCommands = <_SlashCommand>[
   _SlashCommand(
     token: '/help',
@@ -439,17 +453,15 @@ class _ChatScreenState extends State<ChatScreen> {
     _messageController.addListener(() {
       final text = _messageController.text;
       final hasText = text.trim().isNotEmpty;
-      final mention = RegExp(r'@([A-Za-z0-9_]*)$').firstMatch(text);
-      final mentionQuery = mention?.group(1)?.toLowerCase() ?? '';
-      final slash = RegExp(r'(?:^|\s)/([A-Za-z0-9_]*)$').firstMatch(text);
-      final slashQuery = slash?.group(1)?.toLowerCase() ?? '';
+      final mentionQuery = _activeMentionMatch()?.query ?? '';
+      final slashQuery = _activeSlashMatch()?.query ?? '';
       if (hasText != _hasText ||
           mentionQuery != _mentionQuery ||
           slashQuery != _slashQuery) {
         setState(() {
           _hasText = hasText;
-          _mentionQuery = mention == null ? '' : mentionQuery;
-          _slashQuery = slash == null ? '' : slashQuery;
+          _mentionQuery = mentionQuery;
+          _slashQuery = slashQuery;
         });
       }
       _draftTimer?.cancel();
@@ -2025,21 +2037,30 @@ class _ChatScreenState extends State<ChatScreen> {
     if (!mounted || choice == null) return;
     switch (choice) {
       case 'media':
-        final media = await FilePicker.pickFiles(
-          allowMultiple: true,
-          type: FileType.media,
-          withData: kIsWeb,
-        );
-        if (!mounted || media == null || media.files.isEmpty) return;
-        await _sendPickedFiles(media.files);
+        final mediaFiles = kIsWeb
+            ? await pickBrowserFiles(
+                allowMultiple: true,
+                acceptedMimeTypes: const ['image/*', 'video/*'],
+              )
+            : (await FilePicker.pickFiles(
+                    allowMultiple: true,
+                    type: FileType.media,
+                    withData: false,
+                  ))?.files ??
+                const <PlatformFile>[];
+        if (!mounted || mediaFiles.isEmpty) return;
+        await _sendPickedFiles(mediaFiles);
         return;
       case 'file':
-        final result = await FilePicker.pickFiles(
-          allowMultiple: true,
-          withData: kIsWeb,
-        );
-        if (!mounted || result == null || result.files.isEmpty) return;
-        await _sendPickedFiles(result.files);
+        final resultFiles = kIsWeb
+            ? await pickBrowserFiles(allowMultiple: true)
+            : (await FilePicker.pickFiles(
+                    allowMultiple: true,
+                    withData: false,
+                  ))?.files ??
+                const <PlatformFile>[];
+        if (!mounted || resultFiles.isEmpty) return;
+        await _sendPickedFiles(resultFiles);
         return;
       case 'checklist':
         await _createChecklistFromComposer();
@@ -2316,19 +2337,17 @@ class _ChatScreenState extends State<ChatScreen> {
   Future<List<PlatformFile>> _platformFilesFromDroppedFiles(
     List<dynamic> files,
   ) async {
-    final converted = <PlatformFile>[];
-    for (final file in files) {
-      final bytes = await file.readAsBytes();
-      converted.add(
-        PlatformFile(
+    return Future.wait(
+      files.map((file) async {
+        final bytes = await file.readAsBytes();
+        return PlatformFile(
           name: file.name,
           size: bytes.length,
           bytes: bytes,
           path: file.path,
-        ),
-      );
-    }
-    return converted;
+        );
+      }),
+    );
   }
 
   List<PlatformFile> _platformFilesFromClipboard(List<PastedMediaFile> files) {
@@ -2689,7 +2708,7 @@ class _ChatScreenState extends State<ChatScreen> {
   }
 
   List<_SlashCommand> get _slashSuggestions {
-    if (!RegExp(r'(?:^|\s)/[A-Za-z0-9_]*$').hasMatch(_messageController.text)) {
+    if (_activeSlashMatch() == null) {
       return const [];
     }
     return _flowSlashCommands
@@ -2705,25 +2724,60 @@ class _ChatScreenState extends State<ChatScreen> {
 
   void _selectSlashCommand(_SlashCommand command) {
     final text = _messageController.text;
-    final match = RegExp(r'(?:^|\s)/[A-Za-z0-9_]*$').firstMatch(text);
+    final match = _activeSlashMatch(_messageController.value);
     if (match == null) return;
-    final prefix = match.group(0)?.startsWith(' ') == true ? ' ' : '';
     _messageController.value = TextEditingValue(
-      text: text.replaceRange(
-        match.start,
-        match.end,
-        '$prefix${command.token} ',
-      ),
+      text: text.replaceRange(match.start, match.end, '${command.token} '),
       selection: TextSelection.collapsed(
-        offset: match.start + prefix.length + command.token.length + 1,
+        offset: match.start + command.token.length + 1,
       ),
     );
     setState(() => _slashQuery = '');
   }
 
+  _ComposerTokenMatch? _activeSlashMatch([TextEditingValue? value]) {
+    return _activeComposerToken('/', value);
+  }
+
+  _ComposerTokenMatch? _activeMentionMatch([TextEditingValue? value]) {
+    return _activeComposerToken('@', value);
+  }
+
+  _ComposerTokenMatch? _activeComposerToken(
+    String marker, [
+    TextEditingValue? value,
+  ]) {
+    final current = value ?? _messageController.value;
+    final extent = current.selection.isValid
+        ? current.selection.extentOffset.clamp(0, current.text.length) as int
+        : current.text.length;
+    if (extent < 0 || extent > current.text.length) return null;
+    final prefix = current.text.substring(0, extent);
+    if (prefix.isEmpty) return null;
+    var start = prefix.length - 1;
+    while (start >= 0) {
+      final char = prefix[start];
+      if (char == ' ' || char == '\n' || char == '\t' || char == '\r') {
+        start += 1;
+        break;
+      }
+      start -= 1;
+    }
+    if (start < 0) start = 0;
+    if (start >= prefix.length || prefix[start] != marker) return null;
+    final token = prefix.substring(start + 1);
+    if (token.contains(RegExp(r'\s'))) return null;
+    return _ComposerTokenMatch(
+      start: start,
+      end: extent,
+      token: marker,
+      query: token.toLowerCase(),
+    );
+  }
+
+
   List<GroupMember> get _mentionSuggestions {
-    if (!widget.chat.isGroup ||
-        !RegExp(r'@[A-Za-z0-9_]*$').hasMatch(_messageController.text)) {
+    if (!widget.chat.isGroup || _activeMentionMatch() == null) {
       return const [];
     }
     final special =
@@ -2767,7 +2821,7 @@ class _ChatScreenState extends State<ChatScreen> {
 
   void _selectMention(GroupMember member) {
     final text = _messageController.text;
-    final match = RegExp(r'@[A-Za-z0-9_]*$').firstMatch(text);
+    final match = _activeMentionMatch(_messageController.value);
     if (match == null) return;
     final mention = '@${member.name.trim().replaceAll(RegExp(r'\s+'), '_')}';
     _messageController.value = TextEditingValue(
@@ -8799,3 +8853,10 @@ String formatFileSize(int bytes) {
   final mb = kb / 1024;
   return '${mb.toStringAsFixed(1)} MB';
 }
+
+
+
+
+
+
+

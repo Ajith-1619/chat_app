@@ -35,6 +35,7 @@ import '../mojibake_tools.dart';
 import '../clipboard_media_bridge.dart';
 import '../clipboard_text_bridge.dart';
 import '../file_preview_embed.dart';
+import '../video_preview_embed.dart';
 import '../web_attachment_bridge.dart';
 import '../web_file_actions.dart';
 import '../xmpp_bridge.dart';
@@ -118,87 +119,44 @@ class AttachmentContent extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final isPendingUpload = attachment.url.trim().isEmpty;
+    final showInlineImage =
+        attachment.isImage && (!isPendingUpload || attachment.previewBytes != null);
+    final showInlineVideo = attachment.isVideo &&
+        (!isPendingUpload ||
+            attachment.previewBytes != null ||
+            attachment.localPath.trim().isNotEmpty);
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         if (attachment.isLocation)
           _LocationAttachmentPreview(attachment: attachment)
-        else if (attachment.isImage && !isPendingUpload)
-          InkWell(
-            onTap: isPendingUpload ? null : () => _open(context),
-            borderRadius: BorderRadius.circular(12),
-            child: ClipRRect(
-              borderRadius: BorderRadius.circular(12),
-              child: Stack(
-                children: [
-                  Image.network(
-                    attachment.url,
-                    width: 260,
-                    height: 190,
-                    fit: BoxFit.cover,
-                    loadingBuilder: (_, child, progress) => progress == null
-                        ? child
-                        : const SizedBox(
-                            width: 260,
-                            height: 190,
-                            child: Center(child: CircularProgressIndicator()),
-                          ),
-                    errorBuilder: (_, _, _) => _FileTile(
-                      attachment: attachment,
-                      onTap: null,
-                      onDownload: null,
-                      onOpenWith: null,
-                      isUploading: isUploading,
-                      isFailed: isFailed,
-                      uploadProgress: uploadProgress,
-                    ),
-                  ),
-                  if (!attachment.isRestricted)
-                    Positioned(
-                      top: 8,
-                      right: 8,
-                      child: Material(
-                        color: Colors.black.withValues(alpha: 0.46),
-                        shape: const CircleBorder(),
-                        child: PopupMenuButton<String>(
-                          tooltip: 'File actions',
-                          icon: const Icon(
-                            Icons.more_vert_rounded,
-                            color: Colors.white,
-                            size: 20,
-                          ),
-                          onSelected: (value) {
-                            if (value == 'download') _download(context);
-                            if (value == 'open_with') _openWith(context);
-                          },
-                          itemBuilder: (_) => const [
-                            PopupMenuItem(
-                              value: 'download',
-                              child: Text('Download'),
-                            ),
-                            PopupMenuItem(
-                              value: 'open_with',
-                              child: Text('Open with'),
-                            ),
-                          ],
-                        ),
-                      ),
-                    )
-                  else
-                    Positioned(
-                      top: 8,
-                      right: 8,
-                      child: Chip(
-                        label: const Text('Restricted'),
-                        avatar: const Icon(Icons.lock_rounded, size: 16),
-                        visualDensity: VisualDensity.compact,
-                        backgroundColor: Colors.black.withValues(alpha: 0.52),
-                        labelStyle: const TextStyle(color: Colors.white),
-                      ),
-                    ),
-                ],
-              ),
-            ),
+        else if (showInlineImage)
+          _ImageAttachmentCard(
+            attachment: attachment,
+            onTap: () => _open(context),
+            onDownload: attachment.isRestricted || isPendingUpload
+                ? null
+                : () => _download(context),
+            onOpenWith: attachment.isRestricted || isPendingUpload
+                ? null
+                : () => _openWith(context),
+            isUploading: isUploading,
+            isFailed: isFailed,
+            uploadProgress: uploadProgress,
+          )
+        else if (showInlineVideo)
+          _VideoAttachmentCard(
+            attachment: attachment,
+            onTap: () => _open(context),
+            onDownload: attachment.isRestricted || isPendingUpload
+                ? null
+                : () => _download(context),
+            onOpenWith: attachment.isRestricted || isPendingUpload
+                ? null
+                : () => _openWith(context),
+            isUploading: isUploading,
+            isFailed: isFailed,
+            uploadProgress: uploadProgress,
           )
         else
           _FileTile(
@@ -214,7 +172,7 @@ class AttachmentContent extends StatelessWidget {
             isFailed: isFailed,
             uploadProgress: uploadProgress,
           ),
-        if (attachment.caption.isNotEmpty)
+        if (attachment.caption.isNotEmpty && !showInlineImage && !showInlineVideo)
           Padding(
             padding: const EdgeInsets.only(top: 8, left: 2, right: 2),
             child: Text(
@@ -227,6 +185,321 @@ class AttachmentContent extends StatelessWidget {
             ),
           ),
       ],
+    );
+  }
+}
+
+class _ImageAttachmentCard extends StatelessWidget {
+  const _ImageAttachmentCard({
+    required this.attachment,
+    required this.onTap,
+    this.onDownload,
+    this.onOpenWith,
+    this.isUploading = false,
+    this.isFailed = false,
+    this.uploadProgress,
+  });
+
+  final ChatAttachment attachment;
+  final VoidCallback onTap;
+  final VoidCallback? onDownload;
+  final VoidCallback? onOpenWith;
+  final bool isUploading;
+  final bool isFailed;
+  final double? uploadProgress;
+
+  @override
+  Widget build(BuildContext context) {
+    final localBytes = attachment.previewBytes;
+    final hasRemoteImage = attachment.url.trim().isNotEmpty;
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(12),
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(12),
+        child: Stack(
+          children: [
+            if (hasRemoteImage)
+              Image.network(
+                attachment.url,
+                width: 260,
+                height: 190,
+                fit: BoxFit.cover,
+                loadingBuilder: (_, child, progress) => progress == null
+                    ? child
+                    : const SizedBox(
+                        width: 260,
+                        height: 190,
+                        child: Center(child: CircularProgressIndicator()),
+                      ),
+                errorBuilder: (_, _, _) => _FileTile(
+                  attachment: attachment,
+                  onTap: null,
+                  onDownload: null,
+                  onOpenWith: null,
+                  isUploading: isUploading,
+                  isFailed: isFailed,
+                  uploadProgress: uploadProgress,
+                ),
+              )
+            else if (localBytes != null)
+              Image.memory(
+                localBytes,
+                width: 260,
+                height: 190,
+                fit: BoxFit.cover,
+                errorBuilder: (_, _, _) => _FileTile(
+                  attachment: attachment,
+                  onTap: null,
+                  onDownload: null,
+                  onOpenWith: null,
+                  isUploading: isUploading,
+                  isFailed: isFailed,
+                  uploadProgress: uploadProgress,
+                ),
+              )
+            else
+              _FileTile(
+                attachment: attachment,
+                onTap: null,
+                onDownload: null,
+                onOpenWith: null,
+                isUploading: isUploading,
+                isFailed: isFailed,
+                uploadProgress: uploadProgress,
+              ),
+            _AttachmentCardOverlay(
+              attachment: attachment,
+              onDownload: onDownload,
+              onOpenWith: onOpenWith,
+              isUploading: isUploading,
+              isFailed: isFailed,
+              uploadProgress: uploadProgress,
+              title: attachment.caption.isNotEmpty ? attachment.caption : attachment.name,
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _VideoAttachmentCard extends StatelessWidget {
+  const _VideoAttachmentCard({
+    required this.attachment,
+    required this.onTap,
+    this.onDownload,
+    this.onOpenWith,
+    this.isUploading = false,
+    this.isFailed = false,
+    this.uploadProgress,
+  });
+
+  final ChatAttachment attachment;
+  final VoidCallback onTap;
+  final VoidCallback? onDownload;
+  final VoidCallback? onOpenWith;
+  final bool isUploading;
+  final bool isFailed;
+  final double? uploadProgress;
+
+  @override
+  Widget build(BuildContext context) {
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(12),
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(12),
+        child: Stack(
+          children: [
+            SizedBox(
+              width: 260,
+              height: 190,
+              child: buildEmbeddedVideoPreview(
+                title: attachment.name,
+                url: attachment.url,
+                bytes: attachment.previewBytes,
+                autoplay: true,
+                muted: true,
+                loop: true,
+                controls: false,
+                fit: BoxFit.cover,
+              ),
+            ),
+            _AttachmentCardOverlay(
+              attachment: attachment,
+              onDownload: onDownload,
+              onOpenWith: onOpenWith,
+              isUploading: isUploading,
+              isFailed: isFailed,
+              uploadProgress: uploadProgress,
+              title: attachment.caption.isNotEmpty ? attachment.caption : attachment.name,
+              videoBadge: true,
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _AttachmentCardOverlay extends StatelessWidget {
+  const _AttachmentCardOverlay({
+    required this.attachment,
+    this.onDownload,
+    this.onOpenWith,
+    this.isUploading = false,
+    this.isFailed = false,
+    this.uploadProgress,
+    required this.title,
+    this.videoBadge = false,
+  });
+
+  final ChatAttachment attachment;
+  final VoidCallback? onDownload;
+  final VoidCallback? onOpenWith;
+  final bool isUploading;
+  final bool isFailed;
+  final double? uploadProgress;
+  final String title;
+  final bool videoBadge;
+
+  @override
+  Widget build(BuildContext context) {
+    final progress = (uploadProgress ?? 0).clamp(0.0, 1.0);
+    final statusText = isFailed
+        ? 'Upload failed'
+        : isUploading
+        ? progress > 0
+              ? 'Uploading \\%'
+              : 'Preparing upload'
+        : formatFileSize(attachment.size);
+    return Positioned.fill(
+      child: DecoratedBox(
+        decoration: BoxDecoration(
+          gradient: LinearGradient(
+            begin: Alignment.topCenter,
+            end: Alignment.bottomCenter,
+            colors: [
+              Colors.black.withValues(alpha: 0.10),
+              Colors.black.withValues(alpha: 0.58),
+            ],
+          ),
+        ),
+        child: Padding(
+          padding: const EdgeInsets.all(10),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Align(
+                alignment: Alignment.topRight,
+                child: _AttachmentOverlayAction(
+                  attachment: attachment,
+                  onDownload: onDownload,
+                  onOpenWith: onOpenWith,
+                ),
+              ),
+              const Spacer(),
+              if (videoBadge)
+                Container(
+                  margin: const EdgeInsets.only(bottom: 8),
+                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                  decoration: BoxDecoration(
+                    color: Colors.black.withValues(alpha: 0.45),
+                    borderRadius: BorderRadius.circular(999),
+                  ),
+                  child: const Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(Icons.play_circle_fill_rounded, color: Colors.white, size: 16),
+                      SizedBox(width: 4),
+                      Text(
+                        'Video',
+                        style: TextStyle(color: Colors.white, fontSize: 11, fontWeight: FontWeight.w700),
+                      ),
+                    ],
+                  ),
+                ),
+              Text(
+                title,
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(
+                  color: Colors.white,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+              const SizedBox(height: 4),
+              Text(
+                statusText,
+                style: TextStyle(
+                  color: isFailed ? const Color(0xFFFFD2D2) : Colors.white70,
+                  fontSize: 12,
+                  fontWeight: isUploading || isFailed ? FontWeight.w700 : FontWeight.w500,
+                ),
+              ),
+              if (isUploading) ...[
+                const SizedBox(height: 8),
+                ClipRRect(
+                  borderRadius: BorderRadius.circular(999),
+                  child: LinearProgressIndicator(
+                    value: progress <= 0 ? null : progress,
+                    minHeight: 4,
+                    backgroundColor: Colors.white24,
+                    valueColor: const AlwaysStoppedAnimation<Color>(Colors.white),
+                  ),
+                ),
+              ],
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _AttachmentOverlayAction extends StatelessWidget {
+  const _AttachmentOverlayAction({
+    required this.attachment,
+    this.onDownload,
+    this.onOpenWith,
+  });
+
+  final ChatAttachment attachment;
+  final VoidCallback? onDownload;
+  final VoidCallback? onOpenWith;
+
+  @override
+  Widget build(BuildContext context) {
+    if (attachment.isRestricted) {
+      return Chip(
+        label: const Text('Restricted'),
+        avatar: const Icon(Icons.lock_rounded, size: 16),
+        visualDensity: VisualDensity.compact,
+        backgroundColor: Colors.black.withValues(alpha: 0.52),
+        labelStyle: const TextStyle(color: Colors.white),
+      );
+    }
+    if (onDownload == null) return const SizedBox.shrink();
+    return Material(
+      color: Colors.black.withValues(alpha: 0.46),
+      shape: const CircleBorder(),
+      child: PopupMenuButton<String>(
+        tooltip: 'File actions',
+        icon: const Icon(
+          Icons.more_vert_rounded,
+          color: Colors.white,
+          size: 20,
+        ),
+        onSelected: (value) {
+          if (value == 'download') onDownload?.call();
+          if (value == 'open_with') onOpenWith?.call();
+        },
+        itemBuilder: (_) => const [
+          PopupMenuItem(value: 'download', child: Text('Download')),
+          PopupMenuItem(value: 'open_with', child: Text('Open with')),
+        ],
+      ),
     );
   }
 }
@@ -384,6 +657,7 @@ class _FileTile extends StatelessWidget {
 
 enum _AttachmentPreviewKind {
   image,
+  video,
   audio,
   location,
   pdf,
@@ -419,7 +693,24 @@ class _AttachmentPreviewScreenState extends State<AttachmentPreviewScreen> {
     final mime = attachment.mimeType.toLowerCase();
     final name = attachment.name.toLowerCase();
     final ext = name.contains('.') ? name.split('.').last : '';
-    final bytes = await chatApi.readAttachmentBytes(attachment);
+
+    if (attachment.isLocation) {
+      return _AttachmentPreviewData(
+        kind: _AttachmentPreviewKind.location,
+        text: attachment.locationAddress,
+      );
+    }
+
+    if (attachment.isVideo) {
+      return _AttachmentPreviewData(
+        kind: _AttachmentPreviewKind.video,
+        bytes: attachment.previewBytes,
+        url: attachment.url,
+      );
+    }
+
+    final bytes = attachment.previewBytes ??
+        await chatApi.readAttachmentBytes(attachment);
 
     if (mime.startsWith('image/')) {
       return _AttachmentPreviewData(
@@ -432,13 +723,6 @@ class _AttachmentPreviewScreenState extends State<AttachmentPreviewScreen> {
       return _AttachmentPreviewData(
         kind: _AttachmentPreviewKind.audio,
         bytes: bytes,
-      );
-    }
-
-    if (attachment.isLocation) {
-      return _AttachmentPreviewData(
-        kind: _AttachmentPreviewKind.location,
-        text: attachment.locationAddress,
       );
     }
 
@@ -596,6 +880,8 @@ class _AttachmentPreviewBody extends StatelessWidget {
             );
           },
         );
+      case _AttachmentPreviewKind.video:
+        return _VideoAttachmentPreview(attachment: attachment, data: data);
       case _AttachmentPreviewKind.audio:
         return _AudioAttachmentPreview(attachment: attachment);
       case _AttachmentPreviewKind.location:
@@ -807,6 +1093,34 @@ class _AudioAttachmentPreviewState extends State<_AudioAttachmentPreview> {
           ),
         );
       },
+    );
+  }
+}
+
+class _VideoAttachmentPreview extends StatelessWidget {
+  const _VideoAttachmentPreview({required this.attachment, required this.data});
+
+  final ChatAttachment attachment;
+  final _AttachmentPreviewData data;
+
+  @override
+  Widget build(BuildContext context) {
+    return ColoredBox(
+      color: Colors.black,
+      child: Center(
+        child: SizedBox.expand(
+          child: buildEmbeddedVideoPreview(
+            title: attachment.name,
+            url: data.url ?? attachment.url,
+            bytes: data.bytes,
+            autoplay: false,
+            muted: false,
+            loop: false,
+            controls: true,
+            fit: BoxFit.contain,
+          ),
+        ),
+      ),
     );
   }
 }
@@ -1107,11 +1421,12 @@ class _AttachmentPreviewError extends StatelessWidget {
 }
 
 class _AttachmentPreviewData {
-  const _AttachmentPreviewData({required this.kind, this.bytes, this.text});
+  const _AttachmentPreviewData({required this.kind, this.bytes, this.text, this.url});
 
   final _AttachmentPreviewKind kind;
   final Uint8List? bytes;
   final String? text;
+  final String? url;
 }
 
 bool _isTextPreviewType(String mimeType, String extension) {
@@ -1692,3 +2007,8 @@ String formatFileSize(int bytes) {
   final mb = kb / 1024;
   return ' MB';
 }
+
+
+
+
+

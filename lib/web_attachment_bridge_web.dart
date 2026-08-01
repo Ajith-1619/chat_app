@@ -80,16 +80,6 @@ class WebAttachmentBridge {
     return result;
   }
 
-  Future<List<PlatformFile>> _extractClipboardFiles(
-    Iterable<html.File> files,
-  ) async {
-    final result = <PlatformFile>[];
-    for (final file in files) {
-      result.add(await _toPlatformFile(file));
-    }
-    return result;
-  }
-
   Future<PlatformFile> _toPlatformFile(html.File file) async {
     final bytes = await _readBytes(file);
     final inferredName = file.name.trim().isEmpty
@@ -152,3 +142,75 @@ class WebAttachmentBridge {
     onDragStateChanged(false);
   }
 }
+
+Future<Uint8List> _readBrowserFileBytes(html.File file) async {
+  final reader = html.FileReader();
+  final completer = Completer<Uint8List>();
+  reader.onLoadEnd.listen((_) {
+    final result = reader.result;
+    if (result is ByteBuffer) {
+      completer.complete(result.asUint8List());
+      return;
+    }
+    if (result is Uint8List) {
+      completer.complete(result);
+      return;
+    }
+    if (result is List<int>) {
+      completer.complete(Uint8List.fromList(result));
+      return;
+    }
+    completer.completeError(StateError('Unsupported browser file payload.'));
+  });
+  reader.onError.listen((_) {
+    completer.completeError(StateError('Unable to read browser file data.'));
+  });
+  reader.readAsArrayBuffer(file);
+  return completer.future;
+}
+
+// Web file-picker can return PlatformFile.bytes as null in some browsers.
+// We read the browser File objects directly so manual file selection uses the same
+// reliable byte-loading path as drag/drop and clipboard paste.
+Future<List<PlatformFile>> pickBrowserFiles({
+  bool allowMultiple = false,
+  List<String>? acceptedMimeTypes,
+}) async {
+  final input = html.FileUploadInputElement()..multiple = allowMultiple;
+  if (acceptedMimeTypes != null && acceptedMimeTypes.isNotEmpty) {
+    input.accept = acceptedMimeTypes.join(',');
+  }
+  final completer = Completer<List<PlatformFile>>();
+  input.onChange.first.then((_) async {
+    try {
+      final files = input.files;
+      if (files == null || files.isEmpty) {
+        completer.complete(const <PlatformFile>[]);
+        return;
+      }
+      final converted = await Future.wait(
+        files.map((file) async {
+          final bytes = await _readBrowserFileBytes(file);
+          final inferredName = file.name.trim().isEmpty
+              ? 'selected_file'
+              : file.name;
+          return PlatformFile(
+            name: inferredName,
+            size: file.size,
+            bytes: bytes,
+          );
+        }),
+      );
+      completer.complete(converted);
+    } catch (error) {
+      completer.completeError(error);
+    }
+  });
+  input.click();
+  return completer.future;
+}
+
+
+
+
+

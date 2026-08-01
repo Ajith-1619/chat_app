@@ -118,10 +118,8 @@ class _MyHubHorizonScreenState extends State<MyHubHorizonScreen> {
               children: [
                 _HorizonSummary(data: data),
                 const SizedBox(height: 12),
-                _HorizonOverviewSection(
+                _HorizonOverviewLauncher(
                   employees: employees,
-                  selectedEmpId: selectedEmpId,
-                  onSelected: _selectEmployee,
                 ),
                 const SizedBox(height: 12),
                 if (selectedEmployee != null && _selectedTimelineFuture != null)
@@ -222,89 +220,207 @@ class _HorizonSummary extends StatelessWidget {
   }
 }
 
-class _HorizonOverviewSection extends StatelessWidget {
-  const _HorizonOverviewSection({
-    required this.employees,
-    required this.selectedEmpId,
-    required this.onSelected,
-  });
+class _HorizonOverviewLauncher extends StatelessWidget {
+  const _HorizonOverviewLauncher({required this.employees});
 
   final List<Map<String, dynamic>> employees;
-  final int selectedEmpId;
-  final ValueChanged<Map<String, dynamic>> onSelected;
 
   @override
   Widget build(BuildContext context) {
-    final markers = employees
+    final markerCount = employees
         .map(_employeeMarker)
         .whereType<_EmployeeMarker>()
-        .toList();
+        .length;
     return Card(
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
-              'All employees live view',
-              style: Theme.of(
-                context,
-              ).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w800),
-            ),
-            const SizedBox(height: 4),
-            Text(
-              'Last known punched-in position for every visible employee. Click a pin or a name to open that user'
-              's full-day route.',
-              style: Theme.of(
-                context,
-              ).textTheme.bodyMedium?.copyWith(color: AppColors.muted),
-            ),
-            const SizedBox(height: 12),
-            AspectRatio(
-              aspectRatio: 16 / 9,
-              child: ClipRRect(
-                borderRadius: BorderRadius.circular(14),
-                child: markers.isEmpty
-                    ? const ColoredBox(
-                        color: Color(0xFFF4F7FB),
-                        child: Center(
-                          child: Text(
-                            'No valid employee coordinates available.',
-                          ),
-                        ),
-                      )
-                    : _HorizonEmployeesOverviewMap(
-                        markers: markers,
-                        selectedEmpId: selectedEmpId,
-                        onSelected: onSelected,
-                      ),
+      child: ListTile(
+        contentPadding: const EdgeInsets.all(16),
+        leading: const CircleAvatar(
+          backgroundColor: Color(0x142562EB),
+          child: Icon(Icons.map_rounded, color: AppColors.primary),
+        ),
+        title: const Text(
+          'All employees live view',
+          style: TextStyle(fontWeight: FontWeight.w800),
+        ),
+        subtitle: Text(
+          markerCount > 0
+              ? '$markerCount employees have valid live coordinates. Open the separate map view to inspect them.'
+              : 'Open a separate map view for visible employees. Coordinates will appear once live data is available.',
+          style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+            color: AppColors.muted,
+          ),
+        ),
+        trailing: FilledButton.icon(
+          onPressed: () {
+            Navigator.of(context).push(
+              MaterialPageRoute<void>(
+                builder: (_) => HorizonAllEmployeesMapScreen(employees: employees),
               ),
-            ),
-            const SizedBox(height: 12),
-            SizedBox(
-              height: 42,
-              child: ListView.separated(
-                scrollDirection: Axis.horizontal,
-                itemBuilder: (context, index) {
-                  final employee = employees[index];
-                  final selected = _employeeEmpId(employee) == selectedEmpId;
-                  return ChoiceChip(
-                    selected: selected,
-                    label: Text(_employeeName(employee)),
-                    onSelected: (_) => onSelected(employee),
-                  );
-                },
-                separatorBuilder: (_, _) => const SizedBox(width: 8),
-                itemCount: employees.length,
-              ),
-            ),
-          ],
+            );
+          },
+          icon: const Icon(Icons.open_in_new_rounded),
+          label: const Text('Open'),
         ),
       ),
     );
   }
 }
 
+class HorizonAllEmployeesMapScreen extends StatefulWidget {
+  const HorizonAllEmployeesMapScreen({
+    super.key,
+    required this.employees,
+  });
+
+  final List<Map<String, dynamic>> employees;
+
+  @override
+  State<HorizonAllEmployeesMapScreen> createState() =>
+      _HorizonAllEmployeesMapScreenState();
+}
+
+class _HorizonAllEmployeesMapScreenState
+    extends State<HorizonAllEmployeesMapScreen> {
+  int _selectedEmpId = 0;
+
+  @override
+  void initState() {
+    super.initState();
+    final first = widget.employees.cast<Map<String, dynamic>?>().firstWhere(
+      (item) => item != null && _employeeMarker(item) != null,
+      orElse: () => widget.employees.isNotEmpty ? widget.employees.first : null,
+    );
+    if (first != null) {
+      _selectedEmpId = _employeeEmpId(first);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final markers = widget.employees
+        .map(_employeeMarker)
+        .whereType<_EmployeeMarker>()
+        .toList();
+    final selectedEmployee = widget.employees
+        .cast<Map<String, dynamic>?>()
+        .firstWhere(
+          (item) => item != null && _employeeEmpId(item) == _selectedEmpId,
+          orElse: () => null,
+        );
+    return Scaffold(
+      appBar: AppBar(title: const Text('All employees live view')),
+      body: ListView(
+        padding: const EdgeInsets.all(16),
+        children: [
+          Text(
+            'Last known punched-in location for every visible employee.',
+            style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+              color: AppColors.muted,
+            ),
+          ),
+          const SizedBox(height: 12),
+          Card(
+            child: Padding(
+              padding: const EdgeInsets.all(16),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  AspectRatio(
+                    aspectRatio: 16 / 9,
+                    child: ClipRRect(
+                      borderRadius: BorderRadius.circular(14),
+                      child: markers.isEmpty
+                          ? const ColoredBox(
+                              color: Color(0xFFF4F7FB),
+                              child: Center(
+                                child: Text('No valid employee coordinates available.'),
+                              ),
+                            )
+                          : _HorizonEmployeesOverviewMap(
+                              markers: markers,
+                              selectedEmpId: _selectedEmpId,
+                              onSelected: (employee) {
+                                setState(() {
+                                  _selectedEmpId = _employeeEmpId(employee);
+                                });
+                              },
+                            ),
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  Wrap(
+                    spacing: 8,
+                    runSpacing: 8,
+                    children: widget.employees.map((employee) {
+                      final marker = _employeeMarker(employee);
+                      final selected = _employeeEmpId(employee) == _selectedEmpId;
+                      return ActionChip(
+                        avatar: Icon(
+                          marker == null
+                              ? Icons.location_off_rounded
+                              : Icons.location_on_rounded,
+                          size: 18,
+                          color: marker == null
+                              ? AppColors.muted
+                              : AppColors.primary,
+                        ),
+                        label: Text(_employeeName(employee)),
+                        backgroundColor: selected
+                            ? AppColors.primary.withValues(alpha: 0.12)
+                            : null,
+                        onPressed: () {
+                          setState(() {
+                            _selectedEmpId = _employeeEmpId(employee);
+                          });
+                          if (marker == null) return;
+                          Navigator.of(context).push(
+                            MaterialPageRoute<void>(
+                              builder: (_) => HorizonEmployeeMapScreen(
+                                empId: _employeeEmpId(employee),
+                                employeeName: _employeeName(employee),
+                              ),
+                            ),
+                          );
+                        },
+                      );
+                    }).toList(),
+                  ),
+                  if (selectedEmployee != null) ...[
+                    const SizedBox(height: 12),
+                    Text(
+                      _employeeName(selectedEmployee),
+                      style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                        fontWeight: FontWeight.w800,
+                      ),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      (() {
+                        final address = (selectedEmployee['location_address'] ?? '')
+                            .toString()
+                            .trim();
+                        if (address.isNotEmpty) return address;
+                        final lat = selectedEmployee['latitude'];
+                        final lng = selectedEmployee['longitude'];
+                        if ((lat ?? 0) != 0 || (lng ?? 0) != 0) {
+                          return ', ';
+                        }
+                        return 'No live location available for this employee yet.';
+                      })(),
+                      style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                        color: AppColors.muted,
+                      ),
+                    ),
+                  ],
+                ],
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
 class _SelectedEmployeeTimelineSection extends StatelessWidget {
   const _SelectedEmployeeTimelineSection({
     required this.employee,

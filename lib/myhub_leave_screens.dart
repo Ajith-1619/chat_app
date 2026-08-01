@@ -159,6 +159,7 @@ class _MyHubLeaveApplyScreenState extends State<MyHubLeaveApplyScreen> {
   final _formKey = GlobalKey<FormState>();
   DateTime? _fromDate;
   DateTime? _toDate;
+  static const int _otpApproverEmpId = 232;
   int _leaveTypeId = 2;
   bool _submitting = false;
   double _noOfDays = 0;
@@ -287,7 +288,7 @@ class _MyHubLeaveApplyScreenState extends State<MyHubLeaveApplyScreen> {
             Text('No. of days: $days'),
             const SizedBox(height: 8),
             const Text(
-              'OTP was sent to employee 232 through system notifications.',
+              'OTP was sent to employee $_otpApproverEmpId through system notifications.',
             ),
             const SizedBox(height: 12),
             TextField(
@@ -332,10 +333,8 @@ class _MyHubLeaveApplyScreenState extends State<MyHubLeaveApplyScreen> {
               initialValue: _leaveTypeId,
               decoration: const InputDecoration(labelText: 'Leave type'),
               items: const [
-                DropdownMenuItem(value: 1, child: Text('Casual Leave')),
-                DropdownMenuItem(value: 2, child: Text('Sick Leave')),
-                DropdownMenuItem(value: 3, child: Text('Permission')),
-                DropdownMenuItem(value: 4, child: Text('Other Leave')),
+                DropdownMenuItem(value: 2, child: Text('Leave')),
+                DropdownMenuItem(value: 4, child: Text('Comp Off')),
               ],
               onChanged: (value) => setState(() => _leaveTypeId = value ?? 2),
             ),

@@ -210,6 +210,46 @@ function flow_api_ext_groups_channels(array $auth, array $segments, string $type
 {
     $pdo = flow_api_chat_db(); flow_api_ext_ensure($pdo);
     $method = $_SERVER['REQUEST_METHOD'] ?? 'GET';
+    $resource = $type === 'channel' ? 'channels' : 'groups';
+    if (($segments[0] ?? '') === $resource || ($segments[0] ?? '') === $type) {
+        array_shift($segments);
+    }
+    if ($method === 'POST' && !isset($segments[0])) {
+        $input = flow_api_input();
+        $action = strtolower(trim((string)($input['action'] ?? '')));
+        if (in_array($action, ['archive', 'unarchive', 'close', 'delete'], true)) {
+            $groupId = (int)($input['channel_id'] ?? $input['group_id'] ?? $input['id'] ?? 0);
+            if ($groupId <= 0) {
+                $roomJid = trim((string)($input['room_jid'] ?? ''));
+                if ($roomJid !== '') {
+                    $find = $pdo->prepare('SELECT id FROM xmpp_groups WHERE room_jid = :jid AND group_type = :type LIMIT 1');
+                    $find->execute([':jid' => $roomJid, ':type' => $type]);
+                    $groupId = (int)($find->fetchColumn() ?: 0);
+                }
+            }
+            if ($groupId <= 0) {
+                flow_api_error('channel_id, group_id, id, or room_jid is required.', 422, 'VALIDATION_ERROR');
+            }
+            if (in_array($action, ['archive', 'unarchive', 'close'], true)) {
+                $status = $action === 'close' ? 'Closed' : ($action === 'archive' ? 'Archived' : 'Open');
+                $archived = $action === 'unarchive' ? 0 : 1;
+                $archivedSql = $archived ? 'NOW()' : 'NULL';
+                $stmt = $pdo->prepare('UPDATE xmpp_groups SET is_archived = :archived, archived_at = ' . $archivedSql . ', status = :status WHERE id = :id AND group_type = :type');
+                $stmt->execute([':archived' => $archived, ':status' => $status, ':id' => $groupId, ':type' => $type]);
+                if ($action === 'close') {
+                    try {
+                        $timeline = $pdo->prepare('INSERT INTO xmpp_channel_timeline (group_id, event_type, event_title, event_body, actor_emp_id) VALUES (:group_id, :event_type, :event_title, :event_body, :actor_emp_id)');
+                        $timeline->execute([':group_id' => $groupId, ':event_type' => 'channel.closed', ':event_title' => 'Channel closed', ':event_body' => 'Channel closed through external API.', ':actor_emp_id' => (int)$auth['actor_emp_id']]);
+                    } catch (Throwable $e) {
+                        error_log('Flow API channel close timeline failed: ' . $e->getMessage());
+                    }
+                }
+                flow_api_success($auth, $type . 's:write', ['id' => $groupId, 'action' => $action, 'is_archived' => $archived, 'status' => $status], 200, $type, (string)$groupId);
+            }
+            $pdo->prepare('UPDATE xmpp_groups SET is_archived = 1, archived_at = NOW(), status = "Deleted" WHERE id = :id AND group_type = :type')->execute([':id' => $groupId, ':type' => $type]);
+            flow_api_success($auth, $type . 's:write', ['id' => $groupId, 'deleted' => true, 'archived' => true], 200, $type, (string)$groupId);
+        }
+    }
     if (isset($segments[0]) && ctype_digit($segments[0])) {
         $groupId = (int)$segments[0]; $sub = $segments[1] ?? '';
         if ($method === 'GET' && $sub === 'members') flow_api_success($auth, $type . 's:read', ['members' => flow_api_group_detail($groupId)['members']]);
@@ -398,3 +438,4 @@ function flow_api_ext_json_message(array $auth, string $prefix): never
     $pdo->prepare('INSERT INTO xmpp_messages (from_jid,to_jid,body,message_type,source_device,source_name,status) VALUES (:from,:to,:body,"chat","api",:source,"sent")')->execute([':from'=>$from, ':to'=>$to, ':body'=>$body, ':source'=>$auth['client_name']]);
     $messageId = (int)$pdo->lastInsertId(); flow_plugin_emit($pdo, 'message.sent', ['event_id' => 'api-message-sent-' . $messageId, 'actor_emp_id' => (int)$auth['actor_emp_id'], 'message' => ['id' => $messageId, 'from_jid' => $from, 'to_jid' => $to, 'body' => $body, 'message_type' => 'chat', 'created_at' => date('c')]]); flow_plugin_emit($pdo, 'message.received', ['event_id' => 'api-message-received-' . $messageId, 'actor_emp_id' => (int)$auth['actor_emp_id'], 'message' => ['id' => $messageId, 'from_jid' => $from, 'to_jid' => $to, 'body' => $body, 'message_type' => 'chat', 'created_at' => date('c')]]); flow_api_success($auth, 'chat:write', ['message_id'=>$messageId], 201);
 }
+

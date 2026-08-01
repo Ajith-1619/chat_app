@@ -748,3 +748,70 @@
 ## 2026-07-31 - Broadcast send verification
 - Verified: php -l server_patch/chat/broadcast.php passed.
 - Residual: Patched server file still needs to be deployed to the live server if the live endpoint is still failing.
+
+## 2026-08-01 - Web build verification
+- Verified: lutter build web --release completed successfully.
+- Notes: Dependency update notices only; no build failure. Wasm dry run succeeded.
+
+## REG-20260801-HORIZON-PREVIEW
+- Timestamp: 2026-08-01 18:55 +05:30
+- Verification:
+  - PHP lint passed for server_patch/chat/myhub.php
+  - PHP lint passed for server_patch/chat/bootstrap.php
+  - flutter analyze lib/myhub_horizon_screen.dart passed with no issues
+- Residual note:
+  - dart format command hit sandbox ACL issue when invoked directly, but analyze completed successfully on the edited Dart file.
+
+- 2026-08-01 | Verified no new syntax regression in next-action helper and chat_screen mention flow; existing analyzer warnings remain pre-existing.
+
+- 2026-08-01 | Verified notification_service analyze pass and FirebasePush PHP syntax pass after muted notification split.
+
+- 2026-08-01 | Verified external channel route parser PHP syntax after lifecycle path normalization fix.
+
+## REG-20260801-EXTERNAL-CHANNEL-BODY-CLOSE
+- Date: 2026-08-01 20:10:00 +05:30
+- Regression Scope: External channels API create flow, path-based lifecycle flow, group lifecycle flow, generic channel/group list handling.
+- Verification: PHP lint passed. Existing path-based lifecycle logic remains untouched; new body-action path only runs for POST with explicit action values.
+- Remaining Risk: Live server must receive updated server_patch files before Postman test will succeed.
+
+
+## REG-20260801-WEB-FILE-PICKER-UPLOAD
+- Date: 2026-08-01 21:15:00 +05:30
+- Regression Scope: Web attachment composer, manual file selection, drag/drop uploads, clipboard paste uploads, existing upload pipeline.
+- Verification: Manual picker now returns byte-backed PlatformFile objects through the web bridge; analyzer completed without new build-breaking issues.
+- Remaining Risk: Live runtime verification still needed for large file and mixed file-type selections in browser.
+
+## REG-20260801-COMPOSER-UPLOAD-LATENCY
+- Date: 2026-08-01 22:05:00 +05:30
+- Regression Scope: Group/channel composer suggestions, slash command insertion, mention insertion, web picker flow, Android share-to-Flow attachment conversion, drag/drop attachment preparation.
+- Verification: Flutter analyze completed; no new build-breaking errors remained after the patch cleanup.
+- Remaining Risk: Live runtime verification still required for large video uploads because server limit changes only apply after hidden config files are deployed on the live PHP folder.
+
+## 2026-08-01 - Regression notes
+- Preserved existing attachment actions: download/open with/restricted handling.
+- Preserved existing temp upload insertion flow; only upgraded preview rendering.
+- Remaining risk: native non-web video playback still uses fallback preview messaging until a bundled native video engine is introduced.
+
+## REG-20260801-ATTENDANCE-CALENDAR-STATE-COLORS
+- Date: 2026-08-01 22:45:00 +05:30
+- Regression Scope: Attendance month grid day rendering, punch-present detection, week off/holiday display, future-day display.
+- Verification: flutter analyze completed on the touched file; no new build-breaking issues introduced.
+- Remaining Risk: Live visual confirmation is still needed for the exact backend status mix returned for holidays versus week offs.
+
+## REG-20260801-LEAVE-TYPE-OTP-ALIGNMENT
+- Date: 2026-08-01 23:20:00 +05:30
+- Regression Scope: Leave application form, OTP request/submit flow, employee-db leave insert mapping.
+- Verification: Dart analyzer clean for leave screen; PHP lint clean for leave backend patch.
+- Remaining Risk: Live verification still needed after deploying `server_patch/chat/myhub.php` to confirm employee 302 receives the OTP notification and `track_leave_request` rows reflect the expected values.
+
+## REG-20260801-LEAVE-OTP-CLIENT-ID-LIMIT
+- Date: 2026-08-01 23:45:00 +05:30
+- Regression Scope: System notification dedupe, leave OTP notification delivery, stored notification history.
+- Verification: PHP lint clean.
+- Remaining Risk: Live deploy still required to confirm OTP notification reaches employee 302 and no duplicate record is created.
+
+## REG-20260801-RELEASE-2-0-9
+- Date: 2026-08-01 17:55:00 +05:30
+- Regression Scope: Release versioning, release packaging, Android draft registration flow, existing chat/runtime behavior.
+- Verification: Web build succeeded, APK release build succeeded, PHP syntax validation passed, live draft registration returned `android draft release_id=38`.
+- Remaining Risk: Web artifact was built and packaged locally, but only the APK was uploaded/drafted because that was the requested rollout target.

@@ -392,7 +392,7 @@ function chat_push_preview(string $body, string $fileName = ''): string
             $caption = trim((string)($decoded['caption'] ?? ''));
             if ($caption !== '') return $caption;
             $name = trim((string)($decoded['name'] ?? $fileName));
-            return $name !== '' ? '?????????????????????????????????????????? ' . $name : '?????????????????????????????????????????? File';
+            return $name !== '' ? 'File: ' . $name : 'File';
         }
     }
     if (str_starts_with($body, 'SKYLINK_LOCATION:')) {
@@ -404,9 +404,9 @@ function chat_push_preview(string $body, string $fileName = ''): string
             return $label;
         }
     }
-    if ($fileName !== '') return '?????????????????????????????????????????? ' . $fileName;
+    if ($fileName !== '') return 'File: ' . $fileName;
     $plain = trim(preg_replace('/\s+/', ' ', $body) ?: '');
-    return mb_strlen($plain) > 180 ? mb_substr($plain, 0, 177) . '????????????????????????????????' : ($plain ?: 'New message');
+    return mb_strlen($plain) > 180 ? mb_substr($plain, 0, 177) . '...' : ($plain ?: 'New message');
 }
 
 function chat_push_recipient_ids(PDO $pdo, string $toJid, int $senderEmpId): array
@@ -462,7 +462,7 @@ function chat_send_push_notifications(
     if (!$tokens) return;
 
     $push = new FirebasePush(chat_firebase_credentials_path());
-    $title = $groupName !== '' ? $senderName . ' ???????????????????? ' . $groupName : $senderName;
+    $title = $groupName !== '' ? $senderName . ' in ' . $groupName : $senderName;
     $preview = chat_push_preview($body, $fileName);
     $baseTitle = $title;
     foreach ($tokens as $row) {
@@ -531,8 +531,6 @@ function chat_enqueue_push_notification(
         ':sender_name' => mb_substr($senderName, 0, 255),
         ':to_jid' => strtolower($toJid),
         ':body' => $body,
-        ':file_name' => $fileName !== '' ? mb_substr($fileName, 0, 255) : null,
-        ':group_name' => $groupName !== '' ? mb_substr($groupName, 0, 255) : null,
         ':mentioned_emp_ids' => $mentionedEmpIds ? json_encode(array_values(array_map('intval', $mentionedEmpIds))) : null,
         ':recipient_emp_ids' => $recipientEmpIds ? json_encode(array_values(array_unique(array_map('intval', $recipientEmpIds)))) : null,
     ]);
@@ -1557,7 +1555,7 @@ function chat_is_channel_group(array $group): bool
     $type = strtolower(trim((string)($group['group_type'] ?? '')));
     $jid = strtolower(trim((string)($group['room_jid'] ?? '')));
     $name = trim((string)($group['room_name'] ?? ''));
-    return $type === 'channel' || str_starts_with($jid, 'channel-') || str_starts_with($name, '#');
+            return $name !== '' ? 'File: ' . $name : 'File';
 }
 
 function chat_extract_channel_tags(string $body): array

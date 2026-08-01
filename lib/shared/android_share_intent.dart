@@ -80,12 +80,8 @@ class IncomingSharePayload {
   }
 
   Future<List<PlatformFile>> toPlatformFiles() async {
-    final converted = <PlatformFile>[];
-    for (final file in files) {
-      final platformFile = await file.toPlatformFile();
-      if (platformFile != null) converted.add(platformFile);
-    }
-    return converted;
+    final converted = await Future.wait(files.map((file) => file.toPlatformFile()));
+    return converted.whereType<PlatformFile>().toList();
   }
 }
 
@@ -131,3 +127,4 @@ class AndroidShareIntentBridge {
     return IncomingSharePayload.fromMap(value);
   }
 }
+

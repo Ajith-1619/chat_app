@@ -531,3 +531,55 @@
 ## 2026-07-31 - Broadcast error diagnosis
 - Decision: Fix the backend send action instead of only improving client-side error messaging.
 - Why: The observed failure was caused by an actual server-side variable bug, so masking it in UI would not solve delivery.
+
+## DECISION-20260801-HORIZON-SEPARATION
+- Date: 2026-08-01
+- Decision: Keep all-employees live view on a separate Horizon page instead of embedding it into the main attendance screen.
+- Reason: Matches requested workflow, reduces clutter on the main page, and keeps employee timeline/detail view separate from cross-employee monitoring.
+
+- 2026-08-01 | Chose minimal fix: preserve existing mention UI and next-action poll UI, only corrected scheduling and cursor-aware parsing rather than redesigning composer behavior.
+
+- 2026-08-01 | Chose channel-based muted notification routing instead of suppressing alerts entirely, preserving visibility while removing disruptive sound/vibration.
+
+- 2026-08-01 | Fixed route parsing at the shared groups/channels handler instead of changing client URLs, preserving the published external API contract.
+
+## DEC-20260801-EXTERNAL-CHANNEL-BODY-CLOSE
+- Date: 2026-08-01 20:10:00 +05:30
+- Decision: Add lifecycle fallback on the base channels/groups endpoint instead of depending only on /{id}/close style URLs.
+- Reason: The user needs a stable external API that survives Apache rewrite/path-info differences and can close/archive by body payload alone.
+
+
+## DEC-20260801-WEB-FILE-PICKER-UPLOAD
+- Date: 2026-08-01 21:15:00 +05:30
+- Decision: Fix the web manual file-picker path at the browser bridge layer instead of changing the shared upload pipeline.
+- Reason: Drag/drop and clipboard paste already proved the uploader itself was healthy. Reading browser File bytes directly gives the smallest safe fix and keeps every other attachment flow intact.
+
+## DEC-20260801-COMPOSER-UPLOAD-LATENCY
+- Date: 2026-08-01 22:05:00 +05:30
+- Decision: Keep the existing upload/send pipeline and optimize only the trigger parsing and attachment preparation layers.
+- Reason: The send pipeline already works for drag/drop and paste, so the safer fix is to remove unnecessary detection/conversion overhead without rewriting message sending.
+
+## 2026-08-01 - AI decision log
+- Reused existing web platform view preview pattern instead of introducing a heavyweight new video dependency.
+- Kept scope to optimistic attachment rendering and preview surfaces to avoid destabilizing composer/send logic.
+- Accepted a platform split: rich inline video on web now, native fallback unchanged for this patch.
+
+## DEC-20260801-ATTENDANCE-CALENDAR-STATE-COLORS
+- Date: 2026-08-01 22:45:00 +05:30
+- Decision: Keep the fix in the attendance calendar widget and derive UI state from existing attendance row flags instead of changing the API contract.
+- Reason: The bug is a presentation issue, and using existing `isWeekoff`, `isHoliday`, `status`, `punchIn`, and `punchOut` fields keeps the change small and low-risk.
+
+## DEC-20260801-LEAVE-TYPE-OTP-ALIGNMENT
+- Date: 2026-08-01 23:20:00 +05:30
+- Decision: Keep the approver employee as a single constant in the leave backend patch for the testing phase and map optional DB columns only when they exist.
+- Reason: This keeps the current business-requested test routing simple now and makes the later switch from 302 to 232 a one-line safe change.
+
+## DEC-20260801-LEAVE-OTP-CLIENT-ID-LIMIT
+- Date: 2026-08-01 23:45:00 +05:30
+- Decision: Fix the notification reference at the shared system-notification layer instead of only shortening leave OTP keys.
+- Reason: The bug can hit any system notification with a long reference, so the shared fix prevents repeats elsewhere too.
+
+## DEC-20260801-RELEASE-2-0-9
+- Date: 2026-08-01 17:55:00 +05:30
+- Decision: Bump to a new 2.0.9+32 release and register only the Android artifact as a live draft.
+- Reason: This avoids overwriting the existing 2.0.8 release trail and matches the request to move only the APK into the live approval pipeline while still giving a fresh web build artifact locally.

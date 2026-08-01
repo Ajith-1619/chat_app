@@ -189,7 +189,7 @@ function next_action_monitor_process(PDO $pdo, ?int $now = null): array
 
         $lastPromptAt = strtotime((string)($group['next_action_due_poll_sent_at'] ?? '')) ?: 0;
         $hasResponse = !empty($group['next_action_due_prompt_response_at']);
-        if ($now >= $dueAt && !$hasResponse && ($lastPromptAt <= 0 || ($now - $lastPromptAt) >= 1800)) {
+        if ($now >= $dueAt && !$hasResponse && $lastPromptAt <= 0) {
             $clientId = 'next-action-prompt:' . $groupId . ':' . substr($hash, 0, 16) . ':' . date('YmdHi', $now);
             $messageId = next_action_monitor_insert_room_message($pdo, $group, next_action_monitor_due_poll_body($group), 'Next action poll', $clientId);
             if ($messageId > 0) {
@@ -206,3 +206,4 @@ function next_action_monitor_process(PDO $pdo, ?int $now = null): array
         'polls_sent' => $polls,
     ];
 }
+

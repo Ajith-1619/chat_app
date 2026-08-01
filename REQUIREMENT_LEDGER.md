@@ -546,3 +546,56 @@
 ## 2026-07-31 - Broadcast send failure
 - Requirement: Broadcast send must complete without generic Unable to send failures.
 - Status: Backend send flow fixed in patch.
+
+## REQ-20260801-HORIZON-SEPARATE-LIVE-VIEW
+- Date: 2026-08-01
+- Request: Move Horizon all-employees live view to a separate page, restore visible employee markers using latest coordinates, and fix corrupted forwarded/file preview text in chat list.
+- Status: Implemented in local code; deployment/build not requested in this turn.
+
+- 2026-08-01 | Chat | Fixed duplicate next-action due prompt send and cursor-aware mid-text @mention detection | Files: server_patch/chat/next_action_monitor_helpers.php, lib/chat/chat_screen.dart | Verify: php -l helper, flutter analyze lib/chat/chat_screen.dart
+
+- 2026-08-01 | Notifications | Punch in/out and location-off notifications must be muted; actual DM/group/channel messages remain normal.
+
+- 2026-08-01 | External API | Fix versioned channel close/delete routes so noun-prefixed paths like /api/channels/v1/channels/{id}/close resolve correctly.
+
+## REQ-20260801-EXTERNAL-CHANNEL-BODY-CLOSE
+- Date: 2026-08-01 20:10:00 +05:30
+- Request: External API channel close/archive should work even when path-based lifecycle routes return live 404. Support passing channel ID or room JID in request body.
+- Status: Implemented in server patch; validation complete; live deployment still required.
+
+
+## REQ-20260801-PHYSICAL-CHANNEL-ACTION-ENDPOINT
+- Date: 2026-08-01 20:25:00 +05:30
+- Request: Provide a non-dispatch external API for channel lifecycle actions because base /channels/v1 still falls back to channel listing on live.
+- Status: Implemented with physical endpoint files; validation complete; deploy pending.
+
+
+## REQ-20260801-WEB-FILE-PICKER-UPLOAD
+- Date: 2026-08-01 21:15:00 +05:30
+- Request: Chat la drag-drop and copy/paste work aagudhu, aana normal file select panni send panna mudiyala. Manual file picker selection also must upload the chosen attachments safely.
+- Status: Implemented in local code; validation completed.
+
+## REQ-20260801-COMPOSER-UPLOAD-LATENCY
+- Date: 2026-08-01 22:05:00 +05:30
+- Request: Reduce / and @ trigger latency in the middle of composer text, improve manual file-picker/share attachment preparation, and address live video/file upload failures caused by server limits.
+- Status: Implemented in local code and server patch config; live server still needs hidden config deployment for the larger upload limit to take effect.
+
+## 2026-08-01 - Telegram-style attachment UX patch
+- Requirement: show attachment UI immediately in chat, then continue upload in background.
+- Requirement: render video attachments inline in chat on web instead of generic file-only fallback when preview data is available.
+- Requirement: open video attachments inside Flow with a real in-app preview surface on web.
+
+## REQ-20260801-ATTENDANCE-CALENDAR-STATE-COLORS
+- Date: 2026-08-01 22:45:00 +05:30
+- Request: Attendance calendar la punch days-ku mattum green tick irukkanum; week off, no-punch past dates, future dates ellam separate visual states-la kaattanum.
+- Status: Implemented in local code; analyzer validation completed.
+
+## REQ-20260801-LEAVE-TYPE-OTP-ALIGNMENT
+- Date: 2026-08-01 23:20:00 +05:30
+- Request: Leave apply screen la `Leave` and `Comp Off` mattum show aaganum; leave OTP testing-ku employee 302-ku poganum; `track_leave_request` insert structure screenshot schema-oda align aaganum.
+- Status: Implemented in local code and server patch; validation completed.
+
+## REQ-20260801-RELEASE-2-0-9
+- Date: 2026-08-01 17:55:00 +05:30
+- Request: Build fresh web and APK artifacts, move the APK to the live server, and register it as a draft release so employee 302 can approve rollout for all users.
+- Status: Implemented. Web and APK builds completed, APK uploaded to live server, and Android draft registered successfully.

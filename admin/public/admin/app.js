@@ -20,6 +20,7 @@ const titles = {
   tasks: ['Tasks', 'MyHub task master records'],
   location: ['Location', 'Location visibility and presence policy'],
   ai_access: ['AI API', 'AI API keys, user type access and daily usage limits'],
+  archive_storage: ['Archive Storage', 'Long-term archive providers, policies and jobs'],
   notifications: ['Notifications', 'Push queue and delivery status'],
   releases: ['Releases', 'Draft/live app release management'],
   diagnostics: ['Diagnostics', 'API, database and notification timings'],
@@ -204,6 +205,7 @@ function render(data) {
   const rows = data.rows || [];
   if (state.view === 'users') return renderUserMasterDetail(rows);
   if (state.view === 'ai_access') return renderAiAccess(data);
+  if (state.view === 'archive_storage') return renderArchiveStorage(data);
   if (['groups', 'channels'].includes(state.view)) return renderGroupMasterDetail(rows);
   if (state.view === 'external_requests') return renderExternalRequests(rows);
   document.getElementById('content').innerHTML = `<section class="card"><div class="card-head"><h2>${escapeHtml(titles[state.view][0])}</h2><span>${rows.length} records</span></div>${table(rows)}</section>`;
@@ -316,6 +318,154 @@ function renderAiAccess(data) {
     </section>
   `;
   wireAiAccessForms();
+}
+function renderArchiveStorage(data) {
+  const providers = data.providers || [];
+  const policies = data.policies || [];
+  const jobs = data.jobs || [];
+  const items = data.items || [];
+  const catalog = data.catalog || [];
+  const metrics = data.metrics || {};
+  const providerOptions = providers.map((provider) => `<option value="${escapeHtml(provider.id)}">${escapeHtml(provider.provider_name || ('Provider ' + provider.id))}</option>`).join('');
+  const catalogOptions = catalog.map((provider) => `<option value="${escapeHtml(provider.provider_key)}">${escapeHtml(provider.label || provider.provider_key)}</option>`).join('');
+  document.getElementById('content').innerHTML = `
+    <section class="metrics">
+      ${Object.entries(metrics).map(([key, value]) => `<div class="metric"><span>${label(key)}</span><strong>${escapeHtml(value)}</strong></div>`).join('')}
+    </section>
+    <section class="ai-access-grid archive-grid">
+      <section class="card ai-provider-card">
+        <div class="card-head"><h2>Storage Providers</h2><span>${escapeHtml(providers.length)} configured</span></div>
+        <form id="archiveProviderForm" class="admin-form-grid">
+          <input name="id" type="hidden">
+          <label>Provider title<input name="provider_name" placeholder="Flow Google Drive Archive" required></label>
+          <label>Storage provider<select name="provider_key" required>${catalogOptions}</select></label>
+          <label>OAuth client ID<input name="oauth_client_id" placeholder="Google OAuth client id"></label>
+          <label>OAuth client secret<input name="oauth_client_secret" type="password" placeholder="Enter new secret only when updating"></label>
+          <label class="wide">OAuth redirect URI<input name="oauth_redirect_uri" placeholder="https://chat.skylinkonline.net/admin/?module=archive_storage"></label>
+          <label class="wide">OAuth scope<input name="oauth_scope" value="https://www.googleapis.com/auth/drive.file https://www.googleapis.com/auth/drive.readonly"></label>
+          <label>Root folder ID<input name="root_folder_id" placeholder="Optional existing folder id"></label>
+          <label>Root folder path<input name="root_folder_path" placeholder="Flow Archive"></label>
+          <label>Status<select name="status"><option value="1">Active</option><option value="0">Inactive</option></select></label>
+          <label>Storage limit bytes<input name="storage_limit_bytes" type="number" min="0" placeholder="0 = unlimited"></label>
+          <label class="wide">Provider config JSON<textarea name="config_json" rows="3" placeholder='{"compress":true,"retention_label":"archive"}'></textarea></label>
+          <button type="submit">Save Storage Provider</button>
+        </form>
+        <form id="archiveOauthForm" class="admin-form-grid archive-oauth-form">
+          <label>Provider<select name="provider_id" required><option value="">Choose provider</option>${providerOptions}</select></label>
+          <label class="wide">OAuth authorization code<input name="oauth_code" placeholder="Paste Google OAuth code to complete connection"></label>
+          <button type="submit">Complete Google OAuth</button>
+        </form>
+        <div class="table-wrap ai-table"><table><thead><tr><th>Provider</th><th>Type</th><th>Root</th><th>Storage</th><th>Status</th><th>Action</th></tr></thead><tbody>${providers.map((provider) => `
+          <tr>
+            <td><strong>${escapeHtml(provider.provider_name || '-')}</strong><small>${escapeHtml(provider.oauth_client_id || '-')}</small></td>
+            <td>${escapeHtml(provider.provider_key || '-')}</td>
+            <td>${escapeHtml(provider.root_folder_path || provider.root_folder_id || '-')}</td>
+            <td>${escapeHtml(provider.used_bytes || 0)} / ${escapeHtml(provider.storage_limit_bytes || 0)}</td>
+            <td><span class="pill">${Number(provider.status || 0) === 1 ? 'Active' : 'Inactive'}</span></td>
+            <td><button class="row-action" type="button" data-archive-provider-edit="${escapeHtml(provider.id)}" data-row="${escapeHtml(JSON.stringify(provider))}">Edit</button></td>
+          </tr>`).join('') || '<tr><td colspan="6">No archive providers configured.</td></tr>'}</tbody></table></div>
+      </section>
+      <section class="card ai-provider-card">
+        <div class="card-head"><h2>Archive Policies</h2><span>${escapeHtml(policies.length)} policies</span></div>
+        <form id="archivePolicyForm" class="admin-form-grid">
+          <input name="id" type="hidden">
+          <label>Policy name<input name="policy_name" placeholder="Archive closed operational channels after 180 days" required></label>
+          <label>Provider<select name="provider_id" required><option value="">Choose provider</option>${providerOptions}</select></label>
+          <label>Module type<select name="module_type"><option value="channel">Channel</option><option value="group">Group</option><option value="dm">DM</option><option value="ticket">Ticket</option><option value="task">Task</option><option value="project">Project</option><option value="installation">Installation</option></select></label>
+          <label>Trigger mode<select name="trigger_mode"><option value="inactive_days">Inactive days</option><option value="closed_status">Closed status</option><option value="employee_terminated">Employee terminated</option><option value="project_closure">Project closure</option></select></label>
+          <label>Inactive days<input name="inactivity_days" type="number" min="0" value="90"></label>
+          <label>Archive after status<input name="archive_after_status" placeholder="Closed / Cancelled / Completed"></label>
+          <label>Compression<select name="compression_mode"><option value="gzip">gzip</option><option value="none">none</option></select></label>
+          <label>Enabled<select name="enabled"><option value="1">Enabled</option><option value="0">Disabled</option></select></label>
+          <label class="wide">Filter JSON<textarea name="filter_json" rows="2" placeholder='{"channel_kind":"operational","priority":["high","critical"]}'></textarea></label>
+          <label>Include attachments<select name="include_attachments"><option value="1">Yes</option><option value="0">No</option></select></label>
+          <label>Include media<select name="include_media"><option value="1">Yes</option><option value="0">No</option></select></label>
+          <label>Include manifest<select name="include_manifest"><option value="1">Yes</option><option value="0">No</option></select></label>
+          <label>Schedule cron<input name="schedule_cron" placeholder="0 2 * * *"></label>
+          <button type="submit">Save Archive Policy</button>
+        </form>
+        <div class="table-wrap"><table><thead><tr><th>Policy</th><th>Module</th><th>Trigger</th><th>Days</th><th>Status</th></tr></thead><tbody>${policies.map((policy) => `
+          <tr>
+            <td><strong>${escapeHtml(policy.policy_name || '-')}</strong><small>${escapeHtml(policy.provider_name || '-')}</small></td>
+            <td>${escapeHtml(policy.module_type || '-')}</td>
+            <td>${escapeHtml(policy.trigger_mode || '-')}</td>
+            <td>${escapeHtml(policy.inactivity_days || 0)}</td>
+            <td><span class="pill">${Number(policy.enabled || 0) === 1 ? 'Enabled' : 'Disabled'}</span></td>
+          </tr>`).join('') || '<tr><td colspan="5">No archive policies configured.</td></tr>'}</tbody></table></div>
+      </section>
+      <section class="card ai-provider-card">
+        <div class="card-head"><h2>Archive Jobs</h2><span>${escapeHtml(jobs.length)} jobs</span></div>
+        <form id="archiveJobForm" class="admin-form-grid">
+          <label>Provider<select name="provider_id" required><option value="">Choose provider</option>${providerOptions}</select></label>
+          <label>Policy<select name="policy_id"><option value="">Manual job</option>${policies.map((policy) => `<option value="${escapeHtml(policy.id)}">${escapeHtml(policy.policy_name)}</option>`).join('')}</select></label>
+          <label>Module type<select name="module_type"><option value="channel">Channel</option><option value="group">Group</option><option value="dm">DM</option><option value="ticket">Ticket</option><option value="task">Task</option></select></label>
+          <label>Entity ID<input name="entity_id" placeholder="Numeric id or business id" required></label>
+          <label>Entity label<input name="entity_label" placeholder="Customer escalation channel"></label>
+          <label>Conversation JID<input name="conversation_jid" placeholder="room@conference.chat.skylinkonline.net"></label>
+          <label>Scheduled at<input name="scheduled_at" placeholder="YYYY-MM-DD HH:MM:SS"></label>
+          <button type="submit">Queue Archive Job</button>
+        </form>
+        <div class="table-wrap"><table><thead><tr><th>Conversation</th><th>Provider</th><th>Status</th><th>Messages</th><th>Bytes</th><th>When</th></tr></thead><tbody>${jobs.map((job) => `
+          <tr>
+            <td><strong>${escapeHtml(job.entity_label || job.entity_id || '-')}</strong><small>${escapeHtml(job.conversation_jid || '-')}</small></td>
+            <td>${escapeHtml(job.provider_name || '-')}</td>
+            <td><span class="pill">${escapeHtml(job.status || '-')}</span></td>
+            <td>${escapeHtml(job.message_count || 0)} / ${escapeHtml(job.attachment_count || 0)}</td>
+            <td>${escapeHtml(job.bytes_uploaded || 0)}</td>
+            <td>${escapeHtml(job.scheduled_at || job.created_at || '-')}</td>
+          </tr>`).join('') || '<tr><td colspan="6">No archive jobs queued yet.</td></tr>'}</tbody></table></div>
+      </section>
+      <section class="card ai-users-card">
+        <div class="card-head"><h2>Archived Items</h2><span>${escapeHtml(items.length)} archived</span></div>
+        <div class="table-wrap"><table><thead><tr><th>Conversation</th><th>Type</th><th>Archived</th><th>Path</th><th>Summary</th></tr></thead><tbody>${items.map((item) => `
+          <tr>
+            <td><strong>${escapeHtml(item.entity_label || item.entity_id || '-')}</strong><small>${escapeHtml(item.conversation_jid || '-')}</small></td>
+            <td><span class="pill">${escapeHtml(item.module_type || '-')}</span></td>
+            <td>${escapeHtml(item.archived_at || '-')}</td>
+            <td>${escapeHtml(item.provider_path || '-')}</td>
+            <td>${escapeHtml(item.summary_text || '-')}</td>
+          </tr>`).join('') || '<tr><td colspan="5">No archived items available yet.</td></tr>'}</tbody></table></div>
+      </section>
+    </section>`;
+  wireArchiveStorageForms();
+}
+
+function wireArchiveStorageForms() {
+  document.getElementById('archiveProviderForm')?.addEventListener('submit', async (event) => {
+    event.preventDefault();
+    const form = new FormData(event.currentTarget);
+    await postAction('save_archive_provider', Object.fromEntries(form.entries()));
+  });
+  document.getElementById('archiveOauthForm')?.addEventListener('submit', async (event) => {
+    event.preventDefault();
+    const form = new FormData(event.currentTarget);
+    await postAction('exchange_archive_google_code', Object.fromEntries(form.entries()));
+  });
+  document.getElementById('archivePolicyForm')?.addEventListener('submit', async (event) => {
+    event.preventDefault();
+    const form = new FormData(event.currentTarget);
+    await postAction('save_archive_policy', Object.fromEntries(form.entries()));
+  });
+  document.getElementById('archiveJobForm')?.addEventListener('submit', async (event) => {
+    event.preventDefault();
+    const form = new FormData(event.currentTarget);
+    await postAction('queue_archive_job', Object.fromEntries(form.entries()));
+  });
+  document.querySelectorAll('[data-archive-provider-edit]').forEach((button) => {
+    button.addEventListener('click', () => {
+      const row = JSON.parse(button.dataset.row || '{}');
+      const form = document.getElementById('archiveProviderForm');
+      const oauthForm = document.getElementById('archiveOauthForm');
+      if (!form) return;
+      ['id','provider_name','provider_key','oauth_client_id','oauth_redirect_uri','oauth_scope','root_folder_id','root_folder_path','status','storage_limit_bytes'].forEach((key) => {
+        if (form.elements[key]) form.elements[key].value = row[key] ?? '';
+      });
+      if (form.elements.config_json) form.elements.config_json.value = row.config_json ? JSON.stringify(row.config_json, null, 2) : '';
+      if (form.elements.oauth_client_secret) form.elements.oauth_client_secret.value = '';
+      if (oauthForm?.elements.provider_id) oauthForm.elements.provider_id.value = row.id ?? '';
+      form.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    });
+  });
 }
 function aiRuleForm(rule, providers) {
   const type = rule.employee_type || 'C1';

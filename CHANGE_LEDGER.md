@@ -851,3 +851,52 @@
 - Change: Bumped app version to 2.0.9+32, generated new release helpers, built web/APK artifacts, uploaded the Android APK to the live server, and registered Android draft release id 38 for employee 302 approval.
 - Root cause: The previous published version was 2.0.8+31 and could not be reused safely for a fresh approval cycle.
 - Risk: Low. Change is isolated to release packaging/deployment metadata and does not alter runtime product logic.
+
+## 2026-08-03 - Web attendance shift fallback
+- Files: lib/chat_api.dart, lib/profile/profile_screens.dart
+- Change: Added shiftId to UserProfile and used the profile's assigned shift as a fallback attendance option when the remote shift list is unavailable on web.
+- Root cause: The attendance screen skipped profile loading in attendance mode and depended only on the remote shift-list call, which can fail or return nothing in browser usage, leaving the shift dropdown empty.
+- Risk: Low. This only changes punch-in shift population and preserves the existing remote shift list when it is available.
+
+## 2026-08-03 - Web attendance shift proxy and build
+- Date: 2026-08-03 21:10:00 +05:30
+- Files: lib/chat_api.dart, lib/profile/profile_screens.dart, server_patch/chat/attendance.php
+- Change: Replaced direct web shift fetch with a same-origin attendance proxy, repaired UserProfile.shiftId/appVersion/deviceModel parsing, and kept the assigned-shift dropdown fallback for punch-in.
+- Root cause: Flutter web was calling the external shift endpoint directly from the browser, so the shift list could fail before the user ever saw any options.
+- Risk: Low. Scope is limited to attendance shift loading and preserves existing punch-in/out behavior.
+
+
+## 2026-08-03 - LMS lead webhook producer normalization
+- Date: 2026-08-03 22:05:00 +05:30
+- Files: server_patch/chat/lms_webhook_helper.php
+- Change: Hardened LMS lead-channel detection using metadata/integration hints, added chat_lms_webhook_sender_jid() so outgoing webhook payload always starts with the numeric employee id, and trimmed message bodies before queueing.
+- Root cause: Existing webhook payload reused the raw Flow sender JID, which was not guaranteed to satisfy the LMS requirement that sender_jid start with the numeric employee id.
+- Risk: Low. Change is isolated to LMS webhook queueing for lead channels and does not alter normal Flow chat delivery.
+## CHG-20260803-ARCHIVE-STORAGE
+- Added server_patch/chat/archive_storage_helper.php with archive schema bootstrap, provider abstraction, Google Drive OAuth/token/upload helpers, manifest generation, archive job processing, archived search, and archived stream access control.
+- Added server_patch/chat/archive_storage_worker.php, server_patch/chat/archive_search.php, and server_patch/chat/archive_stream.php for background archive execution and unified archived retrieval.
+- Wired standalone admin API/UI to expose Archive Storage management from /admin using the real standalone admin surface.
+- Updated admin routing/module registration so the archive module appears in both declared admin module maps.
+
+## 2026-08-03 - Voice note duration and media playback fix
+- Date: 2026-08-03 23:40:00 +05:30
+- Files: lib/chat/chat_screen.dart, lib/chat_api.dart, lib/attachments/attachment_widgets.dart, lib/video_preview_embed_stub.dart, lib/media_object_url.dart, lib/media_object_url_stub.dart, lib/media_object_url_web.dart, pubspec.yaml, server_patch/chat/send_message.php, server_patch/chat/history.php, server_patch/chat/bootstrap.php
+- Change: Captured recorder duration at send time, propagated `duration_ms` through attachment APIs and message history, added inline audio playback with download/open actions, enabled byte-backed web audio preview via object URLs, and replaced the non-web video preview stub with a real video player implementation.
+- Root cause: Voice notes were uploaded without durable duration metadata and web audio preview tried to play encrypted attachment URLs directly; mobile preview still used a placeholder instead of an actual video player.
+- Risk: Medium-low. Media-only scope, but requires the updated server PHP files so duration data is persisted and returned correctly.
+
+
+## 2026-08-03 - Horizon latency and map UX stabilization
+- Date: 2026-08-03 23:58:00 +05:30
+- Files: lib/myhub_horizon_screen.dart, server_patch/chat/myhub.php
+- Change: Reworked Horizon latest-location loading to batch-fetch candidate points for all visible employees in one query, capped expensive reverse-geocode fallback work in timeline checkpoint generation, and upgraded both Horizon map widgets to use pointer-focused zoom, warmer tile coverage, gapless tile rendering, and smoother pan interaction.
+- Root cause: Horizon home load and selected-employee preview were doing costly per-employee location reads plus unbounded reverse-geocode work, while the in-app map zoom logic always zoomed around the center instead of the user focus point.
+- Risk: Medium-low. Scope is limited to Horizon attendance/location screens and backend helper queries, but live verification is still needed against production-sized punch/location datasets.
+
+
+## 2026-08-03 - Message edit immediate refresh fix
+- Date: 2026-08-03 23:59:00 +05:30
+- Files: lib/chat/chat_screen.dart
+- Change: Added a reusable `_replaceMessageById(...)` helper and switched all message-edit save paths to update `_messages` by stable message id rather than `indexOf(message)` object identity.
+- Root cause: Edit dialogs can complete after the history list has been refreshed or recreated, which breaks object-identity lookups and leaves the on-screen message stale until the chat is reloaded.
+- Risk: Low. Scope is limited to local chat-state replacement for edited messages and does not change the backend edit API contract.

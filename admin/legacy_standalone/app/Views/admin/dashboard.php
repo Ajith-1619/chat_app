@@ -16,6 +16,7 @@
       <button class="nav-item" data-view="tasks" type="button">Tasks</button>
       <button class="nav-item" data-view="location" type="button">Location</button>
       <button class="nav-item" data-view="ai_access" type="button">AI API</button>
+      <button class="nav-item" data-view="archive_storage" type="button">Archive Storage</button>
       <button class="nav-item" data-view="notifications" type="button">Notifications</button>
       <button class="nav-item" data-view="releases" type="button">Releases</button>
       <button class="nav-item" data-view="diagnostics" type="button">Diagnostics</button>

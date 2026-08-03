@@ -375,6 +375,7 @@ class _ChatScreenState extends State<ChatScreen> {
   bool _isRecordingVoice = false;
   String _voiceTranscript = '';
   String? _voiceRecordingPath;
+  DateTime? _voiceRecordingStartedAt;
   bool _isDragOver = false;
   Timer? _liveLocationTimer;
   bool _liveLocationSharing = false;
@@ -1697,6 +1698,7 @@ class _ChatScreenState extends State<ChatScreen> {
         setState(() {
           _isRecordingVoice = true;
           _voiceRecordingPath = path;
+          _voiceRecordingStartedAt = DateTime.now();
         });
       }
     } catch (error) {
@@ -1783,6 +1785,8 @@ class _ChatScreenState extends State<ChatScreen> {
           _isRecordingVoice = false;
           _isUploading = false;
           _uploadProgress = 0;
+          _voiceRecordingPath = null;
+          _voiceRecordingStartedAt = null;
           _attachmentUploadProgress.clear();
         });
       }
@@ -2582,6 +2586,16 @@ class _ChatScreenState extends State<ChatScreen> {
       if (message.id == id) return message;
     }
     return null;
+  }
+
+  // Edit dialogs can finish after message models have been recreated by a
+  // history refresh. Updating by stable id keeps the on-screen conversation in
+  // sync immediately without needing the user to reopen the chat.
+  void _replaceMessageById(int id, ChatMessage Function(ChatMessage current) update) {
+    if (id <= 0) return;
+    final index = _messages.indexWhere((message) => message.id == id);
+    if (index < 0) return;
+    _messages[index] = update(_messages[index]);
   }
 
   ChatMessage _slashCommandDraftMessage(String text) {
@@ -4522,10 +4536,10 @@ class _ChatScreenState extends State<ChatScreen> {
       await chatApi.editMessage(message.id, editedBody);
       if (!mounted) return;
       setState(() {
-        final index = _messages.indexOf(message);
-        if (index >= 0) {
-          _messages[index] = message.copyWith(text: editedBody, isEdited: true);
-        }
+        _replaceMessageById(
+          message.id,
+          (current) => current.copyWith(text: editedBody, isEdited: true),
+        );
       });
     } on ApiException catch (error) {
       if (!mounted) return;
@@ -4698,10 +4712,10 @@ class _ChatScreenState extends State<ChatScreen> {
       await chatApi.editMessage(message.id, editedBody);
       if (!mounted) return;
       setState(() {
-        final index = _messages.indexOf(message);
-        if (index >= 0) {
-          _messages[index] = message.copyWith(text: editedBody, isEdited: true);
-        }
+        _replaceMessageById(
+          message.id,
+          (current) => current.copyWith(text: editedBody, isEdited: true),
+        );
       });
     } on ApiException catch (error) {
       if (!mounted) return;
@@ -5106,33 +5120,33 @@ class _ChatScreenState extends State<ChatScreen> {
       await chatApi.editMessage(message.id, edited);
       if (!mounted) return;
       setState(() {
-        final index = _messages.indexOf(message);
-        if (index >= 0) {
-          _messages[index] = ChatMessage(
-            id: message.id,
+        _replaceMessageById(
+          message.id,
+          (current) => ChatMessage(
+            id: current.id,
             text: edited,
-            time: message.time,
-            isMe: message.isMe,
-            sender: message.sender,
-            isRead: message.isRead,
-            replyToId: message.replyToId,
-            threadRootId: message.threadRootId,
-            mentions: message.mentions,
+            time: current.time,
+            isMe: current.isMe,
+            sender: current.sender,
+            isRead: current.isRead,
+            replyToId: current.replyToId,
+            threadRootId: current.threadRootId,
+            mentions: current.mentions,
             isEdited: true,
-            sourceDevice: message.sourceDevice,
-            sourceName: message.sourceName,
-            createdAt: message.createdAt,
-            attachment: message.attachment,
-            reaction: message.reaction,
-            isFailed: message.isFailed,
-            isSending: message.isSending,
-            originalSenderJid: message.originalSenderJid,
-            originalSenderName: message.originalSenderName,
-            originalSourceName: message.originalSourceName,
-            visibilityMode: message.visibilityMode,
-            isSystem: message.isSystem,
-          );
-        }
+            sourceDevice: current.sourceDevice,
+            sourceName: current.sourceName,
+            createdAt: current.createdAt,
+            attachment: current.attachment,
+            reaction: current.reaction,
+            isFailed: current.isFailed,
+            isSending: current.isSending,
+            originalSenderJid: current.originalSenderJid,
+            originalSenderName: current.originalSenderName,
+            originalSourceName: current.originalSourceName,
+            visibilityMode: current.visibilityMode,
+            isSystem: current.isSystem,
+          ),
+        );
       });
       ScaffoldMessenger.of(
         context,

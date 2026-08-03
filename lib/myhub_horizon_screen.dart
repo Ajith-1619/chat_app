@@ -795,69 +795,104 @@ class _HorizonEmployeesOverviewMapState
     final centerTileX = (viewWorldX / 256).floor();
     final centerTileY = (viewWorldY / 256).floor();
 
-    return Listener(
-      onPointerSignal: (event) {
-        if (event is PointerScrollEvent) {
-          _setZoom(zoom + (event.scrollDelta.dy < 0 ? 1 : -1), zoom);
-        }
-      },
-      child: LayoutBuilder(
-        builder: (context, constraints) {
-          final size = Size(constraints.maxWidth, constraints.maxHeight);
-          final scale = _mapScale(size);
-          return GestureDetector(
-            behavior: HitTestBehavior.opaque,
-            onPanUpdate: (details) {
-              setState(() {
-                _panWorldOffset -= Offset(
-                  details.delta.dx / scale,
-                  details.delta.dy / scale,
-                );
-              });
-            },
-            child: Stack(
-              fit: StackFit.expand,
-              children: [
-                for (var y = centerTileY - 2; y <= centerTileY + 2; y++)
-                  for (var x = centerTileX - 2; x <= centerTileX + 2; x++)
-                    Positioned(
-                      left: size.width / 2 + ((x * 256.0) - viewWorldX) * scale,
-                      top: size.height / 2 + ((y * 256.0) - viewWorldY) * scale,
-                      width: 256 * scale,
-                      height: 256 * scale,
-                      child: Image.network(
-                        _tileUrl(x, y, zoom),
-                        fit: BoxFit.cover,
-                        errorBuilder: (context, error, stackTrace) =>
-                            Container(color: const Color(0xFFEFF3F9)),
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final size = Size(constraints.maxWidth, constraints.maxHeight);
+        final scale = _mapScale(size);
+        return Listener(
+          onPointerSignal: (event) {
+            if (event is PointerScrollEvent) {
+              _setZoom(
+                zoom: zoom + (event.scrollDelta.dy < 0 ? 1 : -1),
+                currentZoom: zoom,
+                viewportSize: size,
+                centerLat: centerLat,
+                centerLng: centerLng,
+                focal: event.localPosition,
+              );
+            }
+          },
+          child: MouseRegion(
+            cursor: SystemMouseCursors.grab,
+            child: GestureDetector(
+              behavior: HitTestBehavior.opaque,
+              onPanUpdate: (details) {
+                setState(() {
+                  _panWorldOffset -= Offset(
+                    details.delta.dx / scale,
+                    details.delta.dy / scale,
+                  );
+                });
+              },
+              child: Stack(
+                fit: StackFit.expand,
+                children: [
+                  for (var y = centerTileY - 3; y <= centerTileY + 3; y++)
+                    for (var x = centerTileX - 3; x <= centerTileX + 3; x++)
+                      Positioned(
+                        left: size.width / 2 + ((x * 256.0) - viewWorldX) * scale,
+                        top: size.height / 2 + ((y * 256.0) - viewWorldY) * scale,
+                        width: 256 * scale,
+                        height: 256 * scale,
+                        child: Image.network(
+                          _tileUrl(x, y, zoom),
+                          fit: BoxFit.cover,
+                          gaplessPlayback: true,
+                          filterQuality: FilterQuality.medium,
+                          errorBuilder: (context, error, stackTrace) =>
+                              Container(color: const Color(0xFFEFF3F9)),
+                        ),
                       ),
-                    ),
-                ...widget.markers.map((marker) {
-                  final dx =
-                      size.width / 2 +
-                      (_worldX(marker.lng, zoom) - viewWorldX) * scale;
-                  final dy =
-                      size.height / 2 +
-                      (_worldY(marker.lat, zoom) - viewWorldY) * scale;
-                  final selected = marker.empId == widget.selectedEmpId;
-                  return Positioned(
-                    left: dx - 20,
-                    top: dy - (selected ? 58 : 46),
-                    child: GestureDetector(
-                      onTap: () => widget.onSelected(marker.employee),
-                      child: Column(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          if (selected)
-                            Container(
-                              margin: const EdgeInsets.only(bottom: 4),
-                              padding: const EdgeInsets.symmetric(
-                                horizontal: 8,
-                                vertical: 4,
+                  ...widget.markers.map((marker) {
+                    final dx =
+                        size.width / 2 +
+                        (_worldX(marker.lng, zoom) - viewWorldX) * scale;
+                    final dy =
+                        size.height / 2 +
+                        (_worldY(marker.lat, zoom) - viewWorldY) * scale;
+                    final selected = marker.empId == widget.selectedEmpId;
+                    return Positioned(
+                      left: dx - 20,
+                      top: dy - (selected ? 58 : 46),
+                      child: GestureDetector(
+                        onTap: () => widget.onSelected(marker.employee),
+                        child: Column(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            if (selected)
+                              Container(
+                                margin: const EdgeInsets.only(bottom: 4),
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 8,
+                                  vertical: 4,
+                                ),
+                                decoration: BoxDecoration(
+                                  color: Colors.white,
+                                  borderRadius: BorderRadius.circular(999),
+                                  boxShadow: const [
+                                    BoxShadow(
+                                      color: Color(0x22000000),
+                                      blurRadius: 8,
+                                    ),
+                                  ],
+                                ),
+                                child: Text(
+                                  marker.name,
+                                  style: const TextStyle(
+                                    fontSize: 12,
+                                    fontWeight: FontWeight.w800,
+                                  ),
+                                ),
                               ),
+                            Container(
+                              width: selected ? 22 : 18,
+                              height: selected ? 22 : 18,
                               decoration: BoxDecoration(
-                                color: Colors.white,
-                                borderRadius: BorderRadius.circular(999),
+                                color: selected
+                                    ? AppColors.primary
+                                    : const Color(0xFFEF4444),
+                                shape: BoxShape.circle,
+                                border: Border.all(color: Colors.white, width: 3),
                                 boxShadow: const [
                                   BoxShadow(
                                     color: Color(0x22000000),
@@ -865,64 +900,76 @@ class _HorizonEmployeesOverviewMapState
                                   ),
                                 ],
                               ),
-                              child: Text(
-                                marker.name,
-                                style: const TextStyle(
-                                  fontSize: 12,
-                                  fontWeight: FontWeight.w800,
-                                ),
-                              ),
                             ),
-                          Container(
-                            width: selected ? 22 : 18,
-                            height: selected ? 22 : 18,
-                            decoration: BoxDecoration(
-                              color: selected
-                                  ? AppColors.primary
-                                  : const Color(0xFFEF4444),
-                              shape: BoxShape.circle,
-                              border: Border.all(color: Colors.white, width: 3),
-                              boxShadow: const [
-                                BoxShadow(
-                                  color: Color(0x22000000),
-                                  blurRadius: 8,
-                                ),
-                              ],
-                            ),
-                          ),
-                        ],
+                          ],
+                        ),
                       ),
+                    );
+                  }),
+                  Positioned(
+                    right: 12,
+                    top: 12,
+                    child: _MapZoomControls(
+                      zoom: zoom,
+                      onZoomIn: zoom >= 18
+                          ? null
+                          : () => _setZoom(
+                              zoom: zoom + 1,
+                              currentZoom: zoom,
+                              viewportSize: size,
+                              centerLat: centerLat,
+                              centerLng: centerLng,
+                            ),
+                      onZoomOut: zoom <= 11
+                          ? null
+                          : () => _setZoom(
+                              zoom: zoom - 1,
+                              currentZoom: zoom,
+                              viewportSize: size,
+                              centerLat: centerLat,
+                              centerLng: centerLng,
+                            ),
                     ),
-                  );
-                }),
-                Positioned(
-                  right: 12,
-                  top: 12,
-                  child: _MapZoomControls(
-                    zoom: zoom,
-                    onZoomIn: zoom >= 18
-                        ? null
-                        : () => _setZoom(zoom + 1, zoom),
-                    onZoomOut: zoom <= 11
-                        ? null
-                        : () => _setZoom(zoom - 1, zoom),
                   ),
-                ),
-              ],
+                ],
+              ),
             ),
-          );
-        },
-      ),
+          ),
+        );
+      },
     );
   }
 
-  void _setZoom(int zoom, int currentZoom) {
+  void _setZoom({
+    required int zoom,
+    required int currentZoom,
+    required Size viewportSize,
+    required double centerLat,
+    required double centerLng,
+    Offset? focal,
+  }) {
     final next = zoom.clamp(11, 18);
     if ((_manualZoom ?? currentZoom) == next) return;
-    final ratio = math.pow(2, next - currentZoom).toDouble();
+    final scale = _mapScale(viewportSize);
+    final focalPoint = focal ?? Offset(viewportSize.width / 2, viewportSize.height / 2);
+    final currentViewWorldX = _worldX(centerLng, currentZoom) + _panWorldOffset.dx;
+    final currentViewWorldY = _worldY(centerLat, currentZoom) + _panWorldOffset.dy;
+    final worldXAtPointer =
+        currentViewWorldX + (focalPoint.dx - (viewportSize.width / 2)) / scale;
+    final worldYAtPointer =
+        currentViewWorldY + (focalPoint.dy - (viewportSize.height / 2)) / scale;
+    final pointerLng = _longitudeFromWorld(worldXAtPointer, currentZoom);
+    final pointerLat = _latitudeFromWorld(worldYAtPointer, currentZoom);
+    final nextBaseWorldX = _worldX(centerLng, next);
+    final nextBaseWorldY = _worldY(centerLat, next);
+    final nextPointerWorldX = _worldX(pointerLng, next);
+    final nextPointerWorldY = _worldY(pointerLat, next);
     setState(() {
       _manualZoom = next;
-      _panWorldOffset *= ratio;
+      _panWorldOffset = Offset(
+        nextPointerWorldX - nextBaseWorldX - (focalPoint.dx - (viewportSize.width / 2)) / scale,
+        nextPointerWorldY - nextBaseWorldY - (focalPoint.dy - (viewportSize.height / 2)) / scale,
+      );
     });
   }
 }
@@ -975,82 +1022,129 @@ class _HorizonMapViewState extends State<_HorizonMapView> {
     final centerTileX = (viewWorldX / 256).floor();
     final centerTileY = (viewWorldY / 256).floor();
 
-    return Listener(
-      onPointerSignal: (event) {
-        if (event is PointerScrollEvent) {
-          _setZoom(zoom + (event.scrollDelta.dy < 0 ? 1 : -1), zoom);
-        }
-      },
-      child: LayoutBuilder(
-        builder: (context, constraints) {
-          final size = Size(constraints.maxWidth, constraints.maxHeight);
-          final scale = _mapScale(size);
-          return GestureDetector(
-            behavior: HitTestBehavior.opaque,
-            onPanUpdate: (details) {
-              setState(() {
-                _panWorldOffset -= Offset(
-                  details.delta.dx / scale,
-                  details.delta.dy / scale,
-                );
-              });
-            },
-            child: Stack(
-              fit: StackFit.expand,
-              children: [
-                for (var y = centerTileY - 2; y <= centerTileY + 2; y++)
-                  for (var x = centerTileX - 2; x <= centerTileX + 2; x++)
-                    Positioned(
-                      left: size.width / 2 + ((x * 256.0) - viewWorldX) * scale,
-                      top: size.height / 2 + ((y * 256.0) - viewWorldY) * scale,
-                      width: 256 * scale,
-                      height: 256 * scale,
-                      child: Image.network(
-                        _tileUrl(x, y, zoom),
-                        fit: BoxFit.cover,
-                        errorBuilder: (context, error, stackTrace) =>
-                            Container(color: const Color(0xFFEFF3F9)),
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final size = Size(constraints.maxWidth, constraints.maxHeight);
+        final scale = _mapScale(size);
+        return Listener(
+          onPointerSignal: (event) {
+            if (event is PointerScrollEvent) {
+              _setZoom(
+                zoom: zoom + (event.scrollDelta.dy < 0 ? 1 : -1),
+                currentZoom: zoom,
+                viewportSize: size,
+                centerLat: centerLat,
+                centerLng: centerLng,
+                focal: event.localPosition,
+              );
+            }
+          },
+          child: MouseRegion(
+            cursor: SystemMouseCursors.grab,
+            child: GestureDetector(
+              behavior: HitTestBehavior.opaque,
+              onPanUpdate: (details) {
+                setState(() {
+                  _panWorldOffset -= Offset(
+                    details.delta.dx / scale,
+                    details.delta.dy / scale,
+                  );
+                });
+              },
+              child: Stack(
+                fit: StackFit.expand,
+                children: [
+                  for (var y = centerTileY - 3; y <= centerTileY + 3; y++)
+                    for (var x = centerTileX - 3; x <= centerTileX + 3; x++)
+                      Positioned(
+                        left: size.width / 2 + ((x * 256.0) - viewWorldX) * scale,
+                        top: size.height / 2 + ((y * 256.0) - viewWorldY) * scale,
+                        width: 256 * scale,
+                        height: 256 * scale,
+                        child: Image.network(
+                          _tileUrl(x, y, zoom),
+                          fit: BoxFit.cover,
+                          gaplessPlayback: true,
+                          filterQuality: FilterQuality.medium,
+                          errorBuilder: (context, error, stackTrace) =>
+                              Container(color: const Color(0xFFEFF3F9)),
+                        ),
                       ),
+                  CustomPaint(
+                    painter: _HorizonRoutePainter(
+                      points: widget.points,
+                      halfHourPoints: widget.halfHourPoints,
+                      centerWorldX: viewWorldX,
+                      centerWorldY: viewWorldY,
+                      zoom: zoom,
                     ),
-                CustomPaint(
-                  painter: _HorizonRoutePainter(
-                    points: widget.points,
-                    halfHourPoints: widget.halfHourPoints,
-                    centerWorldX: viewWorldX,
-                    centerWorldY: viewWorldY,
-                    zoom: zoom,
+                    child: const SizedBox.expand(),
                   ),
-                  child: const SizedBox.expand(),
-                ),
-                const Positioned(left: 12, bottom: 12, child: _MapLegend()),
-                Positioned(
-                  right: 12,
-                  top: 12,
-                  child: _MapZoomControls(
-                    zoom: zoom,
-                    onZoomIn: zoom >= 18
-                        ? null
-                        : () => _setZoom(zoom + 1, zoom),
-                    onZoomOut: zoom <= 11
-                        ? null
-                        : () => _setZoom(zoom - 1, zoom),
+                  const Positioned(left: 12, bottom: 12, child: _MapLegend()),
+                  Positioned(
+                    right: 12,
+                    top: 12,
+                    child: _MapZoomControls(
+                      zoom: zoom,
+                      onZoomIn: zoom >= 18
+                          ? null
+                          : () => _setZoom(
+                              zoom: zoom + 1,
+                              currentZoom: zoom,
+                              viewportSize: size,
+                              centerLat: centerLat,
+                              centerLng: centerLng,
+                            ),
+                      onZoomOut: zoom <= 11
+                          ? null
+                          : () => _setZoom(
+                              zoom: zoom - 1,
+                              currentZoom: zoom,
+                              viewportSize: size,
+                              centerLat: centerLat,
+                              centerLng: centerLng,
+                            ),
+                    ),
                   ),
-                ),
-              ],
+                ],
+              ),
             ),
-          );
-        },
-      ),
+          ),
+        );
+      },
     );
   }
 
-  void _setZoom(int zoom, int currentZoom) {
+  void _setZoom({
+    required int zoom,
+    required int currentZoom,
+    required Size viewportSize,
+    required double centerLat,
+    required double centerLng,
+    Offset? focal,
+  }) {
     final next = zoom.clamp(11, 18);
     if ((_manualZoom ?? currentZoom) == next) return;
-    final ratio = math.pow(2, next - currentZoom).toDouble();
+    final scale = _mapScale(viewportSize);
+    final focalPoint = focal ?? Offset(viewportSize.width / 2, viewportSize.height / 2);
+    final currentViewWorldX = _worldX(centerLng, currentZoom) + _panWorldOffset.dx;
+    final currentViewWorldY = _worldY(centerLat, currentZoom) + _panWorldOffset.dy;
+    final worldXAtPointer =
+        currentViewWorldX + (focalPoint.dx - (viewportSize.width / 2)) / scale;
+    final worldYAtPointer =
+        currentViewWorldY + (focalPoint.dy - (viewportSize.height / 2)) / scale;
+    final pointerLng = _longitudeFromWorld(worldXAtPointer, currentZoom);
+    final pointerLat = _latitudeFromWorld(worldYAtPointer, currentZoom);
+    final nextBaseWorldX = _worldX(centerLng, next);
+    final nextBaseWorldY = _worldY(centerLat, next);
+    final nextPointerWorldX = _worldX(pointerLng, next);
+    final nextPointerWorldY = _worldY(pointerLat, next);
     setState(() {
       _manualZoom = next;
-      _panWorldOffset *= ratio;
+      _panWorldOffset = Offset(
+        nextPointerWorldX - nextBaseWorldX - (focalPoint.dx - (viewportSize.width / 2)) / scale,
+        nextPointerWorldY - nextBaseWorldY - (focalPoint.dy - (viewportSize.height / 2)) / scale,
+      );
     });
   }
 
@@ -1414,6 +1508,15 @@ double _worldY(double latitude, int zoom) {
       2.0 *
       (1 << zoom) *
       256.0;
+}
+
+
+double _longitudeFromWorld(double worldX, int zoom) =>
+    (worldX / ((1 << zoom) * 256.0) * 360.0) - 180.0;
+
+double _latitudeFromWorld(double worldY, int zoom) {
+  final n = math.pi - ((2.0 * math.pi * worldY) / ((1 << zoom) * 256.0));
+  return math.atan((math.exp(n) - math.exp(-n)) / 2.0) * 180.0 / math.pi;
 }
 
 String _tileUrl(int x, int y, int zoom) =>

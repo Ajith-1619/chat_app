@@ -599,3 +599,39 @@
 - Date: 2026-08-01 17:55:00 +05:30
 - Request: Build fresh web and APK artifacts, move the APK to the live server, and register it as a draft release so employee 302 can approve rollout for all users.
 - Status: Implemented. Web and APK builds completed, APK uploaded to live server, and Android draft registered successfully.
+
+## REQ-20260803-WEB-PUNCH-SHIFT-FALLBACK
+- Date: 2026-08-03 18:20:00 +05:30
+- Request: Web punch-in screen la shift dropdown empty ah irukku; user attendance punch-in block aagudhu.
+- Status: Implemented.
+
+## REQ-20260803-WEB-PUNCH-SHIFT-PROXY
+- Date: 2026-08-03 21:10:00 +05:30
+- Request: Web punch-in screen la APK maari full shift list varanum; external shift service browser-la block aaguradha avoid pannanum.
+- Status: Implemented with same-origin shift proxy and fresh web build.
+
+
+## REQ-20260803-LMS-LEAD-WEBHOOK-FORWARDING
+- Date: 2026-08-03 22:05:00 +05:30
+- Request: LMS lead channels-la participant real messages varumbodhu Flow webhook forward pannanum; payload-la 	enant_slug, stable message_id, channel_id, 
+oom_jid, numeric-employee based sender_jid, sender_name, ody irukkanum; 5xx/network retry, 4xx permanent fail.
+- Status: Implemented in local server patch. Live deployment still requires the real LMS bearer token in server_patch/chat/lms_webhook_config.php or server env.
+## REQ-20260803-ARCHIVE-STORAGE
+- Request: Implement Flow Archive Storage with pluggable providers, Google Drive archive integration, admin archive management, archive policies/jobs, and unified archived search/streaming.
+- Scope: Archive backend foundation, standalone admin management, archived search endpoint, archived manifest streaming, and schema/bootstrap support.
+- Status: In progress foundation delivered; provider/job/search/stream path implemented without live OAuth verification in local sandbox.
+
+## REQ-20260803-VOICE-AUDIO-VIDEO-PLAYBACK
+- Date: 2026-08-03 23:40:00 +05:30
+- Request: Voice recording upload aagudhu but 00:00 duration nala play aagala; audio file chat bubble-kulla play aaganum with download option; mobile video preview/playback work aaganum.
+- Status: Implemented in local code and server patch; analyzer confirmed no new build-blocking errors.
+
+## REQ-20260803-HORIZON-LATENCY-MAP-UX
+- Date: 2026-08-03 23:58:00 +05:30
+- Request: Horizon screen open aaguradhu slow ah irukku; selected employee timeline timeout aagudhu; map preview zoom/pan feel smoother and more Google Maps-like aaganum.
+- Status: Implemented in local code and server patch; validation completed.
+
+## REQ-20260803-MESSAGE-EDIT-INSTANT-REFRESH
+- Date: 2026-08-03 23:59:00 +05:30
+- Request: When a message is edited, the changed text should update immediately in the open chat screen without leaving and reopening the conversation.
+- Status: Implemented in local code; validation completed.

@@ -1,4 +1,4 @@
-﻿import 'dart:async';
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 import 'dart:math';
@@ -71,6 +71,22 @@ class _ProfileScreenState extends State<ProfileScreen> {
   bool _updatingPhoto = false;
   bool _punching = false;
 
+  List<WorkShift> get _effectiveShifts {
+    if (_shifts.isNotEmpty) return _shifts;
+    final fallbackShiftId = _profile?.shiftId.trim() ?? '';
+    if (fallbackShiftId.isEmpty) return const [];
+    // Web can miss the remote shift-list fetch, so keep the employee's assigned
+    // shift available locally instead of blocking punch-in behind an empty menu.
+    return [
+      WorkShift(
+        id: fallbackShiftId,
+        name: 'Assigned shift',
+        time: fallbackShiftId,
+        hours: '',
+      ),
+    ];
+  }
+
   @override
   void initState() {
     super.initState();
@@ -92,16 +108,21 @@ class _ProfileScreenState extends State<ProfileScreen> {
 
   Future<void> _load() async {
     Object? firstError;
-    final profileFuture = widget.showAttendance
-        ? Future<void>.value()
-        : chatApi
-              .getProfile()
-              .then<void>((profile) {
-                if (mounted) setState(() => _profile = profile);
-              })
-              .catchError((Object error) {
-                firstError ??= error;
-              });
+    final profileFuture = chatApi
+        .getProfile()
+        .then<void>((profile) {
+          if (!mounted) return;
+          setState(() {
+            _profile = profile;
+            if ((_selectedShiftId == null || _selectedShiftId!.isEmpty) &&
+                profile.shiftId.trim().isNotEmpty) {
+              _selectedShiftId = profile.shiftId.trim();
+            }
+          });
+        })
+        .catchError((Object error) {
+          firstError ??= error;
+        });
     final attendanceFuture = chatApi
         .getAttendance()
         .then<void>((attendance) {
@@ -123,7 +144,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
           if (!mounted) return;
           setState(() {
             _shifts = shifts;
-            if (_selectedShiftId == null && shifts.isNotEmpty) {
+            if ((_selectedShiftId == null || _selectedShiftId!.isEmpty) && shifts.isNotEmpty) {
               _selectedShiftId = shifts.first.id;
             }
           });
@@ -391,7 +412,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                             const SizedBox(height: 12),
                             DropdownButtonFormField<String>(
                               initialValue:
-                                  _shifts.any(
+                                  _effectiveShifts.any(
                                     (shift) => shift.id == _selectedShiftId,
                                   )
                                   ? _selectedShiftId
@@ -400,7 +421,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                                 labelText: 'Select shift',
                                 prefixIcon: Icon(Icons.schedule_rounded),
                               ),
-                              items: _shifts
+                              items: _effectiveShifts
                                   .map(
                                     (shift) => DropdownMenuItem<String>(
                                       value: shift.id,

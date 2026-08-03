@@ -30,6 +30,7 @@ try {
     chat_ensure_schema($pdo);
     chat_ensure_column($pdo, 'xmpp_group_members', 'history_visible_from', 'DATETIME NULL AFTER joined_at');
     chat_ensure_column($pdo, 'xmpp_messages', 'visibility_mode', 'VARCHAR(16) NOT NULL DEFAULT \'all\' AFTER source_name');
+    chat_ensure_column($pdo, 'xmpp_messages', 'duration_ms', 'INT NOT NULL DEFAULT 0 AFTER file_size');
     chat_ensure_column($pdo, 'xmpp_messages', 'file_restricted', 'TINYINT(1) NOT NULL DEFAULT 0 AFTER file_size');
     $pdo->exec(
         'CREATE TABLE IF NOT EXISTS xmpp_message_recipients (
@@ -105,6 +106,7 @@ try {
                 'file_name' => (string)($row['file_name'] ?? ''),
                 'file_type' => (string)($row['file_type'] ?? ''),
                 'file_size' => (int)($row['file_size'] ?? 0),
+                'duration_ms' => (int)($row['duration_ms'] ?? 0),
                 'file_restricted' => !empty($row['file_restricted']),
                 'latitude' => $row['latitude'] === null ? null : (float)$row['latitude'],
                 'longitude' => $row['longitude'] === null ? null : (float)$row['longitude'],
@@ -195,7 +197,7 @@ try {
     $stmt = $pdo->prepare(
         'SELECT *
          FROM (
-             SELECT id, from_jid, to_jid, body, file_url, file_name, file_type, file_size, file_restricted, latitude, longitude, location_address, message_type, reply_to_id,
+             SELECT id, from_jid, to_jid, body, file_url, file_name, file_type, file_size, duration_ms, file_restricted, latitude, longitude, location_address, message_type, reply_to_id,
                     thread_root_id, mentions_json, source_device, source_name, edited_at, status, read_at, created_at,
                     forwarded_from_message_id, original_sender_jid, original_sender_name, original_source_name
              FROM xmpp_messages
@@ -231,6 +233,7 @@ try {
             'file_name' => (string)($row['file_name'] ?? ''),
             'file_type' => (string)($row['file_type'] ?? ''),
             'file_size' => (int)($row['file_size'] ?? 0),
+            'duration_ms' => (int)($row['duration_ms'] ?? 0),
             'file_restricted' => !empty($row['file_restricted']),
             'latitude' => $row['latitude'] === null ? null : (float)$row['latitude'],
             'longitude' => $row['longitude'] === null ? null : (float)$row['longitude'],

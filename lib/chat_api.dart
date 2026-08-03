@@ -623,6 +623,7 @@ class ApiMessage {
     this.messageType = 'chat',
     this.visibilityMode = 'all',
     this.fileRestricted = false,
+    this.durationMs = 0,
   });
 
   factory ApiMessage.fromJson(Map<String, dynamic> json) {
@@ -697,6 +698,7 @@ class ApiMessage {
   final String forwardedFromMessageId;
   final String messageType;
   final String visibilityMode;
+  final int durationMs;
 
   bool get isMine => side.toLowerCase() == 'me';
   bool get isEdited => editedAt.trim().isNotEmpty;
@@ -731,6 +733,7 @@ class ApiMessage {
     'forwarded_from_message_id': forwardedFromMessageId,
     'message_type': messageType,
     'visibility_mode': visibilityMode,
+    'duration_ms': durationMs,
   };
   ChatAttachment? get attachment {
     final encoded = ChatAttachment.tryParse(body);
@@ -756,6 +759,7 @@ class ApiMessage {
       mimeType: fileType.trim().isEmpty ? 'application/octet-stream' : fileType,
       size: fileSize,
       caption: body,
+      durationMs: durationMs,
       isRestricted: fileRestricted,
     );
   }
@@ -835,6 +839,7 @@ class UserProfile {
     required this.mobile,
     required this.employeeType,
     required this.workLocation,
+    this.shiftId = '',
     this.deviceModel = '',
     this.appVersion = '',
     this.lastActivityAt = '',
@@ -854,6 +859,7 @@ class UserProfile {
     mobile: '${json['mobile'] ?? ''}',
     employeeType: '${json['employee_type'] ?? ''}',
     workLocation: '${json['work_location'] ?? ''}',
+    shiftId: '${json['shift_id'] ?? ''}',
     deviceModel: '${json['device_model'] ?? ''}',
     appVersion: '${json['app_version'] ?? ''}',
     lastActivityAt: '${json['last_activity_at'] ?? ''}',
@@ -872,6 +878,7 @@ class UserProfile {
   final String mobile;
   final String employeeType;
   final String workLocation;
+  final String shiftId;
   final String deviceModel;
   final String appVersion;
   final String lastActivityAt;
@@ -3122,28 +3129,16 @@ class ChatApi {
 
   Future<List<WorkShift>> getShifts() async {
     final credentials = await _attendanceCredentials();
-    final response = await _client
-        .post(
-          Uri.parse('https://skylinkonline.net/servicev2/get_shift.php'),
-          headers: const {
-            'Accept': 'application/json',
-            'Content-Type': 'application/x-www-form-urlencoded',
-          },
-          body: {'key': credentials},
-        )
-        .timeout(const Duration(seconds: 30));
-    final body = _decode(response);
-    final server = body['server'];
-    if (response.statusCode < 200 ||
-        response.statusCode >= 300 ||
-        server is! List ||
-        server.isEmpty) {
+    final body = await _postJson('chat/attendance.php', {
+      'action': 'get_shifts',
+      'credentials': credentials,
+    });
+    if (body['status'] != true) {
       throw const ApiException('Unable to load shifts.');
     }
-    final first = server.first;
-    final data = first is Map ? first['DATA'] : null;
-    if (data is! List) return const [];
-    return data
+    final shifts = body['shifts'];
+    if (shifts is! List) return const [];
+    return shifts
         .whereType<Map>()
         .map((item) => WorkShift.fromJson(Map<String, dynamic>.from(item)))
         .where((shift) => shift.id.isNotEmpty)
@@ -3430,6 +3425,7 @@ class ChatApi {
     String originalSourceName = '',
     void Function(double progress)? onProgress,
     bool restricted = false,
+    int? durationMs,
   }) async {
     _validateJid(to);
     if (bytes.isEmpty) throw const ApiException('The selected file is empty.');
@@ -3453,6 +3449,7 @@ class ChatApi {
         originalSourceName: originalSourceName,
         onProgress: onProgress,
         restricted: restricted,
+        durationMs: durationMs,
       );
     }
     onProgress?.call(0.05);
@@ -3484,6 +3481,7 @@ class ChatApi {
         size: bytes.length,
         caption: caption.trim(),
         isRestricted: restricted,
+        durationMs: durationMs ?? 0,
       );
       await _xmpp.sendAttachment(
         jid: to,
@@ -3500,6 +3498,7 @@ class ChatApi {
         caption: attachment.caption,
         messageId: 0,
         isRestricted: restricted,
+        durationMs: durationMs ?? 0,
       );
     } on ApiException {
       rethrow;
@@ -3528,6 +3527,7 @@ class ChatApi {
     String originalSourceName = '',
     void Function(double progress)? onProgress,
     bool restricted = false,
+    int? durationMs,
   }) async {
     _validateJid(to);
     final source = File(path);
@@ -3556,6 +3556,7 @@ class ChatApi {
         originalSourceName: originalSourceName,
         onProgress: onProgress,
         restricted: restricted,
+        durationMs: durationMs,
       );
     }
 
@@ -3635,6 +3636,7 @@ class ChatApi {
         'original_sender_name': originalSenderName,
       if (originalSourceName.isNotEmpty)
         'original_source_name': originalSourceName,
+      if ((durationMs ?? 0) > 0) 'duration_ms': durationMs,
       'source_device': device.source,
       'source_name': sourceName,
     });
@@ -3647,6 +3649,7 @@ class ChatApi {
       caption: caption.trim(),
       messageId: int.tryParse((sent['message_id'] ?? '').toString()) ?? 0,
       isRestricted: restricted,
+      durationMs: durationMs ?? 0,
     );
   }
 
@@ -3669,6 +3672,7 @@ class ChatApi {
     String originalSourceName = '',
     void Function(double progress)? onProgress,
     bool restricted = false,
+    int? durationMs,
   }) async {
     var uploadBytes = Uint8List.fromList(bytes);
     var uploadName = name;
@@ -3765,6 +3769,7 @@ class ChatApi {
         'original_sender_name': originalSenderName,
       if (originalSourceName.isNotEmpty)
         'original_source_name': originalSourceName,
+      if ((durationMs ?? 0) > 0) 'duration_ms': durationMs,
       'source_device': device.platform,
       'source_name': sourceName,
     });
@@ -3776,6 +3781,7 @@ class ChatApi {
       size: uploadBytes.length,
       caption: caption.trim(),
       isRestricted: restricted,
+      durationMs: durationMs ?? 0,
       messageId: _jsonInt(sent['message_id']),
     );
   }

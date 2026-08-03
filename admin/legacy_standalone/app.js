@@ -1,20 +1,32 @@
-const state = { view: 'overview', q: '', modal: null };
+const appShell = document.querySelector('.app-shell');
+const state = { view: appShell?.dataset.initialView || 'overview', q: '', modal: null, locationRefreshTimer: null, locationRefreshEmpId: null, attendanceTimer: null, locationTimeline: [] };
+const LOCATION_REFRESH_MS = 5 * 60 * 1000;
 const csrf = document.querySelector('meta[name="flow-admin-csrf"]')?.content || '';
+function resolveApiUrl() {
+  if (appShell?.dataset.apiUrl) return appShell.dataset.apiUrl;
+  const path = window.location.pathname || '/';
+  if (path.includes('/admin') && !path.includes('/public')) return 'api.php?admin=1';
+  return '/api?admin=1';
+}
+const apiUrl = resolveApiUrl();
 const titles = {
   overview: ['Overview', 'Chat application control center'],
   users: ['Users', 'Employee access, presence and profile identity'],
   groups: ['Groups', 'Group list, members, wake-up and admin controls'],
   channels: ['Channels', 'Channel list, type, wake-up and admin controls'],
+  external_requests: ['External Requests', 'Approve external users for groups and channels'],
   messages: ['Messages', 'Latest chat history records'],
   attachments: ['Files', 'Uploaded images, documents, videos and voice files'],
   tasks: ['Tasks', 'MyHub task master records'],
   location: ['Location', 'Location visibility and presence policy'],
+  ai_access: ['AI API', 'AI API keys, user type access and daily usage limits'],
+  archive_storage: ['Archive Storage', 'Long-term archive providers, policies and jobs'],
   notifications: ['Notifications', 'Push queue and delivery status'],
   releases: ['Releases', 'Draft/live app release management'],
   diagnostics: ['Diagnostics', 'API, database and notification timings'],
   audit: ['Audit Log', 'All super-admin changes and security events'],
 };
-const destructiveActions = new Set(['delete_message', 'rollback_release', 'remove_member', 'set_user_status']);
+const destructiveActions = new Set(['delete_message', 'rollback_release', 'remove_member', 'set_user_status', 'delete_group_channel']);
 const actionLabels = {
   archive_channel: 'Archive',
   unarchive_channel: 'Unarchive',
@@ -24,6 +36,8 @@ const actionLabels = {
   approve_release: 'Approve Live',
   rollback_release: 'Rollback',
   update_user_password: 'Edit Password',
+  update_user_storage_limit: 'Storage Limit',
+  view_user: 'View/Edit',
   update_group: 'View/Edit',
 };
 
@@ -33,7 +47,7 @@ const modalTitle = document.getElementById('modalTitle');
 const modalFields = document.getElementById('modalFields');
 const modalSubmit = document.getElementById('modalSubmit');
 
-document.querySelectorAll('.nav-item').forEach((button) => {
+document.querySelectorAll('button.nav-item[data-view]').forEach((button) => {
   button.addEventListener('click', () => {
     document.querySelectorAll('.nav-item').forEach((item) => item.classList.remove('active'));
     button.classList.add('active');
@@ -57,6 +71,10 @@ actionModal?.addEventListener('submit', async (event) => {
   if (!state.modal) return;
   const form = new FormData(actionModal);
   const payload = Object.fromEntries(form.entries());
+  if (state.modal?.action === 'update_user_password' && payload.password != null && !String(payload.password).trim()) {
+    closeModal();
+    return;
+  }
   if (payload.password != null && !String(payload.password).trim()) {
     showNotice('Password cannot be empty.', true);
     return;
@@ -65,8 +83,10 @@ actionModal?.addEventListener('submit', async (event) => {
     showNotice('Name cannot be empty.', true);
     return;
   }
+  const modalAction = state.modal.action;
+  const basePayload = { ...state.modal.basePayload };
   closeModal();
-  await postAction(state.modal.action, { ...state.modal.basePayload, ...payload });
+  await postAction(modalAction, { ...basePayload, ...payload });
 });
 
 document.addEventListener('keydown', (event) => {
@@ -81,6 +101,77 @@ function debounce(fn, wait) {
   };
 }
 
+function stopAttendanceTimers() {
+  if (state.attendanceTimer) clearInterval(state.attendanceTimer);
+  state.attendanceTimer = null;
+}
+
+function formatDuration(totalSeconds) {
+  const seconds = Math.max(0, Math.floor(Number(totalSeconds) || 0));
+  const hours = Math.floor(seconds / 3600);
+  const minutes = Math.floor((seconds % 3600) / 60);
+  return [hours, minutes, seconds % 60].map((value) => String(value).padStart(2, '0')).join(':');
+}
+
+function startAttendanceTimers(container) {
+  stopAttendanceTimers();
+  const timers = [...container.querySelectorAll('[data-live-duration]')];
+  if (!timers.length) return;
+  state.attendanceTimer = setInterval(() => {
+    timers.forEach((timer) => {
+      timer.dataset.elapsed = String((Number(timer.dataset.elapsed) || 0) + 1);
+      timer.textContent = formatDuration(timer.dataset.elapsed);
+    });
+  }, 1000);
+}
+function stopUserLocationRefresh() {
+  stopAttendanceTimers();
+  if (state.locationRefreshTimer) clearInterval(state.locationRefreshTimer);
+  state.locationRefreshTimer = null;
+  state.locationRefreshEmpId = null;
+}
+
+function scheduleUserLocationRefresh(empId, container) {
+  stopUserLocationRefresh();
+  state.locationRefreshEmpId = String(empId);
+  state.locationRefreshTimer = setInterval(() => {
+    if (!container.isConnected || state.locationRefreshEmpId !== String(empId)) {
+      stopUserLocationRefresh();
+      return;
+    }
+    refreshUserLocation(empId, container, true);
+  }, LOCATION_REFRESH_MS);
+}
+
+async function refreshUserLocation(empId, container, silent = false) {
+  const button = container.querySelector('[data-location-refresh]');
+  if (button && !silent) {
+    button.disabled = true;
+    button.textContent = 'Refreshing...';
+  }
+  try {
+    const response = await fetch(`${apiUrl}&action=user_detail&id=${encodeURIComponent(empId)}`, { credentials: 'same-origin', headers: { Accept: 'application/json' } });
+    const data = await response.json();
+    if (!response.ok || data.status !== true) throw new Error(data.error || 'Unable to refresh location.');
+    const panel = container.querySelector('[data-location-panel]');
+    if (panel) {
+      panel.outerHTML = locationPanel(data.location || {}, empId);
+      wireUserLocationRefresh(container, empId);
+    }
+    if (!silent) showNotice('Latest location refreshed.');
+  } catch (error) {
+    if (!silent) showNotice(error.message, true);
+    if (button && !silent) {
+      button.disabled = false;
+      button.textContent = 'Refresh';
+    }
+  }
+}
+
+function wireUserLocationRefresh(container, empId) {
+  container.querySelector('[data-location-refresh]')?.addEventListener('click', () => refreshUserLocation(empId, container));
+  container.querySelector('[data-location-map]')?.addEventListener('click', () => openLocationMapModal());
+}
 function renderTitle() {
   const [title, subtitle] = titles[state.view] || titles.overview;
   document.getElementById('pageTitle').textContent = title;
@@ -88,14 +179,21 @@ function renderTitle() {
 }
 
 async function load() {
+  stopUserLocationRefresh();
   const content = document.getElementById('content');
   content.innerHTML = '<div class="empty">Loading...</div>';
   const params = new URLSearchParams({ action: state.view });
   if (state.q) params.set('q', state.q);
   try {
-    const response = await fetch(`api.php?${params.toString()}`, { credentials: 'same-origin' });
-    const data = await response.json();
-    if (!response.ok || data.status !== true) throw new Error(data.error || 'Unable to load admin data.');
+    const response = await fetch(`${apiUrl}&${params.toString()}`, { credentials: 'same-origin', headers: { Accept: 'application/json' } });
+    const raw = await response.text();
+    let data;
+    try {
+      data = JSON.parse(raw);
+    } catch (parseError) {
+      throw new Error(raw.trim().startsWith('<') ? 'Admin session expired or server returned an HTML page. Please refresh and sign in again.' : (raw.trim() || 'Admin API returned invalid JSON.'));
+    }
+    if (!response.ok || data.status !== true) throw new Error(data.error || `Unable to load admin data. HTTP ${response.status}`);
     render(data);
   } catch (error) {
     content.innerHTML = `<div class="empty">${escapeHtml(error.message)}</div>`;
@@ -105,10 +203,338 @@ async function load() {
 function render(data) {
   if (state.view === 'overview') return renderOverview(data);
   const rows = data.rows || [];
+  if (state.view === 'users') return renderUserMasterDetail(rows);
+  if (state.view === 'ai_access') return renderAiAccess(data);
+  if (state.view === 'archive_storage') return renderArchiveStorage(data);
+  if (['groups', 'channels'].includes(state.view)) return renderGroupMasterDetail(rows);
+  if (state.view === 'external_requests') return renderExternalRequests(rows);
   document.getElementById('content').innerHTML = `<section class="card"><div class="card-head"><h2>${escapeHtml(titles[state.view][0])}</h2><span>${rows.length} records</span></div>${table(rows)}</section>`;
   wireActions();
 }
 
+function renderExternalRequests(rows) {
+  document.getElementById('content').innerHTML = '<section class="card external-requests-card"><div class="card-head"><h2>External User Requests</h2><span>' + escapeHtml(rows.length) + ' requests</span></div>' + externalRequestsHtml(rows) + '</section>';
+  wireExternalRequestActions();
+}
+
+function externalRequestsHtml(rows) {
+  if (!rows.length) return '<div class="empty">No external user requests found.</div>';
+  return '<div class="external-request-list">' + rows.map((row) => {
+    const status = String(row.status || 'pending').toLowerCase();
+    const actions = status === 'pending' ? '<button class="row-action" type="button" data-external-approve="' + escapeHtml(row.id) + '">Approve</button><button class="row-action danger" type="button" data-external-reject="' + escapeHtml(row.id) + '">Reject</button>' : '<small>Reviewed ' + escapeHtml(row.reviewed_at || '-') + '</small>';
+    return '<article class="external-request-row ' + escapeHtml(status) + '"><div><strong>' + escapeHtml(row.display_name || 'External user') + ' <span class="pill external-pill">External</span></strong><span>' + escapeHtml(row.room_name || 'Group/channel') + ' - ' + escapeHtml(row.delivery_channels || '-') + '</span><small>' + escapeHtml(row.email || row.whatsapp_number || row.telegram_username || row.phone || '-') + '</small>' + (row.reason ? '<small>Reason: ' + escapeHtml(row.reason) + '</small>' : '') + '</div><div><span class="pill">' + escapeHtml(row.status || 'pending') + '</span><small>Requested by ' + escapeHtml(row.requested_by_emp_id || '-') + ' on ' + escapeHtml(row.created_at || '-') + '</small>' + (row.mention_token ? '<small>' + escapeHtml(row.mention_token) + '</small>' : '') + '</div><div class="external-request-actions">' + actions + '</div></article>';
+  }).join('') + '</div>';
+}
+
+function wireExternalRequestActions() {
+  document.querySelectorAll('[data-external-approve]').forEach((button) => {
+    button.addEventListener('click', async () => {
+      await postAction('approve_external_request', { request_id: button.dataset.externalApprove }, { reload: true });
+    });
+  });
+  document.querySelectorAll('[data-external-reject]').forEach((button) => {
+    button.addEventListener('click', async () => {
+      if (!confirm('Reject this external user request?')) return;
+      await postAction('reject_external_request', { request_id: button.dataset.externalReject }, { reload: true });
+    });
+  });
+}
+
+function renderAiAccess(data) {
+  const providers = data.providers || [];
+  const rules = data.rules || [];
+  const users = data.users || [];
+  document.getElementById('content').innerHTML = `
+    <section class="ai-access-grid">
+      <section class="card ai-provider-card">
+
+        <div class="card-head"><h2>AI API Keys</h2><span>${escapeHtml(providers.length)} configured</span></div>
+
+        <form id="aiProviderForm" class="admin-form-grid">
+
+          <input name="id" type="hidden">
+
+          <label>Title<input name="provider_name" placeholder="Operations GPT / Gemini Search / Claude Desk" required></label>
+
+          <label>AI Name<select name="api_type" required><option value="openai">OpenAI</option><option value="gemini">Gemini</option><option value="claude">Claude</option><option value="perplexity">Perplexity</option><option value="custom">Custom</option></select></label>
+
+          <label>Model<input name="model_name" placeholder="gpt-4.1, gemini... "></label>
+
+          <label>Endpoint<input name="api_endpoint" placeholder="https://..."></label>
+
+          <label class="wide">API Key<input name="api_key" type="password" placeholder="Enter new key to save or replace"></label>
+
+          <label>Status<select name="status"><option value="1">Active</option><option value="0">Inactive</option></select></label>
+
+          <label class="wide">Other Details<textarea name="notes" rows="3" placeholder="Usage notes, owner, billing, scope"></textarea></label>
+
+          <button type="submit">Save AI API</button>
+
+        </form>
+
+        <div class="table-wrap ai-table"><table><thead><tr><th>Title</th><th>AI Name</th><th>Model</th><th>Key</th><th>Status</th><th>Action</th></tr></thead><tbody>${providers.map((provider) => `
+
+          <tr>
+
+            <td>${escapeHtml(provider.provider_name || '-')}</td>
+
+            <td>${escapeHtml(provider.api_type || '-')}</td>
+
+            <td>${escapeHtml(provider.model_name || '-')}</td>
+
+            <td>${escapeHtml(provider.api_key_masked || '-')}</td>
+
+            <td><span class="pill">${Number(provider.status || 0) === 1 ? 'Active' : 'Inactive'}</span></td>
+
+            <td><button class="row-action" type="button" data-ai-edit="${escapeHtml(provider.id)}" data-row="${escapeHtml(JSON.stringify(provider))}">Edit</button></td>
+
+          </tr>`).join('') || '<tr><td colspan="6">No AI APIs configured.</td></tr>'}</tbody></table></div>
+      </section>
+
+    </section>
+    <section class="card ai-users-card">
+      <div class="card-head"><h2>AI Users Access</h2><span>${escapeHtml(users.length)} users</span></div>
+      <div class="table-wrap ai-users-table"><table><thead><tr><th>User</th><th>Type</th><th>Access</th><th>Assigned AI Keys</th><th>Daily Tokens</th><th>Daily Searches</th><th>Status</th><th>Updated</th></tr></thead><tbody>${users.map((user) => `
+
+        <tr>
+
+          <td><strong>${escapeHtml(user.name || ('Employee ' + user.emp_id))}</strong><small>${escapeHtml(user.emp_id || '-')} - ${escapeHtml(user.designation || '-')}</small></td>
+
+          <td><span class="pill">${escapeHtml(user.employee_type || '-')}</span></td>
+
+          <td>${escapeHtml(user.access_mode || 'none')}</td>
+
+          <td>${escapeHtml(user.ai_keys || 'No key assigned')}</td>
+
+          <td>${escapeHtml(user.daily_token_limit || 0)}</td>
+
+          <td>${escapeHtml(user.daily_search_limit || 0)}</td>
+
+          <td><span class="pill">${user.enabled === false ? 'Disabled' : 'Enabled'}</span></td>
+
+          <td>${escapeHtml(user.updated_at || 'Type rule')}</td>
+
+        </tr>`).join('') || '<tr><td colspan="8">No AI users found. Assign AI keys to Type A/B users or user detail records.</td></tr>'}</tbody></table></div>
+    </section>
+  `;
+  wireAiAccessForms();
+}
+function renderArchiveStorage(data) {
+  const providers = data.providers || [];
+  const policies = data.policies || [];
+  const jobs = data.jobs || [];
+  const items = data.items || [];
+  const catalog = data.catalog || [];
+  const metrics = data.metrics || {};
+  const providerOptions = providers.map((provider) => `<option value="${escapeHtml(provider.id)}">${escapeHtml(provider.provider_name || ('Provider ' + provider.id))}</option>`).join('');
+  const catalogOptions = catalog.map((provider) => `<option value="${escapeHtml(provider.provider_key)}">${escapeHtml(provider.label || provider.provider_key)}</option>`).join('');
+  document.getElementById('content').innerHTML = `
+    <section class="metrics">
+      ${Object.entries(metrics).map(([key, value]) => `<div class="metric"><span>${label(key)}</span><strong>${escapeHtml(value)}</strong></div>`).join('')}
+    </section>
+    <section class="ai-access-grid archive-grid">
+      <section class="card ai-provider-card">
+        <div class="card-head"><h2>Storage Providers</h2><span>${escapeHtml(providers.length)} configured</span></div>
+        <form id="archiveProviderForm" class="admin-form-grid">
+          <input name="id" type="hidden">
+          <label>Provider title<input name="provider_name" placeholder="Flow Google Drive Archive" required></label>
+          <label>Storage provider<select name="provider_key" required>${catalogOptions}</select></label>
+          <label>OAuth client ID<input name="oauth_client_id" placeholder="Google OAuth client id"></label>
+          <label>OAuth client secret<input name="oauth_client_secret" type="password" placeholder="Enter new secret only when updating"></label>
+          <label class="wide">OAuth redirect URI<input name="oauth_redirect_uri" placeholder="https://chat.skylinkonline.net/admin/?module=archive_storage"></label>
+          <label class="wide">OAuth scope<input name="oauth_scope" value="https://www.googleapis.com/auth/drive.file https://www.googleapis.com/auth/drive.readonly"></label>
+          <label>Root folder ID<input name="root_folder_id" placeholder="Optional existing folder id"></label>
+          <label>Root folder path<input name="root_folder_path" placeholder="Flow Archive"></label>
+          <label>Status<select name="status"><option value="1">Active</option><option value="0">Inactive</option></select></label>
+          <label>Storage limit bytes<input name="storage_limit_bytes" type="number" min="0" placeholder="0 = unlimited"></label>
+          <label class="wide">Provider config JSON<textarea name="config_json" rows="3" placeholder='{"compress":true,"retention_label":"archive"}'></textarea></label>
+          <button type="submit">Save Storage Provider</button>
+        </form>
+        <form id="archiveOauthForm" class="admin-form-grid archive-oauth-form">
+          <label>Provider<select name="provider_id" required><option value="">Choose provider</option>${providerOptions}</select></label>
+          <label class="wide">OAuth authorization code<input name="oauth_code" placeholder="Paste Google OAuth code to complete connection"></label>
+          <button type="submit">Complete Google OAuth</button>
+        </form>
+        <div class="table-wrap ai-table"><table><thead><tr><th>Provider</th><th>Type</th><th>Root</th><th>Storage</th><th>Status</th><th>Action</th></tr></thead><tbody>${providers.map((provider) => `
+          <tr>
+            <td><strong>${escapeHtml(provider.provider_name || '-')}</strong><small>${escapeHtml(provider.oauth_client_id || '-')}</small></td>
+            <td>${escapeHtml(provider.provider_key || '-')}</td>
+            <td>${escapeHtml(provider.root_folder_path || provider.root_folder_id || '-')}</td>
+            <td>${escapeHtml(provider.used_bytes || 0)} / ${escapeHtml(provider.storage_limit_bytes || 0)}</td>
+            <td><span class="pill">${Number(provider.status || 0) === 1 ? 'Active' : 'Inactive'}</span></td>
+            <td><button class="row-action" type="button" data-archive-provider-edit="${escapeHtml(provider.id)}" data-row="${escapeHtml(JSON.stringify(provider))}">Edit</button></td>
+          </tr>`).join('') || '<tr><td colspan="6">No archive providers configured.</td></tr>'}</tbody></table></div>
+      </section>
+      <section class="card ai-provider-card">
+        <div class="card-head"><h2>Archive Policies</h2><span>${escapeHtml(policies.length)} policies</span></div>
+        <form id="archivePolicyForm" class="admin-form-grid">
+          <input name="id" type="hidden">
+          <label>Policy name<input name="policy_name" placeholder="Archive closed operational channels after 180 days" required></label>
+          <label>Provider<select name="provider_id" required><option value="">Choose provider</option>${providerOptions}</select></label>
+          <label>Module type<select name="module_type"><option value="channel">Channel</option><option value="group">Group</option><option value="dm">DM</option><option value="ticket">Ticket</option><option value="task">Task</option><option value="project">Project</option><option value="installation">Installation</option></select></label>
+          <label>Trigger mode<select name="trigger_mode"><option value="inactive_days">Inactive days</option><option value="closed_status">Closed status</option><option value="employee_terminated">Employee terminated</option><option value="project_closure">Project closure</option></select></label>
+          <label>Inactive days<input name="inactivity_days" type="number" min="0" value="90"></label>
+          <label>Archive after status<input name="archive_after_status" placeholder="Closed / Cancelled / Completed"></label>
+          <label>Compression<select name="compression_mode"><option value="gzip">gzip</option><option value="none">none</option></select></label>
+          <label>Enabled<select name="enabled"><option value="1">Enabled</option><option value="0">Disabled</option></select></label>
+          <label class="wide">Filter JSON<textarea name="filter_json" rows="2" placeholder='{"channel_kind":"operational","priority":["high","critical"]}'></textarea></label>
+          <label>Include attachments<select name="include_attachments"><option value="1">Yes</option><option value="0">No</option></select></label>
+          <label>Include media<select name="include_media"><option value="1">Yes</option><option value="0">No</option></select></label>
+          <label>Include manifest<select name="include_manifest"><option value="1">Yes</option><option value="0">No</option></select></label>
+          <label>Schedule cron<input name="schedule_cron" placeholder="0 2 * * *"></label>
+          <button type="submit">Save Archive Policy</button>
+        </form>
+        <div class="table-wrap"><table><thead><tr><th>Policy</th><th>Module</th><th>Trigger</th><th>Days</th><th>Status</th></tr></thead><tbody>${policies.map((policy) => `
+          <tr>
+            <td><strong>${escapeHtml(policy.policy_name || '-')}</strong><small>${escapeHtml(policy.provider_name || '-')}</small></td>
+            <td>${escapeHtml(policy.module_type || '-')}</td>
+            <td>${escapeHtml(policy.trigger_mode || '-')}</td>
+            <td>${escapeHtml(policy.inactivity_days || 0)}</td>
+            <td><span class="pill">${Number(policy.enabled || 0) === 1 ? 'Enabled' : 'Disabled'}</span></td>
+          </tr>`).join('') || '<tr><td colspan="5">No archive policies configured.</td></tr>'}</tbody></table></div>
+      </section>
+      <section class="card ai-provider-card">
+        <div class="card-head"><h2>Archive Jobs</h2><span>${escapeHtml(jobs.length)} jobs</span></div>
+        <form id="archiveJobForm" class="admin-form-grid">
+          <label>Provider<select name="provider_id" required><option value="">Choose provider</option>${providerOptions}</select></label>
+          <label>Policy<select name="policy_id"><option value="">Manual job</option>${policies.map((policy) => `<option value="${escapeHtml(policy.id)}">${escapeHtml(policy.policy_name)}</option>`).join('')}</select></label>
+          <label>Module type<select name="module_type"><option value="channel">Channel</option><option value="group">Group</option><option value="dm">DM</option><option value="ticket">Ticket</option><option value="task">Task</option></select></label>
+          <label>Entity ID<input name="entity_id" placeholder="Numeric id or business id" required></label>
+          <label>Entity label<input name="entity_label" placeholder="Customer escalation channel"></label>
+          <label>Conversation JID<input name="conversation_jid" placeholder="room@conference.chat.skylinkonline.net"></label>
+          <label>Scheduled at<input name="scheduled_at" placeholder="YYYY-MM-DD HH:MM:SS"></label>
+          <button type="submit">Queue Archive Job</button>
+        </form>
+        <div class="table-wrap"><table><thead><tr><th>Conversation</th><th>Provider</th><th>Status</th><th>Messages</th><th>Bytes</th><th>When</th></tr></thead><tbody>${jobs.map((job) => `
+          <tr>
+            <td><strong>${escapeHtml(job.entity_label || job.entity_id || '-')}</strong><small>${escapeHtml(job.conversation_jid || '-')}</small></td>
+            <td>${escapeHtml(job.provider_name || '-')}</td>
+            <td><span class="pill">${escapeHtml(job.status || '-')}</span></td>
+            <td>${escapeHtml(job.message_count || 0)} / ${escapeHtml(job.attachment_count || 0)}</td>
+            <td>${escapeHtml(job.bytes_uploaded || 0)}</td>
+            <td>${escapeHtml(job.scheduled_at || job.created_at || '-')}</td>
+          </tr>`).join('') || '<tr><td colspan="6">No archive jobs queued yet.</td></tr>'}</tbody></table></div>
+      </section>
+      <section class="card ai-users-card">
+        <div class="card-head"><h2>Archived Items</h2><span>${escapeHtml(items.length)} archived</span></div>
+        <div class="table-wrap"><table><thead><tr><th>Conversation</th><th>Type</th><th>Archived</th><th>Path</th><th>Summary</th></tr></thead><tbody>${items.map((item) => `
+          <tr>
+            <td><strong>${escapeHtml(item.entity_label || item.entity_id || '-')}</strong><small>${escapeHtml(item.conversation_jid || '-')}</small></td>
+            <td><span class="pill">${escapeHtml(item.module_type || '-')}</span></td>
+            <td>${escapeHtml(item.archived_at || '-')}</td>
+            <td>${escapeHtml(item.provider_path || '-')}</td>
+            <td>${escapeHtml(item.summary_text || '-')}</td>
+          </tr>`).join('') || '<tr><td colspan="5">No archived items available yet.</td></tr>'}</tbody></table></div>
+      </section>
+    </section>`;
+  wireArchiveStorageForms();
+}
+
+function wireArchiveStorageForms() {
+  document.getElementById('archiveProviderForm')?.addEventListener('submit', async (event) => {
+    event.preventDefault();
+    const form = new FormData(event.currentTarget);
+    await postAction('save_archive_provider', Object.fromEntries(form.entries()));
+  });
+  document.getElementById('archiveOauthForm')?.addEventListener('submit', async (event) => {
+    event.preventDefault();
+    const form = new FormData(event.currentTarget);
+    await postAction('exchange_archive_google_code', Object.fromEntries(form.entries()));
+  });
+  document.getElementById('archivePolicyForm')?.addEventListener('submit', async (event) => {
+    event.preventDefault();
+    const form = new FormData(event.currentTarget);
+    await postAction('save_archive_policy', Object.fromEntries(form.entries()));
+  });
+  document.getElementById('archiveJobForm')?.addEventListener('submit', async (event) => {
+    event.preventDefault();
+    const form = new FormData(event.currentTarget);
+    await postAction('queue_archive_job', Object.fromEntries(form.entries()));
+  });
+  document.querySelectorAll('[data-archive-provider-edit]').forEach((button) => {
+    button.addEventListener('click', () => {
+      const row = JSON.parse(button.dataset.row || '{}');
+      const form = document.getElementById('archiveProviderForm');
+      const oauthForm = document.getElementById('archiveOauthForm');
+      if (!form) return;
+      ['id','provider_name','provider_key','oauth_client_id','oauth_redirect_uri','oauth_scope','root_folder_id','root_folder_path','status','storage_limit_bytes'].forEach((key) => {
+        if (form.elements[key]) form.elements[key].value = row[key] ?? '';
+      });
+      if (form.elements.config_json) form.elements.config_json.value = row.config_json ? JSON.stringify(row.config_json, null, 2) : '';
+      if (form.elements.oauth_client_secret) form.elements.oauth_client_secret.value = '';
+      if (oauthForm?.elements.provider_id) oauthForm.elements.provider_id.value = row.id ?? '';
+      form.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    });
+  });
+}
+function aiRuleForm(rule, providers) {
+  const type = rule.employee_type || 'C1';
+  const selected = new Set(String(rule.provider_ids || '').split(',').filter(Boolean));
+  const options = providers.map((provider) => `<option value="${escapeHtml(provider.id)}" ${selected.has(String(provider.id)) ? 'selected' : ''}>${escapeHtml(provider.provider_name || provider.id)}</option>`).join('');
+  return `<form class="ai-rule-form" data-ai-rule>
+    <input name="employee_type" type="hidden" value="${escapeHtml(type)}">
+    <div><strong>Type ${escapeHtml(type)}</strong><small>${type === 'A' ? 'Multiple AI access' : type === 'B' ? 'One AI access' : 'No AI by default'}</small></div>
+    <label>Access<select name="access_mode"><option value="none" ${rule.access_mode === 'none' ? 'selected' : ''}>No access</option><option value="single" ${rule.access_mode === 'single' ? 'selected' : ''}>Single AI</option><option value="multiple" ${rule.access_mode === 'multiple' ? 'selected' : ''}>Multiple AI</option></select></label>
+    <label>Assigned AI Keys<select name="provider_ids" multiple size="4">${options}</select></label>
+    <label>Daily tokens<input name="daily_token_limit" type="number" min="0" value="${escapeHtml(rule.daily_token_limit || 0)}"></label>
+    <label>Daily searches<input name="daily_search_limit" type="number" min="0" value="${escapeHtml(rule.daily_search_limit || 0)}"></label>
+    <button type="submit">Save Rule</button>
+  </form>`;
+}
+
+function wireAiAccessForms() {
+  document.getElementById('aiProviderForm')?.addEventListener('submit', async (event) => {
+    event.preventDefault();
+    const form = new FormData(event.currentTarget);
+    await postAction('save_ai_provider', Object.fromEntries(form.entries()));
+  });
+  document.querySelectorAll('[data-ai-edit]').forEach((button) => {
+    button.addEventListener('click', () => {
+      const row = JSON.parse(button.dataset.row || '{}');
+      const form = document.getElementById('aiProviderForm');
+      if (!form) return;
+      ['id','provider_name','api_type','model_name','api_endpoint','status','notes'].forEach((key) => { if (form.elements[key]) form.elements[key].value = row[key] ?? ''; });
+      if (form.elements.api_key) form.elements.api_key.value = '';
+      form.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    });
+  });
+  document.querySelectorAll('[data-ai-rule]').forEach((form) => {
+    form.addEventListener('submit', async (event) => {
+      event.preventDefault();
+      const fd = new FormData(form);
+      const providers = [...form.querySelector('select[name="provider_ids"]')?.selectedOptions || []].map((option) => option.value).join(',');
+      await postAction('save_ai_type_rule', { ...Object.fromEntries(fd.entries()), provider_ids: providers });
+    });
+  });
+}
+
+function aiAccessPanel(access, empId = '') {
+  const providers = access.providers || [];
+  const available = access.available_providers || providers;
+  const selected = new Set(String(access.provider_ids || '').split(',').filter(Boolean));
+  const providerText = providers.length ? providers.map((item) => item.provider_name || item.id).join(', ') : 'No AI access';
+  const options = available.map((provider) => `<option value="${escapeHtml(provider.id)}" ${selected.has(String(provider.id)) ? 'selected' : ''}>${escapeHtml(provider.provider_name || provider.id)} - ${escapeHtml(provider.api_type || 'AI')}</option>`).join('');
+  return `<section class="detail-panel ai-user-panel">
+    <div class="members-head"><h4>AI Access</h4><span>${escapeHtml(access.enabled === false ? 'Disabled' : 'Enabled')}</span></div>
+    <div class="attendance-grid">
+      ${detailMini('Type', access.employee_type || '-')}
+      ${detailMini('Mode', access.access_mode || 'none')}
+      ${detailMini('AI Keys', providerText)}
+      ${detailMini('Daily Tokens', access.daily_token_limit || 0)}
+      ${detailMini('Daily Searches', access.daily_search_limit || 0)}
+      ${detailMini('Updated', access.updated_at || '-')}
+    </div>
+    <form class="ai-user-form" data-ai-user-access>
+      <label>Employee Type<select name="employee_type_override"><option value="">Use employee type</option>${['A','B','C1','C2'].map((type) => `<option value="${type}" ${access.employee_type === type ? 'selected' : ''}>${type}</option>`).join('')}</select></label>
+      <label>Access<select name="access_mode"><option value="">Use type rule</option><option value="none" ${access.access_mode === 'none' ? 'selected' : ''}>No access</option><option value="single" ${access.access_mode === 'single' ? 'selected' : ''}>Single AI</option><option value="multiple" ${access.access_mode === 'multiple' ? 'selected' : ''}>Multiple AI</option></select></label>
+      <label>Assign AI Keys<select name="provider_ids" multiple size="4">${options}</select></label>
+      <label>Daily tokens<input name="daily_token_limit" type="number" min="0" value="${escapeHtml(access.daily_token_limit || '')}" placeholder="Use type limit"></label>
+      <label>Daily searches<input name="daily_search_limit" type="number" min="0" value="${escapeHtml(access.daily_search_limit || '')}" placeholder="Use type limit"></label>
+      <label>Enabled<select name="enabled"><option value="1" ${access.enabled === false ? '' : 'selected'}>Enabled</option><option value="0" ${access.enabled === false ? 'selected' : ''}>Disabled</option></select></label>
+      <button class="secondary" type="button" data-ai-user-save data-emp-id="${escapeHtml(empId || '')}">Save AI Access</button>
+    </form>
+  </section>`;
+}
 function renderOverview(data) {
   const metrics = data.metrics || {};
   const metricHtml = Object.entries(metrics).map(([key, value]) => `
@@ -121,6 +547,126 @@ function renderOverview(data) {
   wireActions();
 }
 
+function renderUserMasterDetail(rows) {
+  const content = document.getElementById('content');
+  content.innerHTML = `
+    <section class="master-detail-shell">
+      <aside class="master-list-panel">
+
+        <div class="master-head"><h2>Users</h2><span>${escapeHtml(rows.length)} records</span></div>
+
+        <div class="master-list">${rows.length ? rows.map(userMasterItem).join('') : '<div class="empty compact">No users found.</div>'}</div>
+      </aside>
+      <section id="detailPane" class="detail-pane"><div class="empty">Select a user to view and edit details.</div></section>
+    </section>
+  `;
+  document.querySelectorAll('.master-item[data-user-id]').forEach((button) => {
+    button.addEventListener('click', () => selectMasterItem(button, () => openUserInline(button.dataset.userId)));
+  });
+  document.querySelector('.master-item[data-user-id]')?.click();
+}
+
+function userMasterItem(row) {
+  const name = row.name || row.username || `Employee ${row.emp_id}`;
+  const designation = row.designation || 'No designation';
+  return `<button class="master-item" type="button" data-user-id="${escapeHtml(row.emp_id)}">
+    <span class="master-title">${escapeHtml(name)}</span>
+    <span class="master-subtitle">${escapeHtml(designation)}</span>
+    <span class="master-badge">${escapeHtml(row.status || '-')}</span>
+  </button>`;
+}
+
+function renderGroupMasterDetail(rows) {
+  const content = document.getElementById('content');
+  const title = state.view === 'channels' ? 'Channels' : 'Groups';
+  content.innerHTML = `
+    <section class="master-detail-shell">
+      <aside class="master-list-panel">
+
+        <div class="master-head"><h2>${title}</h2><span>${escapeHtml(rows.length)} records</span></div>
+
+        <div class="master-list">${rows.length ? rows.map(groupMasterItem).join('') : '<div class="empty compact">No records found.</div>'}</div>
+      </aside>
+      <section id="detailPane" class="detail-pane"><div class="empty">Select a ${state.view === 'channels' ? 'channel' : 'group'} to view and edit details.</div></section>
+    </section>
+  `;
+  document.querySelectorAll('.master-item[data-group-id]').forEach((button) => {
+    button.addEventListener('click', () => selectMasterItem(button, () => openGroupInline(button.dataset.groupId)));
+  });
+  document.querySelector('.master-item[data-group-id]')?.click();
+}
+
+function groupMasterItem(row) {
+  const kind = row.channel_kind || row.group_type || 'group';
+  return `<button class="master-item" type="button" data-group-id="${escapeHtml(row.id)}">
+    <span class="master-title">${escapeHtml(row.room_name || '-')}</span>
+    <span class="master-subtitle">${escapeHtml(kind)}</span>
+    <span class="master-badge">${escapeHtml(row.members || 0)} members</span>
+  </button>`;
+}
+
+function selectMasterItem(button, callback) {
+  document.querySelectorAll('.master-item').forEach((item) => item.classList.remove('active'));
+  button.classList.add('active');
+  callback();
+}
+
+async function openUserInline(empId) {
+  const pane = document.getElementById('detailPane');
+  if (!pane) return openUserDetailModal(empId);
+  pane.innerHTML = '<div class="empty">Loading user information...</div>';
+  try {
+    const response = await fetch(`${apiUrl}&action=user_detail&id=${encodeURIComponent(empId)}`, { credentials: 'same-origin', headers: { Accept: 'application/json' } });
+    const data = await response.json();
+    if (!response.ok || data.status !== true) throw new Error(data.error || 'Unable to load user details.');
+    pane.innerHTML = `<form id="inlineUserForm" class="inline-detail-form">${userDetailHtml(data)}<footer class="inline-actions"><button class="secondary" type="button" id="clearPasswordBtn">Clear</button><button type="submit">Save User</button></footer></form>`;
+    wireUserMembershipLinks(pane);
+    wireUserLocationRefresh(pane, empId);
+    wireUserStorageLimit(pane, empId);
+    wireEmployeeType(pane, empId);
+    wireUserAiAccess(pane, empId);
+    scheduleUserLocationRefresh(empId, pane);
+    startAttendanceTimers(pane);
+    document.getElementById('clearPasswordBtn')?.addEventListener('click', () => {
+      const input = pane.querySelector('input[name="password"]');
+      if (input) input.value = '';
+    });
+    document.getElementById('inlineUserForm')?.addEventListener('submit', async (event) => {
+      event.preventDefault();
+      const password = pane.querySelector('input[name="password"]')?.value.trim() || '';
+      if (!password) { showNotice('No password change entered.', true); return; }
+      await postAction('update_user_password', { id: empId, password });
+    });
+  } catch (error) {
+    pane.innerHTML = `<div class="empty">${escapeHtml(error.message)}</div>`;
+  }
+}
+
+async function openGroupInline(groupId) {
+  stopUserLocationRefresh();
+  const pane = document.getElementById('detailPane');
+  if (!pane) return openGroupDetailModal(groupId);
+  pane.innerHTML = '<div class="empty">Loading group information...</div>';
+  try {
+    const response = await fetch(`${apiUrl}&action=group_detail&id=${encodeURIComponent(groupId)}`, { credentials: 'same-origin', headers: { Accept: 'application/json' } });
+    const data = await response.json();
+    if (!response.ok || data.status !== true) throw new Error(data.error || 'Unable to load group details.');
+    pane.innerHTML = `<form id="inlineGroupForm" class="inline-detail-form">${groupDetailHtml(data)}<footer class="inline-actions"><button class="danger" type="button" data-delete-group>Delete</button><button type="submit">Save Group</button></footer></form>`;
+    wireGroupMemberActions(groupId, pane, true);
+    wireGroupAiAccess(groupId, pane, true);
+    wireGroupDelete(groupId, pane, true);
+    document.getElementById('inlineGroupForm')?.addEventListener('submit', async (event) => {
+      event.preventDefault();
+      const form = new FormData(event.currentTarget);
+      const payload = Object.fromEntries(form.entries());
+      payload.wakeup_enabled = form.has('wakeup_enabled') ? '1' : '0';
+      payload.is_archived = form.has('is_archived') ? '1' : '0';
+      await postAction('update_group', { id: groupId, ...payload });
+    });
+  } catch (error) {
+    pane.innerHTML = `<div class="empty">${escapeHtml(error.message)}</div>`;
+  }
+}
 function table(rows) {
   if (!rows.length) return '<div class="empty">No records found.</div>';
   const keys = Object.keys(rows[0]).filter((key) => key !== 'admin_action' && key !== 'department').slice(0, 10);
@@ -151,6 +697,8 @@ function wireActions() {
 }
 
 function openActionModal(action, id, row, labelText, danger) {
+  if (action === 'view_user') { openUserDetailModal(id); return; }
+  if (action === 'update_group') { openGroupDetailModal(id); return; }
   const title = action === 'update_group' ? 'Edit Group / Channel' : action === 'update_user_password' ? 'Edit User Password' : labelText;
   modalTitle.textContent = title;
   modalSubmit.textContent = danger ? 'Confirm' : action.startsWith('update_') ? 'Save' : 'Run Action';
@@ -172,12 +720,15 @@ function openActionModal(action, id, row, labelText, danger) {
   } else {
     modalFields.innerHTML = `
       <div class="confirm-panel ${danger ? 'danger' : ''}">
+
         <strong>${escapeHtml(labelText)} record ${escapeHtml(id)}</strong>
+
         <span>This operation will be recorded in the admin audit log.</span>
       </div>
     `;
   }
 
+  document.body.classList.add('modal-open');
   modalBackdrop.classList.remove('hidden');
   setTimeout(() => modalFields.querySelector('input:not([disabled])')?.focus(), 0);
 }
@@ -185,27 +736,768 @@ function openActionModal(action, id, row, labelText, danger) {
 function closeModal() {
   if (!modalBackdrop) return;
   modalBackdrop.classList.add('hidden');
+  document.body.classList.remove('modal-open');
+  actionModal?.classList.remove('modal-wide', 'user-detail-modal', 'group-detail-modal', 'location-map-modal');
+  stopUserLocationRefresh();
   state.modal = null;
   modalSubmit?.classList.remove('danger');
+  if (modalSubmit) modalSubmit.style.display = '';
 }
 
-async function postAction(action, payload) {
+
+async function openGroupDetailModal(groupId) {
+  modalTitle.textContent = 'Group / Channel Details';
+  modalSubmit.textContent = 'Save Group';
+  modalSubmit.classList.remove('danger');
+  actionModal.classList.add('modal-wide', 'user-detail-modal', 'group-detail-modal');
+  document.body.classList.add('modal-open');
+  state.modal = { action: 'update_group', basePayload: { id: groupId } };
+  modalFields.innerHTML = '<div class="empty">Loading group information...</div>';
+  modalBackdrop.classList.remove('hidden');
+
+  try {
+    const response = await fetch(`${apiUrl}&action=group_detail&id=${encodeURIComponent(groupId)}`, { credentials: 'same-origin', headers: { Accept: 'application/json' } });
+    const data = await response.json();
+    if (!response.ok || data.status !== true) throw new Error(data.error || 'Unable to load group details.');
+    modalFields.innerHTML = groupDetailHtml(data);
+    wireGroupMemberActions(groupId);
+    wireGroupAiAccess(groupId);
+    wireGroupDelete(groupId);
+  } catch (error) {
+    modalFields.innerHTML = `<div class="empty">${escapeHtml(error.message)}</div>`;
+  }
+}
+
+function groupDetailHtml(data) {
+  const group = data.group || {};
+  const stats = data.stats || {};
+  const members = data.members || [];
+  const externalMembers = data.external_members || [];
+  const wakeup = data.wakeup || {};
+  const channelTypes = data.channel_types || [];
+  const aiRoomAccess = data.ai_room_access || {};
+  const type = group.group_type || group.channel_kind || 'group';
+  return `
+    <div class="user-detail-scroll group-detail-scroll">
+      <section class="user-hero">
+
+        <div class="avatar-large">${escapeHtml(String(group.room_name || 'G').charAt(0) || 'G')}</div>
+
+        <div class="user-hero-main">
+
+          <span class="eyebrow">${escapeHtml(type)} #${escapeHtml(group.id || '-')}</span>
+
+          <h3>${escapeHtml(group.room_name || '-')}</h3>
+
+          <p>${escapeHtml(group.room_jid || '-')}</p>
+
+        </div>
+
+        <div class="user-hero-side">
+
+          <span class="pill">${Number(group.is_archived || 0) === 1 ? 'Archived' : 'Active'}</span>
+
+          <strong>${escapeHtml(group.created_at || '-')}</strong>
+
+          <small>Created</small>
+
+        </div>
+      </section>
+
+      <section class="detail-metrics">
+
+        ${metricCard('Members', stats.members || 0, 'Flow users')}
+
+        ${metricCard('Owners', stats.owners || 0, 'Owner role')}
+        ${metricCard('Admins', stats.admins || 0, 'Admin role')}
+
+        ${metricCard('External', stats.external_members || 0, 'Mention-only')}
+
+        ${metricCard('Messages', stats.messages || 0, 'Group messages')}
+
+        ${metricCard('Files', stats.files || 0, 'Shared files')}
+
+        ${metricCard('Images', stats.images || 0, 'Shared images')}
+      </section>
+
+      <section class="detail-grid">
+
+        <div class="detail-panel">
+
+          <h4>Edit Details</h4>
+
+          <label>Name<input name="room_name" value="${escapeHtml(group.room_name || '')}" required></label>
+
+          <label>Channel type / kind<select name="channel_kind">${channelTypeOptionsHtml(channelTypes, group.channel_kind || group.group_type || 'operational')}</select></label>
+
+          <div class="wakeup-config-grid">
+
+            <div class="toggle-row"><input id="groupWakeupEnabled" name="wakeup_enabled" type="checkbox" value="1" ${wakeup.enabled ? 'checked' : ''}><label for="groupWakeupEnabled">Wake-up notifications</label></div>
+
+            <label>Wake-up interval<select name="wakeup_interval_minutes">${wakeupIntervalOptionsHtml(wakeup.options || [], wakeup.interval_minutes || group.wakeup_interval_minutes || 1440)}</select></label>
+
+            <div class="wakeup-next"><span>Next wake-up message</span><strong>${escapeHtml(wakeup.next_wakeup_label || (wakeup.enabled ? '-' : 'Disabled'))}</strong><small>${escapeHtml(wakeup.interval_label || '')}${wakeup.last_activity_at ? ' from last activity ' + escapeHtml(wakeup.last_activity_at) : ''}</small></div>
+
+          </div>
+
+          <div class="toggle-row"><input id="groupIsArchived" name="is_archived" type="checkbox" value="1" ${Number(group.is_archived || 0) === 1 ? 'checked' : ''}><label for="groupIsArchived">Archived</label></div>
+
+          <button class="danger-panel-action" type="button" data-delete-group>Delete group/channel</button>
+
+        </div>
+
+        ${detailPanel('Technical Details', {
+
+          'Room JID': group.room_jid,
+
+          'Group Type': group.group_type,
+
+          'Channel Kind': group.channel_kind,
+
+          'Priority': group.priority,
+
+          'Storage': stats.storage_label || '0 B',
+
+          'Updated': group.updated_at,
+
+        })}
+
+        ${aiRoomAccessPanel(aiRoomAccess)}
+      </section>
+
+      <section class="detail-panel members-panel">
+
+        <div class="members-head"><h4>Members, Owners & Admins</h4><span>${escapeHtml(members.length)} members</span></div>
+
+        ${addMemberHtml()}
+
+        ${membersHtml(members)}
+      </section>
+      <section class="detail-panel members-panel external-panel">
+
+        <div class="members-head"><h4>External users</h4><span>${escapeHtml(externalMembers.length)} external</span></div>
+
+        ${addExternalMemberHtml()}
+
+        ${externalMembersHtml(externalMembers)}
+      </section>
+    </div>
+  `;
+}
+
+function aiRoomAccessPanel(access) {
+  const providers = access.providers || [];
+  const selected = String(access.provider_id || '');
+  const providerOptions = '<option value="">Select AI API</option>' + providers.map((provider) => {
+    const id = String(provider.id || '');
+    const model = provider.model_name ? ' - ' + provider.model_name : '';
+    return '<option value="' + escapeHtml(id) + '" ' + (selected === id ? 'selected' : '') + '>' + escapeHtml(provider.provider_name || provider.api_type || id) + escapeHtml(model) + '</option>';
+  }).join('');
+  return '<div class="detail-panel ai-room-panel">'
+    + '<div class="members-head"><h4>AI access</h4><span>' + (access.enabled ? 'Enabled' : 'Off') + '</span></div>'
+    + '<div class="toggle-row"><input id="groupAiEnabled" type="checkbox" data-ai-room-enabled value="1" ' + (access.enabled ? 'checked' : '') + '><label for="groupAiEnabled">Enable @AI for this group/channel</label></div>'
+    + '<label>AI API<select data-ai-room-provider>' + providerOptions + '</select></label>'
+    + '<label>Trigger token<input type="text" data-ai-room-trigger value="' + escapeHtml(access.trigger_token || '/ai') + '" maxlength="40"></label>'
+    + '<label>Context messages<input type="number" data-ai-room-context min="5" max="50" value="' + escapeHtml(access.max_context_messages || 50) + '"></label>'
+    + '<small>/ai reads up to the latest 50 visible room messages and replies in this chat. Disabled rooms will ignore /ai.</small>'
+    + '<button type="button" data-ai-room-save>Save AI access</button>'
+    + '</div>';
+}
+
+function channelTypeOptionsHtml(types, current) {
+  const fallback = [
+    { key: 'incident', name: 'Incident' },
+    { key: 'action', name: 'Action' },
+    { key: 'operational', name: 'Operational' },
+    { key: 'project', name: 'Project' },
+    { key: 'announcement', name: 'Announcement' },
+  ];
+  const rows = types.length ? types : fallback;
+  const value = String(current || '').toLowerCase();
+  return rows.map((row) => {
+    const key = String(row.key || row.type_key || row.channel_kind || '').toLowerCase();
+    const name = row.name || label(key);
+    return `<option value="${escapeHtml(key)}" ${value === key ? 'selected' : ''}>${escapeHtml(name)}</option>`;
+  }).join('');
+}
+
+function wakeupIntervalOptionsHtml(options, current) {
+  const fallback = [
+    { minutes: 60, label: '1 hour' },
+    { minutes: 180, label: '3 hours' },
+    { minutes: 360, label: '6 hours' },
+    { minutes: 720, label: '12 hours' },
+    { minutes: 1440, label: '1 day' },
+    { minutes: 4320, label: '3 days' },
+    { minutes: 10080, label: '7 days' },
+    { minutes: 20160, label: '14 days' },
+    { minutes: 43200, label: '30 days' },
+  ];
+  const rows = options.length ? options : fallback;
+  const selected = String(current || 1440);
+  return rows.map((row) => `<option value="${escapeHtml(row.minutes)}" ${selected === String(row.minutes) ? 'selected' : ''}>${escapeHtml(row.label)}</option>`).join('');
+}
+
+function addMemberHtml() {
+  return `<div class="add-member-panel">
+    <div class="add-member-grid">
+      <label>Find employee<input type="search" data-member-search placeholder="Search employee name, id, mobile"></label>
+      <label>Employee<select data-member-picker><option value="">Search and select employee</option></select></label>
+      <label>Role<select data-member-role><option value="member">Member</option><option value="admin">Admin</option><option value="owner">Owner</option></select></label>
+      <label class="toggle-row member-history"><input type="checkbox" data-member-history value="1"><span>Show old messages</span></label>
+      <button type="button" data-member-add>Add member</button>
+    </div>
+  </div>`;
+}
+
+function addExternalMemberHtml() {
+  return `<div class="add-member-panel external-add-panel">
+    <div class="external-member-grid">
+      <label>Name<input type="text" data-external-name placeholder="External contact name"></label>
+      <label>Email<input type="email" data-external-email placeholder="name@example.com"></label>
+      <label>Phone/SMS<input type="text" data-external-phone placeholder="Mobile number"></label>
+      <label>WhatsApp<input type="text" data-external-whatsapp placeholder="WhatsApp number"></label>
+      <label>Telegram<input type="text" data-external-telegram placeholder="Telegram username/chat id"></label>
+      <div class="external-channel-box">
+
+        <span>Deliver only when mentioned</span>
+
+        ${['email', 'whatsapp', 'telegram', 'sms'].map((channel) => `<label class="mini-check"><input type="checkbox" data-external-channel value="${channel}"> ${label(channel)}</label>`).join('')}
+      </div>
+      <button type="button" data-external-add>Add external user</button>
+    </div>
+  </div>`;
+}
+
+function externalMembersHtml(members) {
+  if (!members.length) return '<div class="empty compact">No external users added.</div>';
+  return `<div class="member-list external-member-list">${members.map((member) => `
+    <div class="member-row external-member-row" data-external-id="${escapeHtml(member.external_contact_id)}">
+      <div class="member-main">
+
+        <strong>${escapeHtml(member.display_name || 'External user')} <span class="pill external-pill">External</span></strong>
+
+        <span>${escapeHtml(member.mention_token || '-')} - ${escapeHtml(member.delivery_channels || '-')}</span>
+      </div>
+      <span class="member-date">${escapeHtml(member.email || member.whatsapp_number || member.telegram_username || member.phone || '-')}</span>
+      <span class="member-date">${escapeHtml(member.added_at || '-')}</span>
+      <button class="member-remove external-remove" type="button" data-external-id="${escapeHtml(member.external_contact_id)}">Remove</button>
+    </div>`).join('')}</div>`;
+}
+function membersHtml(members) {
+  if (!members.length) return '<div class="empty compact">No members found.</div>';
+  return `<div class="member-list">${members.map((member) => `
+    <div class="member-row" data-emp-id="${escapeHtml(member.emp_id)}">
+      <div class="member-main">
+
+        <strong>${escapeHtml(member.name || `Employee ${member.emp_id}`)}</strong>
+
+        <span>${escapeHtml(member.designation || member.jid || '-')}</span>
+      </div>
+      <select class="member-role" data-emp-id="${escapeHtml(member.emp_id)}">
+
+        ${['owner', 'admin', 'member'].map((role) => `<option value="${role}" ${String(member.role || 'member').toLowerCase() === role ? 'selected' : ''}>${label(role)}</option>`).join('')}
+      </select>
+      <span class="member-date">${escapeHtml(member.joined_at || '-')}</span>
+      <button class="member-remove" type="button" data-emp-id="${escapeHtml(member.emp_id)}">Remove</button>
+    </div>
+  `).join('')}</div>`;
+}
+
+function wireGroupDelete(groupId, container = modalFields, inline = false) {
+  container.querySelectorAll('[data-delete-group]').forEach((button) => {
+    button.addEventListener('click', async () => {
+      if (!confirm('Delete this group/channel from active lists? This operation is audited.')) return;
+      await postAction('delete_group_channel', { id: groupId }, { reload: false });
+      if (inline) {
+
+        const pane = document.getElementById('detailPane');
+
+        if (pane) pane.innerHTML = '<div class="empty">Group/channel deleted. Refresh the list to continue.</div>';
+      } else {
+
+        closeModal();
+      }
+      await loadData();
+    });
+  });
+}
+
+async function loadMemberPickerOptions(query, select) {
+  if (!select) return;
+  const params = new URLSearchParams({ action: 'employee_picker', q: query || '' });
+  const response = await fetch(`${apiUrl}&${params.toString()}`, { credentials: 'same-origin', headers: { Accept: 'application/json' } });
+  const data = await response.json();
+  if (!response.ok || data.status !== true) throw new Error(data.error || 'Unable to load employees.');
+  const rows = data.rows || [];
+  select.innerHTML = '<option value="">Select employee</option>' + rows.map((row) => `<option value="${escapeHtml(row.emp_id)}">${escapeHtml(row.name || ('Employee ' + row.emp_id))} - ${escapeHtml(row.designation || row.mobile || row.jid || '')}</option>`).join('');
+}
+
+function wireAddMember(groupId, container = modalFields, inline = false) {
+  const search = container.querySelector('[data-member-search]');
+  const select = container.querySelector('[data-member-picker]');
+  const role = container.querySelector('[data-member-role]');
+  const history = container.querySelector('[data-member-history]');
+  const add = container.querySelector('[data-member-add]');
+  let timer = null;
+  const runSearch = () => {
+    clearTimeout(timer);
+    timer = setTimeout(async () => {
+      try { await loadMemberPickerOptions(search?.value.trim() || '', select); } catch (error) { showNotice(error.message, true); }
+    }, 250);
+  };
+  search?.addEventListener('input', runSearch);
+  select?.addEventListener('focus', () => { if (!select.dataset.loaded) { select.dataset.loaded = '1'; runSearch(); } });
+  add?.addEventListener('click', async () => {
+    const empId = select?.value || '';
+    if (!empId) { showNotice('Select an employee to add.', true); return; }
+    await postAction('add_member', {
+      group_id: groupId,
+      emp_id: empId,
+      role: role?.value || 'member',
+      show_history: history?.checked ? '1' : '0',
+    }, { reload: false });
+    inline ? await openGroupInline(groupId) : await openGroupDetailModal(groupId);
+  });
+}
+
+function wireExternalMemberActions(groupId, container = modalFields, inline = false) {
+  container.querySelector('[data-external-add]')?.addEventListener('click', async () => {
+    const channels = Array.from(container.querySelectorAll('[data-external-channel]:checked')).map((input) => input.value);
+    await postAction('add_external_member', {
+      group_id: groupId,
+      display_name: container.querySelector('[data-external-name]')?.value.trim() || '',
+      email: container.querySelector('[data-external-email]')?.value.trim() || '',
+      phone: container.querySelector('[data-external-phone]')?.value.trim() || '',
+      whatsapp_number: container.querySelector('[data-external-whatsapp]')?.value.trim() || '',
+      telegram_username: container.querySelector('[data-external-telegram]')?.value.trim() || '',
+      delivery_channels: channels.join(','),
+    }, { reload: false });
+    inline ? await openGroupInline(groupId) : await openGroupDetailModal(groupId);
+  });
+  container.querySelectorAll('[data-external-id].external-remove').forEach((button) => {
+    button.addEventListener('click', async () => {
+      if (!confirm('Remove this external user from this group/channel?')) return;
+      await postAction('remove_external_member', { group_id: groupId, external_contact_id: button.dataset.externalId }, { reload: false });
+      inline ? await openGroupInline(groupId) : await openGroupDetailModal(groupId);
+    });
+  });
+}
+function wireGroupAiAccess(groupId, container = modalFields, inline = false) {
+  container.querySelector('[data-ai-room-save]')?.addEventListener('click', async () => {
+    await postAction('save_group_ai_access', {
+      group_id: groupId,
+      enabled: container.querySelector('[data-ai-room-enabled]')?.checked ? '1' : '0',
+      provider_id: container.querySelector('[data-ai-room-provider]')?.value || '',
+      trigger_token: container.querySelector('[data-ai-room-trigger]')?.value.trim() || '/ai',
+      max_context_messages: container.querySelector('[data-ai-room-context]')?.value || '50',
+    }, { reload: false });
+    inline ? await openGroupInline(groupId) : await openGroupDetailModal(groupId);
+  });
+}
+
+function wireGroupMemberActions(groupId, container = modalFields, inline = false) {
+  wireAddMember(groupId, container, inline);
+  wireExternalMemberActions(groupId, container, inline);
+  container.querySelectorAll('.member-role').forEach((select) => {
+    select.addEventListener('change', async () => {
+      await postAction('set_member_role', { group_id: groupId, emp_id: select.dataset.empId, role: select.value });
+      inline ? await openGroupInline(groupId) : await openGroupDetailModal(groupId);
+    });
+  });
+  container.querySelectorAll('.member-remove:not(.external-remove)').forEach((button) => {
+    button.addEventListener('click', async () => {
+      if (!confirm(`Remove employee ${button.dataset.empId} from this group/channel?`)) return;
+      await postAction('remove_member', { group_id: groupId, emp_id: button.dataset.empId });
+      inline ? await openGroupInline(groupId) : await openGroupDetailModal(groupId);
+    });
+  });
+}
+async function openUserDetailModal(empId) {
+  modalTitle.textContent = 'User Details';
+  modalSubmit.textContent = 'Save Password';
+  modalSubmit.classList.remove('danger');
+  state.modal = { action: 'update_user_password', basePayload: { id: empId } };
+  actionModal.classList.add('modal-wide', 'user-detail-modal');
+  document.body.classList.add('modal-open');
+  modalFields.innerHTML = '<div class="empty">Loading user information...</div>';
+  modalBackdrop.classList.remove('hidden');
+
+  try {
+    const response = await fetch(`${apiUrl}&action=user_detail&id=${encodeURIComponent(empId)}`, { credentials: 'same-origin', headers: { Accept: 'application/json' } });
+    const data = await response.json();
+    if (!response.ok || data.status !== true) throw new Error(data.error || 'Unable to load user details.');
+    modalFields.innerHTML = userDetailHtml(data);
+    wireUserMembershipLinks();
+    wireUserLocationRefresh(modalFields, empId);
+    wireUserStorageLimit(modalFields, empId);
+    wireEmployeeType(modalFields, empId);
+    wireUserAiAccess(modalFields, empId);
+    scheduleUserLocationRefresh(empId, modalFields);
+    startAttendanceTimers(modalFields);
+  } catch (error) {
+    modalFields.innerHTML = `<div class="empty">${escapeHtml(error.message)}</div>`;
+  }
+}
+
+function userDetailHtml(data) {
+  const user = data.user || {};
+  const profile = data.profile || {};
+  const messages = data.messages || {};
+  const files = data.files || {};
+  const presence = data.presence || {};
+  const location = data.location || {};
+  location.timeline = data.location_timeline || location.timeline || [];
+  state.locationTimeline = location.timeline;
+  const systems = data.systems || [];
+  const memberships = data.memberships || { groups: 0, channels: 0, total: 0, rows: [] };
+  const attendance = data.attendance || {};
+  const employeeType = data.employee_type || {};
+  const displayName = profile.name || profile.emp_name || profile.employee_name || profile.full_name || user.username || user.emp_id || '-';
+  const designation = profile.designation || profile.desig || profile.role || profile.job_title || profile.position || '-';
+  const statusText = user.status === '1' || user.status === 1 ? 'Active' : (user.status || '-');
+  return `
+    <div class="user-detail-scroll">
+      <section class="user-hero">
+
+        <div class="avatar-large">${escapeHtml(String(displayName).charAt(0) || 'U')}</div>
+
+        <div class="user-hero-main">
+
+          <span class="eyebrow">Employee ${escapeHtml(user.emp_id || '-')}</span>
+
+          <h3>${escapeHtml(displayName)}</h3>
+
+          <p>${escapeHtml(designation)}</p>
+
+        </div>
+
+        <div class="user-hero-side">
+
+          <span class="pill">${escapeHtml(statusText)}</span>
+
+          <strong>${escapeHtml(presence.last_seen_at || '-')}</strong>
+
+          <small>Last seen</small>
+
+        </div>
+      </section>
+
+      <section class="detail-metrics">
+
+        ${metricCard('Messages', messages.total || 0, 'Total chat activity')}
+
+        ${metricCard('Sent', messages.sent || 0, 'Outgoing messages')}
+
+        ${metricCard('Received', messages.received || 0, 'Incoming messages')}
+
+        ${metricCard('Files', files.count || 0, 'Shared attachments')}
+
+        ${metricCard('Storage', files.storage_label || '0 B', 'Uploaded file size')}
+
+        ${metricCard('Storage Limit', files.quota?.limit_label || 'Unlimited', files.quota?.is_over_limit ? 'Over limit' : 'Per-user limit')}
+
+        ${metricCard('Systems', systems.length || 0, 'Active devices')}
+
+        ${metricCard('Groups', memberships.groups || 0, 'Involved groups')}
+
+        ${metricCard('Channels', memberships.channels || 0, 'Involved channels')}
+      </section>
+
+      <section class="detail-grid">
+
+        ${detailPanel('Identity', {
+
+          'Employee ID': user.emp_id,
+
+          'Username': user.username,
+
+          'Designation': designation,
+
+          'Employee Type': employeeType.value || '-',
+
+          'Account Created': user.created_at,
+
+          'Last Updated': user.updated_at,
+
+        })}
+
+        ${locationPanel(location, user.emp_id)}
+
+        ${storagePanel(files, user.emp_id)}
+
+        ${employeeTypePanel(employeeType, user.emp_id)}
+      </section>
+
+      ${aiAccessPanel(data.ai_access || {}, user.emp_id)}
+      ${attendancePanel(attendance)}
+      ${membershipsHtml(memberships)}
+      ${systemsHtml(systems)}
+      ${profileHtml(profile)}
+
+      <section class="password-panel">
+
+        <div>
+
+          <h4>Password Update</h4>
+
+          <p>Enter a new password only when this user password must be changed.</p>
+
+        </div>
+
+        <label>New chat password<input name="password" type="password" autocomplete="new-password" placeholder="Leave empty to keep current password"></label>
+      </section>
+    </div>
+  `;
+}
+
+function employeeTypePanel(employeeType, empId) {
+  const current = employeeType.value || 'C1';
+  const option = (value, label) => `<option value="${escapeHtml(value)}" ${current === value ? 'selected' : ''}>${escapeHtml(label)}</option>`;
+  return `<div class="detail-panel employee-type-panel">
+    <div class="detail-panel-head"><h4>Employee Type</h4><span class="pill">${escapeHtml(current)}</span></div>
+    <div class="detail-row"><span>Default Source</span><strong>${escapeHtml(employeeType.source_emp_type == null || employeeType.source_emp_type === '' ? '-' : employeeType.source_emp_type)}</strong></div>
+    <div class="detail-row"><span>Updated</span><strong>${escapeHtml(employeeType.updated_at || '-')}</strong></div>
+    <div class="storage-limit-row">
+      <label>Type<select name="employee_type">
+
+        ${option('A', 'A')}
+
+        ${option('B', 'B - emp_type 1')}
+
+        ${option('C1', 'C1 - emp_type 0')}
+
+        ${option('C2', 'C2')}
+      </select></label>
+      <button class="secondary" type="button" data-employee-type data-emp-id="${escapeHtml(empId || '')}">Save Type</button>
+    </div>
+  </div>`;
+}
+
+function wireEmployeeType(container = modalFields, empId = '') {
+  container.querySelectorAll('[data-employee-type]').forEach((button) => {
+    button.addEventListener('click', async () => {
+      const root = button.closest('.employee-type-panel') || container;
+      const value = root.querySelector('select[name="employee_type"]')?.value || 'C1';
+      await postAction('update_employee_type', { id: button.dataset.empId || empId, employee_type: value }, { reload: false });
+    });
+  });
+}
+function storagePanel(files, empId) {
+  const quota = files.quota || {};
+  return `<div class="detail-panel storage-panel">
+    <div class="detail-panel-head"><h4>Files & Storage</h4><span class="pill">${escapeHtml(quota.is_over_limit ? 'Over limit' : 'Active')}</span></div>
+    ${Object.entries({
+      'Shared Files': files.count || 0,
+      'Uploaded Files': files.sent_count || 0,
+      'Received Files': files.received_count || 0,
+      'Used Storage': files.storage_label || '0 B',
+      'Storage Limit': quota.limit_label || 'Unlimited',
+      'Remaining': quota.remaining_label || 'Unlimited',
+      'Updated': quota.updated_at || '-',
+    }).map(([key, value]) => `
+      <div class="detail-row"><span>${escapeHtml(key)}</span><strong>${escapeHtml(value == null || value === '' ? '-' : value)}</strong></div>
+    `).join('')}
+    <div class="storage-limit-row">
+      <label>Limit MB<input name="storage_limit_mb" type="number" min="0" step="0.01" value="${escapeHtml(quota.limit_mb || '')}" placeholder="Blank = unlimited"></label>
+      <button class="secondary" type="button" data-storage-limit data-emp-id="${escapeHtml(empId || '')}">Save Limit</button>
+    </div>
+  </div>`;
+}
+
+function wireUserAiAccess(container = modalFields, empId = '') {
+  container.querySelectorAll('[data-ai-user-save]').forEach((button) => {
+    button.addEventListener('click', async () => {
+      const root = button.closest('.ai-user-panel') || container;
+      const select = root.querySelector('select[name="provider_ids"]');
+      const providerIds = [...(select?.selectedOptions || [])].map((option) => option.value).join(',');
+      const payload = {
+
+        id: button.dataset.empId || empId,
+
+        emp_id: button.dataset.empId || empId,
+
+        employee_type_override: root.querySelector('select[name="employee_type_override"]')?.value || '',
+
+        access_mode: root.querySelector('select[name="access_mode"]')?.value || '',
+
+        provider_ids: providerIds,
+
+        daily_token_limit: root.querySelector('input[name="daily_token_limit"]')?.value || '',
+
+        daily_search_limit: root.querySelector('input[name="daily_search_limit"]')?.value || '',
+
+        enabled: root.querySelector('select[name="enabled"]')?.value || '1',
+      };
+      await postAction('save_ai_user_access', payload, { reload: false });
+    });
+  });
+}
+function wireUserStorageLimit(container = modalFields, empId = '') {
+  container.querySelectorAll('[data-storage-limit]').forEach((button) => {
+    button.addEventListener('click', async () => {
+      const root = button.closest('.storage-panel') || container;
+      const value = root.querySelector('input[name="storage_limit_mb"]')?.value ?? '';
+      await postAction('update_user_storage_limit', { id: button.dataset.empId || empId, storage_limit_mb: value }, { reload: false });
+    });
+  });
+}
+function metricCard(title, value, hint) {
+  return `<div><span>${escapeHtml(title)}</span><strong>${escapeHtml(value)}</strong><small>${escapeHtml(hint)}</small></div>`;
+}
+function locationPanel(location, empId) {
+  return `<div class="detail-panel location-panel" data-location-panel>
+    <div class="detail-panel-head"><h4>Last Location</h4><span class="panel-actions"><button class="secondary mini" type="button" data-location-map>Map</button><button class="secondary mini" type="button" data-location-refresh data-emp-id="${escapeHtml(empId || '')}">Refresh</button></span></div>
+    ${Object.entries({
+      'Address': location.address || '-',
+      'Latitude': location.lat || '-',
+      'Longitude': location.lng || '-',
+      'Updated': location.updated_at || '-',
+      'Source': location.source || '-',
+    }).map(([key, value]) => `
+      <div class="detail-row"><span>${escapeHtml(key)}</span><strong>${escapeHtml(value == null || value === '' ? '-' : value)}</strong></div>
+    `).join('')}
+  </div>`;
+}
+
+function openLocationMapModal() {
+  const points = (state.locationTimeline || []).filter((item) => Number(item.lat) && Number(item.lng));
+  const latest = points.length ? points[points.length - 1] : null;
+  modalTitle.textContent = 'Today Location Timeline';
+  modalSubmit.style.display = 'none';
+  actionModal.classList.add('modal-wide', 'user-detail-modal', 'location-map-modal');
+  state.modal = { action: 'location_map', basePayload: {} };
+  document.body.classList.add('modal-open');
+  const mapHtml = latest
+    ? `<iframe class="location-map-frame" loading="lazy" referrerpolicy="no-referrer-when-downgrade" src="https://www.openstreetmap.org/export/embed.html?bbox=${escapeHtml(Number(latest.lng) - 0.01)}%2C${escapeHtml(Number(latest.lat) - 0.01)}%2C${escapeHtml(Number(latest.lng) + 0.01)}%2C${escapeHtml(Number(latest.lat) + 0.01)}&layer=mapnik&marker=${escapeHtml(latest.lat)}%2C${escapeHtml(latest.lng)}"></iframe>`
+    : '<div class="empty compact">No location points found for today.</div>';
+  const rows = points.map((item, index) => `
+    <div class="timeline-row">
+      <span>${escapeHtml(index + 1)}</span>
+      <strong>${escapeHtml(item.updated_at || '-')}</strong>
+      <small>${escapeHtml(item.address || `${item.lat}, ${item.lng}`)}<br>${escapeHtml(item.source || '-')}</small>
+    </div>
+  `).join('');
+  modalFields.innerHTML = `
+    <div class="location-map-shell">
+      ${mapHtml}
+      <section class="detail-panel timeline-panel">
+
+        <div class="members-head"><h4>Today timeline</h4><span>${escapeHtml(points.length)} points</span></div>
+
+        <div class="timeline-list">${rows || '<div class="empty compact">No timeline points found.</div>'}</div>
+      </section>
+    </div>
+  `;
+  modalBackdrop.classList.remove('hidden');
+}
+function detailPanel(title, values) {
+  return `<div class="detail-panel"><h4>${escapeHtml(title)}</h4>${Object.entries(values).map(([key, value]) => `
+    <div class="detail-row"><span>${escapeHtml(key)}</span><strong>${escapeHtml(value == null || value === '' ? '-' : value)}</strong></div>
+  `).join('')}</div>`;
+}
+
+function attendancePanel(attendance) {
+  const today = attendance.today || {};
+  const month = attendance.month || {};
+  const leaveDays = month.leave_days || [];
+  const weekoffDays = month.weekoff_days || [];
+  const liveAttr = today.is_open ? ` data-live-duration data-elapsed="${escapeHtml(today.login_seconds || 0)}"` : '';
+  return `<section class="detail-panel attendance-panel">
+    <div class="members-head"><h4>Punch & Leave Status</h4><span>${escapeHtml(attendance.source || '-')}</span></div>
+    <div class="attendance-grid">
+      ${detailMini('Today Status', today.status || '-')}
+      ${detailMini('Punch In', today.punch_in || '-')}
+      ${detailMini('Punch Out', today.punch_out || (today.is_open ? 'Running' : '-'))}
+      <div class="attendance-mini"><span>Today Login Hours</span><strong${liveAttr}>${escapeHtml(today.login_label || '00:00:00')}</strong></div>
+      ${detailMini('This Month Punch Days', month.punch_days || 0)}
+      ${detailMini('This Month Login Hours', month.login_label || '00:00:00')}
+    </div>
+    <div class="attendance-days">
+      <div><strong>Leave Dates</strong>${dayList(leaveDays, 'No leave records this month.')}</div>
+      <div><strong>Week Off Dates</strong>${dayList(weekoffDays, 'No week off records this month.')}</div>
+    </div>
+  </section>`;
+}
+
+function detailMini(title, value) {
+  return `<div class="attendance-mini"><span>${escapeHtml(title)}</span><strong>${escapeHtml(value == null || value === '' ? '-' : value)}</strong></div>`;
+}
+
+function dayList(rows, emptyText) {
+  if (!rows.length) return `<p>${escapeHtml(emptyText)}</p>`;
+  return `<div class="day-list">${rows.map((row) => `<span>${escapeHtml(row.date || '-')} ${row.status ? `- ${escapeHtml(row.status)}` : ''}</span>`).join('')}</div>`;
+}
+function membershipsHtml(memberships) {
+  const rows = memberships.rows || [];
+  if (!rows.length) return '<section class="detail-panel memberships-panel"><h4>Groups & Channels</h4><div class="empty compact">No group or channel memberships found.</div></section>';
+  return `<section class="detail-panel memberships-panel">
+    <div class="members-head"><h4>Groups & Channels</h4><span>${escapeHtml(memberships.total || rows.length)} total</span></div>
+    <div class="membership-list">${rows.map((item) => `
+      <button class="membership-row" type="button" data-group-id="${escapeHtml(item.id)}">
+
+        <div>
+
+          <strong>${escapeHtml(item.room_name || '-')}</strong>
+
+          <span>${escapeHtml(item.channel_kind || item.group_type || item.kind || '-')}</span>
+
+        </div>
+
+        <span class="pill">${escapeHtml(item.role || 'member')}</span>
+
+        <small>${escapeHtml(item.joined_at || '-')}</small>
+      </button>
+    `).join('')}</div>
+  </section>`;
+}
+
+function wireUserMembershipLinks(container = modalFields) {
+  container.querySelectorAll('.membership-row').forEach((button) => {
+    button.addEventListener('click', () => document.getElementById('detailPane') ? openGroupInline(button.dataset.groupId) : openGroupDetailModal(button.dataset.groupId));
+  });
+}
+function systemsHtml(systems) {
+  if (!systems.length) return '<section class="detail-panel"><h4>Active Devices</h4><div class="empty compact">No active devices found.</div></section>';
+  return `<section class="detail-panel"><h4>Active Devices</h4><div class="system-list">${systems.map((system) => `
+    <div class="system-row system-row-rich">
+      <strong>${escapeHtml(system.device || '-')}<small>${escapeHtml(system.platform || system.source || '')}</small></strong>
+      <span>${escapeHtml(system.app_version || '-')}<small>Version / updated</small></span>
+      <span>${escapeHtml(system.ip_address || '-')}<small>IP address</small></span>
+      <span>${escapeHtml(system.last_seen_at || '-')}<small>${escapeHtml(system.user_agent || system.source || '')}</small></span>
+    </div>
+  `).join('')}</div></section>`;
+}
+function profileHtml(profile) {
+  const entries = Object.entries(profile || {}).filter(([key, value]) => value != null && String(value) !== '').slice(0, 18);
+  if (!entries.length) return '';
+  return `<section class="detail-panel"><h4>Full Profile</h4><div class="profile-list">${entries.map(([key, value]) => `
+    <div class="detail-row"><span>${escapeHtml(label(key))}</span><strong>${escapeHtml(value)}</strong></div>
+  `).join('')}</div></section>`;
+}
+async function postAction(action, payload, options = {}) {
   const notice = document.getElementById('notice');
   notice.classList.add('hidden');
   const form = new FormData();
   form.set('csrf', csrf);
   Object.entries(payload).forEach(([key, value]) => form.set(key, value));
   try {
-    const response = await fetch(`api.php?action=${encodeURIComponent(action)}`, {
+    const response = await fetch(`${apiUrl}&action=${encodeURIComponent(action)}`, {
       method: 'POST',
       body: form,
       credentials: 'same-origin',
-      headers: { 'X-Flow-Admin-CSRF': csrf },
+      headers: { 'X-Flow-Admin-CSRF': csrf, Accept: 'application/json' },
     });
-    const data = await response.json();
+    const raw = await response.text();
+    let data;
+    try {
+      data = JSON.parse(raw);
+    } catch (parseError) {
+      throw new Error(raw.trim().startsWith('<') ? 'Admin session expired or server returned an HTML error. Please refresh and try again.' : (raw.trim() || 'Admin action returned invalid JSON.'));
+    }
     if (!response.ok || data.status !== true) throw new Error(data.error || 'Admin action failed.');
     showNotice(data.message || 'Admin action completed.', false);
-    await load();
+    if (options.reload !== false) await load();
   } catch (error) {
     showNotice(error.message, true);
   }
@@ -238,3 +1530,8 @@ function escapeHtml(value) {
 
 renderTitle();
 load();
+
+
+
+
+

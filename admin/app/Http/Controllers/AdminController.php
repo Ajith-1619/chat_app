@@ -115,6 +115,7 @@ class AdminController extends Controller
             'tasks' => ['title' => 'Tasks', 'subtitle' => 'MyHub task master records'],
             'location' => ['title' => 'Location', 'subtitle' => 'Location visibility and presence policy'],
             'ai_access' => ['title' => 'AI API', 'subtitle' => 'AI API keys, user type access and daily usage limits'],
+            'archive_storage' => ['title' => 'Archive Storage', 'subtitle' => 'Long-term archive providers, policies and jobs'],
             'notifications' => ['title' => 'Notifications', 'subtitle' => 'Push queue and delivery status'],
             'releases' => ['title' => 'Releases', 'subtitle' => 'Draft/live app release management'],
             'diagnostics' => ['title' => 'Diagnostics', 'subtitle' => 'API, database and notification timings'],

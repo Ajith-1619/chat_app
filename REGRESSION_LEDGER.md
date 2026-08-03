@@ -815,3 +815,45 @@
 - Regression Scope: Release versioning, release packaging, Android draft registration flow, existing chat/runtime behavior.
 - Verification: Web build succeeded, APK release build succeeded, PHP syntax validation passed, live draft registration returned `android draft release_id=38`.
 - Remaining Risk: Web artifact was built and packaged locally, but only the APK was uploaded/drafted because that was the requested rollout target.
+
+## REG-20260803-WEB-PUNCH-SHIFT-FALLBACK
+- Date: 2026-08-03 18:20:00 +05:30
+- Regression Scope: Profile load, attendance shift selection, punch-in flow on web.
+- Verification: Analyzer completed without new build-breaking issues.
+- Remaining Risk: Live browser verification still needed against the deployed attendance environment.
+
+## REG-20260803-WEB-PUNCH-SHIFT-PROXY
+- Date: 2026-08-03 21:10:00 +05:30
+- Regression Scope: Attendance shift dropdown, profile parsing, punch-in flow, web-only attendance loading.
+- Verification: PHP lint clean, targeted Dart analyze clean of build errors, web release build succeeded.
+- Remaining Risk: Live server must receive updated server_patch/chat/attendance.php for browser production traffic to use the same-origin shift proxy.
+
+
+## 2026-08-03 - LMS lead webhook forwarding regression review
+- Scope: server_patch/chat/lms_webhook_helper.php, server_patch/chat/lms_webhook_worker.php, server_patch/chat/send_message.php
+- Verified: Normal send_message syntax still valid; webhook worker retry semantics preserved; numeric sender-jid formatting applies only to LMS webhook payloads, not core chat transport.
+- Residual Risk: Live forwarding still depends on the real LMS bearer token being configured on the server.
+## REG-20260803-ARCHIVE-STORAGE
+- Risk areas: standalone admin API routing, admin module rendering, archive schema creation, archived search auth, archived stream auth, Google Drive helper syntax.
+- Validation completed: PHP lint passed for dmin/legacy_standalone/api.php, server_patch/chat/archive_storage_helper.php, server_patch/chat/archive_storage_worker.php, server_patch/chat/archive_search.php, and server_patch/chat/archive_stream.php.
+- Not run: live OAuth handshake, real Drive upload, cron execution, and Flutter/web build because this change is PHP/admin foundation work and network access is sandbox-restricted.
+
+## REG-20260803-VOICE-AUDIO-VIDEO-PLAYBACK
+- Date: 2026-08-03 23:40:00 +05:30
+- Regression Scope: voice recording send flow, attachment upload metadata, chat bubble attachment rendering, web audio preview, mobile video preview, attachment download/open actions.
+- Verification: `flutter analyze` completed without new analyzer errors attributable to this patch; duration persistence path and preview widgets compile.
+- Remaining Risk: Need live confirmation that existing uploaded audio/video files and restricted attachments behave correctly against production media URLs after PHP deployment.
+
+
+## REG-20260803-HORIZON-LATENCY-MAP-UX
+- Date: 2026-08-03 23:58:00 +05:30
+- Regression Scope: My Hub Horizon summary load, selected employee timeline load, all-employees live map, employee route map zoom/pan behavior, address/timeline rendering.
+- Verification: Targeted Flutter analyze completed with no new errors; PHP lint clean for touched backend files.
+- Remaining Risk: Live browser verification is still required on production data to confirm timeout reduction and map feel under large real-world location sets.
+
+
+## REG-20260803-MESSAGE-EDIT-INSTANT-REFRESH
+- Date: 2026-08-03 23:59:00 +05:30
+- Regression Scope: message edit dialog flow, checklist edit, poll edit, in-place chat list repaint.
+- Verification: Targeted Flutter analyze completed; no new errors attributable to this patch.
+- Remaining Risk: Live UI confirmation is still needed to verify that all edit entry points repaint instantly in the deployed app.

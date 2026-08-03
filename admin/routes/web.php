@@ -1,4 +1,4 @@
-﻿<?php
+<?php
 
 use App\Http\Controllers\AdminController;
 use Illuminate\Support\Facades\Route;
@@ -15,5 +15,5 @@ Route::get('/health', function () {
 });
 
 Route::get('/{module}', [AdminController::class, 'module'])
-    ->where('module', 'overview|users|groups|channels|tasks|location|ai_access|notifications|releases|diagnostics|audit')
+    ->where('module', 'overview|users|groups|channels|tasks|location|ai_access|archive_storage|notifications|releases|diagnostics|audit')
     ->name('admin.module');

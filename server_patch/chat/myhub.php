@@ -504,38 +504,64 @@ function myhub_horizon_latest_locations(PDO $taskPdo, array $rows): array
     $locationColumns = myhub_columns($taskPdo, 'locations_test');
     $addressCol = myhub_first_column($locationColumns, ['address', 'location_address', 'place_address', 'formatted_address']);
     $addressSql = $addressCol !== '' ? ", `{$addressCol}` AS address" : ", '' AS address";
-    $stmt = $taskPdo->prepare(
-        'SELECT latitude, longitude, timestamp, date_created, username, ip_address' . $addressSql . '
-         FROM locations_test
-         WHERE user_id = :user_id
-           AND COALESCE(latitude, "") <> ""
-           AND COALESCE(longitude, "") <> ""
-           AND ((date_created BETWEEN :from_dt AND :to_dt) OR (timestamp BETWEEN :from_ts AND :to_ts))
-         ORDER BY date_created DESC, id DESC
-         LIMIT 1'
-    );
-    $locations = [];
+
+    $userMeta = [];
+    $params = [];
+    $placeholders = [];
+    $minTs = 0;
+    $maxTs = 0;
+    $i = 0;
     foreach ($rows as $empId => $row) {
         $inTs = myhub_horizon_ts($row, 'punch_in', 'date_created');
         if ($inTs <= 0) continue;
         $outTs = myhub_horizon_ts($row, 'punch_out', 'out_time');
         $endTs = $outTs > $inTs ? $outTs : time();
-        $chatId = myhub_horizon_chat_id($taskPdo, (int)$empId);
-        $stmt->execute([
-            ':user_id' => $chatId,
-            ':from_dt' => date('Y-m-d H:i:s', $inTs),
-            ':to_dt' => date('Y-m-d H:i:s', $endTs),
-            ':from_ts' => (string)$inTs,
-            ':to_ts' => (string)$endTs,
-        ]);
-        $point = $stmt->fetch(PDO::FETCH_ASSOC) ?: null;
-        if (!is_array($point)) continue;
+        $chatId = trim(myhub_horizon_chat_id($taskPdo, (int)$empId));
+        if ($chatId === '') continue;
+        $userMeta[$chatId] = [
+            'emp_id' => (int)$empId,
+            'from_ts' => $inTs,
+            'to_ts' => $endTs,
+        ];
+        $key = ':user_' . $i++;
+        $placeholders[] = $key;
+        $params[$key] = $chatId;
+        $minTs = $minTs === 0 ? $inTs : min($minTs, $inTs);
+        $maxTs = max($maxTs, $endTs);
+    }
+    if (!$userMeta || !$placeholders || $minTs <= 0 || $maxTs <= 0) return [];
+
+    $params[':from_dt'] = date('Y-m-d H:i:s', $minTs);
+    $params[':to_dt'] = date('Y-m-d H:i:s', $maxTs);
+    $params[':from_ts'] = (string)$minTs;
+    $params[':to_ts'] = (string)$maxTs;
+    $stmt = $taskPdo->prepare(
+        'SELECT user_id, latitude, longitude, timestamp, date_created, username, ip_address' . $addressSql . '
+         FROM locations_test
+         WHERE user_id IN (' . implode(', ', $placeholders) . ')
+           AND COALESCE(latitude, "") <> ""
+           AND COALESCE(longitude, "") <> ""
+           AND ((date_created BETWEEN :from_dt AND :to_dt) OR (timestamp BETWEEN :from_ts AND :to_ts))
+         ORDER BY date_created DESC, id DESC'
+    );
+    $stmt->execute($params);
+
+    $locations = [];
+    foreach (($stmt->fetchAll(PDO::FETCH_ASSOC) ?: []) as $point) {
+        $chatId = trim((string)($point['user_id'] ?? ''));
+        $meta = $userMeta[$chatId] ?? null;
+        if (!$meta) continue;
+        $empId = (int)($meta['emp_id'] ?? 0);
+        if ($empId <= 0 || isset($locations[$empId])) continue;
         $lat = (float)($point['latitude'] ?? 0);
         $lng = (float)($point['longitude'] ?? 0);
         if ($lat < -90 || $lat > 90 || $lng < -180 || $lng > 180 || ($lat == 0.0 && $lng == 0.0)) continue;
         $capturedTs = (int)($point['timestamp'] ?? 0);
         if ($capturedTs <= 1) $capturedTs = strtotime((string)($point['date_created'] ?? '')) ?: 0;
-        $locations[(int)$empId] = [
+        if ($capturedTs > 0 && ($capturedTs < (int)$meta['from_ts'] || $capturedTs > (int)$meta['to_ts'])) {
+            continue;
+        }
+        $locations[$empId] = [
             'latitude' => $lat,
             'longitude' => $lng,
             'location_address' => trim((string)($point['address'] ?? '')),
@@ -635,16 +661,18 @@ function myhub_horizon_timeline(PDO $employeePdo, int $viewerEmpId): never
     $halfHour = [];
     $addressCache = [];
     $nextCheckpoint = $inTs;
+    $reverseGeocodeBudget = 4;
     foreach ($points as $point) {
         $pointTs = strtotime((string)$point['captured_at']) ?: 0;
         if ($pointTs <= 0) continue;
         while ($pointTs >= $nextCheckpoint) {
             $copy = $point;
             $copy['checkpoint_at'] = date('Y-m-d H:i:s', $nextCheckpoint);
-            if (trim((string)($copy['address'] ?? '')) === '') {
+            if (trim((string)($copy['address'] ?? '')) === '' && $reverseGeocodeBudget > 0) {
                 $key = number_format((float)$copy['latitude'], 5, '.', '') . ',' . number_format((float)$copy['longitude'], 5, '.', '');
                 if (!isset($addressCache[$key])) {
                     $addressCache[$key] = chat_reverse_geocode_address((float)$copy['latitude'], (float)$copy['longitude']);
+                    $reverseGeocodeBudget--;
                 }
                 $copy['address'] = $addressCache[$key];
             }

@@ -905,3 +905,43 @@ The broadcast send branch updated or created broadcast list records using $title
 - Artifacts: release/Skylink-Chat-Web-v2.0.9.zip, release/Skylink-Chat-Web-v2.0.9.zip.sha256, release/Skylink-Chat-v2.0.9.apk, release/Skylink-Chat-v2.0.9.apk.sha256.
 - Live Deploy: Uploaded APK + checksum and executed https://dns.watchtower247.in/router_login/register_draft_2_0_9.php => android draft release_id=38.
 - Status: Success. Analyzer still reports pre-existing repository warnings only.
+
+## BUILD-20260803-WEB-PUNCH-SHIFT-FALLBACK
+- Date: 2026-08-03 18:20:00 +05:30
+- Type: Validation only.
+- Checks: flutter analyze lib/chat_api.dart lib/profile/profile_screens.dart
+- Status: No new analyzer errors; existing pre-existing warnings remain.
+
+## BUILD-20260803-WEB-PUNCH-SHIFT-PROXY
+- Date: 2026-08-03 21:10:00 +05:30
+- Type: Web release build.
+- Checks: php -l server_patch/chat/attendance.php; flutter analyze lib/chat_api.dart lib/profile/profile_screens.dart; flutter build web --release.
+- Artifact: build/web
+- Status: Success. Analyzer still reports pre-existing warnings in lib/profile/profile_screens.dart, but no build-blocking errors.
+
+
+## BUILD-20260803-LMS-LEAD-WEBHOOK-FORWARDING
+- Date: 2026-08-03 22:05:00 +05:30
+- Type: Validation only.
+- Checks: php -l server_patch/chat/lms_webhook_helper.php; php -l server_patch/chat/lms_webhook_worker.php; php -l server_patch/chat/send_message.php
+- Status: Success. LMS webhook helper and worker pass PHP syntax validation after payload normalization changes.
+
+## BUILD-20260803-VOICE-AUDIO-VIDEO-PLAYBACK
+- Date: 2026-08-03 23:40:00 +05:30
+- Type: Validation only.
+- Checks: flutter analyze; analyzer reported repository-wide pre-existing warnings, but no new build-blocking errors after the media playback patch.
+- Status: Success for this change scope. Live device/browser verification still required after deploying Dart and PHP changes.
+
+
+## BUILD-20260803-HORIZON-LATENCY-MAP-UX
+- Date: 2026-08-03 23:58:00 +05:30
+- Type: Validation only.
+- Checks: flutter analyze lib/myhub_horizon_screen.dart lib/chat_api.dart; php -l server_patch/chat/myhub.php; php -l server_patch/chat/bootstrap.php
+- Status: No new build-blocking errors from this patch. Flutter analyzer reports only pre-existing info-level suggestions in lib/chat_api.dart.
+
+
+## BUILD-20260803-MESSAGE-EDIT-INSTANT-REFRESH
+- Date: 2026-08-03 23:59:00 +05:30
+- Type: Validation only.
+- Checks: flutter analyze lib/chat/chat_screen.dart
+- Status: No new build-blocking errors introduced by this patch. Analyzer still reports many pre-existing warnings/info items in chat_screen.dart.

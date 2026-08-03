@@ -49,6 +49,7 @@ function chat_lms_webhook_ensure_schema(PDO $pdo): void
 function chat_lms_webhook_is_lms_lead_channel(array $group): bool
 {
     if (strtolower((string)($group['group_type'] ?? '')) !== 'channel') return false;
+
     $kind = strtolower(trim((string)($group['channel_kind'] ?? '')));
     $roomJid = strtolower(trim((string)($group['room_jid'] ?? '')));
     if (in_array($kind, ['lead', 'lms-lead', 'lms_lead'], true)) return true;
@@ -56,9 +57,18 @@ function chat_lms_webhook_is_lms_lead_channel(array $group): bool
 
     $metadata = json_decode((string)($group['metadata_json'] ?? ''), true);
     if (!is_array($metadata)) return false;
-    $source = strtolower(trim((string)($metadata['source'] ?? $metadata['created_by'] ?? '')));
-    $externalType = strtolower(trim((string)($metadata['type'] ?? $metadata['channel_type'] ?? '')));
-    return str_contains($source, 'lms') || str_contains($externalType, 'lead') || !empty($metadata['lms_lead_id']) || !empty($metadata['lms_channel_id']);
+
+    $source = strtolower(trim((string)($metadata['source'] ?? $metadata['created_by'] ?? $metadata['origin'] ?? '')));
+    $externalType = strtolower(trim((string)($metadata['type'] ?? $metadata['channel_type'] ?? $metadata['conversation_type'] ?? '')));
+    $integration = strtolower(trim((string)($metadata['integration'] ?? $metadata['external_system'] ?? '')));
+
+    return str_contains($source, 'lms')
+        || str_contains($integration, 'lms')
+        || str_contains($externalType, 'lead')
+        || !empty($metadata['lms_lead_id'])
+        || !empty($metadata['lms_channel_id'])
+        || !empty($metadata['lead_id'])
+        || !empty($metadata['lead_reference']);
 }
 
 function chat_lms_webhook_is_participant_message(string $fromJid, string $sourceDevice, string $sourceName): bool
@@ -83,6 +93,30 @@ function chat_lms_webhook_sender_name(int $empId, string $fallbackJid): string
     } catch (Throwable $ignored) {
     }
     return $fallbackJid;
+}
+
+function chat_lms_webhook_sender_jid(int $empId, string $fromJid): string
+{
+    $fromJid = strtolower(trim($fromJid));
+    $domain = 'chat.skylinkonline.net';
+
+    if ($fromJid !== '' && str_contains($fromJid, '@')) {
+        [, $existingDomain] = explode('@', $fromJid, 2);
+        $existingDomain = trim((string)$existingDomain);
+        if ($existingDomain !== '') {
+            $domain = $existingDomain;
+        }
+    }
+
+    if ($empId <= 0 && preg_match('/^(\d+)@/i', $fromJid, $match)) {
+        $empId = (int)$match[1];
+    }
+
+    if ($empId <= 0) {
+        return $fromJid;
+    }
+
+    return $empId . '@' . $domain;
 }
 
 function chat_lms_webhook_queue_message(
@@ -112,9 +146,9 @@ function chat_lms_webhook_queue_message(
         'channel_id' => (int)($group['id'] ?? 0),
         'room_jid' => $roomJid,
         'message_id' => 'flow-message-' . $messageId,
-        'sender_jid' => strtolower($fromJid),
+        'sender_jid' => chat_lms_webhook_sender_jid($senderEmpId, $fromJid),
         'sender_name' => chat_lms_webhook_sender_name($senderEmpId, $fromJid),
-        'body' => $body,
+        'body' => trim($body),
     ];
     $stmt = $pdo->prepare(
         'INSERT INTO xmpp_lms_webhook_queue

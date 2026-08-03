@@ -502,3 +502,36 @@
 - Version updated to `2.0.9+32` for the next release cycle.
 - Added draft registration script `server_patch/register_draft_2_0_9.php` for Android release registration.
 - Added release deploy helpers `tool/deploy_2_0_9.ps1` and `tool/deploy_2_0_9.psftp` for APK artifact upload.
+
+## FEAT-20260803-WEB-PUNCH-SHIFT-FALLBACK
+- Attendance profile screen now loads the employee profile even in punch-in mode.
+- When live shift list fetch is unavailable, the assigned employee shift is shown as a fallback dropdown option instead of leaving the menu empty.
+
+## FEAT-20260803-WEB-PUNCH-SHIFT-PROXY
+- Attendance shift list now loads through chat/attendance.php so web browsers use the same-origin chat backend instead of a direct cross-site call.
+- Assigned-shift fallback remains in place when the remote shift service returns no data.
+
+
+## 2026-08-03 - LMS lead webhook forwarding hardening
+- Feature: LMS lead-channel outbound webhook queue now normalizes sender JIDs to numeric employee-id localparts, keeps both channel id and room JID in payload, and preserves existing queued retry delivery.
+## FEAT-20260803-ARCHIVE-STORAGE
+- Added Flow Archive Storage foundation with provider catalog, archive policies, archive jobs, archived item manifests, and admin management UI.
+- Added archived search + archived conversation stream endpoints so archived conversations can remain searchable and readable without restoring to active storage.
+- Google Drive is the first concrete provider path; other providers are modeled through the shared provider architecture for future extension.
+
+## FEAT-20260803-VOICE-AUDIO-VIDEO-PLAYBACK
+- Voice-note attachments now carry `duration_ms` from recorder -> API -> DB -> history so playback duration survives reload.
+- Audio attachments now render with an inline in-chat player and download/open actions instead of only a generic file tile.
+- Non-web video preview now uses a real `video_player` surface so mobile video attachments can open and play inside Flow.
+- Web audio preview now streams from attachment bytes via object URLs, which keeps encrypted/restricted media playable inside Flow without exposing raw server URLs.
+
+
+## FEAT-20260803-HORIZON-LATENCY-MAP-UX
+- Horizon attendance load now uses a batched latest-location fetch instead of one location query per employee.
+- Horizon timeline keeps address enrichment bounded so route/timeline loads do not stall on many reverse-geocode lookups.
+- Horizon overview and employee route maps now zoom around the mouse pointer, keep more nearby map tiles warm, and support smoother drag/pan exploration on web/desktop.
+
+
+## FEAT-20260803-MESSAGE-EDIT-INSTANT-REFRESH
+- Message edit flows now update the visible chat list by stable message id instead of depending on the original ChatMessage object instance.
+- Edited normal messages, checklists, and polls now repaint immediately in the open conversation after save.

@@ -35,6 +35,7 @@ import '../mojibake_tools.dart';
 import '../clipboard_media_bridge.dart';
 import '../clipboard_text_bridge.dart';
 import '../file_preview_embed.dart';
+import '../media_object_url.dart';
 import '../video_preview_embed.dart';
 import '../web_attachment_bridge.dart';
 import '../web_file_actions.dart';
@@ -125,6 +126,8 @@ class AttachmentContent extends StatelessWidget {
         (!isPendingUpload ||
             attachment.previewBytes != null ||
             attachment.localPath.trim().isNotEmpty);
+    final showInlineAudio = attachment.isAudio &&
+        (!isPendingUpload || attachment.localPath.trim().isNotEmpty);
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -158,6 +161,20 @@ class AttachmentContent extends StatelessWidget {
             isFailed: isFailed,
             uploadProgress: uploadProgress,
           )
+        else if (showInlineAudio)
+          _AudioAttachmentCard(
+            attachment: attachment,
+            onTap: () => _open(context),
+            onDownload: attachment.isRestricted || isPendingUpload
+                ? null
+                : () => _download(context),
+            onOpenWith: attachment.isRestricted || isPendingUpload
+                ? null
+                : () => _openWith(context),
+            isUploading: isUploading,
+            isFailed: isFailed,
+            uploadProgress: uploadProgress,
+          )
         else
           _FileTile(
             attachment: attachment,
@@ -172,7 +189,7 @@ class AttachmentContent extends StatelessWidget {
             isFailed: isFailed,
             uploadProgress: uploadProgress,
           ),
-        if (attachment.caption.isNotEmpty && !showInlineImage && !showInlineVideo)
+        if (attachment.caption.isNotEmpty && !showInlineImage && !showInlineVideo && !showInlineAudio)
           Padding(
             padding: const EdgeInsets.only(top: 8, left: 2, right: 2),
             child: Text(
@@ -338,6 +355,337 @@ class _VideoAttachmentCard extends StatelessWidget {
             ),
           ],
         ),
+      ),
+    );
+  }
+}
+
+
+class _AudioAttachmentCard extends StatefulWidget {
+  const _AudioAttachmentCard({
+    required this.attachment,
+    required this.onTap,
+    this.onDownload,
+    this.onOpenWith,
+    this.isUploading = false,
+    this.isFailed = false,
+    this.uploadProgress,
+  });
+
+  final ChatAttachment attachment;
+  final VoidCallback onTap;
+  final VoidCallback? onDownload;
+  final VoidCallback? onOpenWith;
+  final bool isUploading;
+  final bool isFailed;
+  final double? uploadProgress;
+
+  @override
+  State<_AudioAttachmentCard> createState() => _AudioAttachmentCardState();
+}
+
+class _AudioAttachmentCardState extends State<_AudioAttachmentCard> {
+  final AudioPlayer _player = AudioPlayer();
+  StreamSubscription<Duration>? _positionSubscription;
+  StreamSubscription<Duration?>? _durationSubscription;
+  StreamSubscription<PlayerState>? _stateSubscription;
+  Duration _position = Duration.zero;
+  Duration _duration = Duration.zero;
+  bool _playing = false;
+  bool _loading = true;
+  Object? _error;
+  String? _objectUrl;
+  File? _tempFile;
+
+  @override
+  void initState() {
+    super.initState();
+    _bindStreams();
+    unawaited(_prepareSource());
+  }
+
+  @override
+  void didUpdateWidget(covariant _AudioAttachmentCard oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.attachment.url != widget.attachment.url ||
+        oldWidget.attachment.localPath != widget.attachment.localPath ||
+        oldWidget.attachment.previewBytes != widget.attachment.previewBytes ||
+        oldWidget.attachment.messageId != widget.attachment.messageId) {
+      unawaited(_prepareSource());
+    }
+  }
+
+  void _bindStreams() {
+    _positionSubscription = _player.positionStream.listen((value) {
+      if (mounted) setState(() => _position = value);
+    });
+    _durationSubscription = _player.durationStream.listen((value) {
+      if (mounted) setState(() => _duration = value ?? Duration.zero);
+    });
+    _stateSubscription = _player.playerStateStream.listen((state) {
+      if (mounted) setState(() => _playing = state.playing);
+    });
+  }
+
+  Future<void> _prepareSource() async {
+    if (!mounted) return;
+    setState(() {
+      _loading = true;
+      _error = null;
+      _position = Duration.zero;
+      _duration = Duration.zero;
+    });
+    try {
+      await _player.stop();
+      await _disposeTempSource();
+      if (kIsWeb) {
+        final bytes = widget.attachment.previewBytes ??
+            await chatApi.readAttachmentBytes(widget.attachment);
+        final objectUrl = createMediaObjectUrl(
+          bytes,
+          mimeType: widget.attachment.mimeType,
+        );
+        _objectUrl = objectUrl;
+        await _player.setUrl(objectUrl);
+      } else {
+        final localPath = widget.attachment.localPath.trim();
+        if (localPath.isNotEmpty) {
+          await _player.setFilePath(localPath);
+        } else {
+          final bytes = widget.attachment.previewBytes ??
+              await chatApi.readAttachmentBytes(widget.attachment);
+          final baseDir = await getTemporaryDirectory();
+          final safeName = widget.attachment.name.replaceAll(
+            RegExp(r'[<>:"/\\|?*]'),
+            '_',
+          );
+          final file = File(
+            '${baseDir.path}${Platform.pathSeparator}${DateTime.now().millisecondsSinceEpoch}_$safeName',
+          );
+          await file.writeAsBytes(bytes, flush: true);
+          _tempFile = file;
+          await _player.setFilePath(file.path);
+        }
+      }
+      if (!mounted) return;
+      setState(() {
+        _loading = false;
+        if (widget.attachment.durationMs > 0) {
+          _duration = Duration(milliseconds: widget.attachment.durationMs);
+        }
+      });
+    } catch (error) {
+      if (!mounted) return;
+      setState(() {
+        _loading = false;
+        _error = error;
+      });
+    }
+  }
+
+  Future<void> _disposeTempSource() async {
+    final objectUrl = _objectUrl;
+    _objectUrl = null;
+    if (objectUrl != null) {
+      revokeMediaObjectUrl(objectUrl);
+    }
+    final tempFile = _tempFile;
+    _tempFile = null;
+    if (tempFile != null) {
+      try {
+        if (await tempFile.exists()) {
+          await tempFile.delete();
+        }
+      } catch (_) {}
+    }
+  }
+
+  Future<void> _toggle() async {
+    if (_loading || _error != null) return;
+    if (_player.playing) {
+      await _player.pause();
+    } else {
+      await _player.play();
+    }
+  }
+
+  String _timeLabel(Duration value) {
+    final hours = value.inHours;
+    final minutes = value.inMinutes.remainder(60).toString().padLeft(2, '0');
+    final seconds = value.inSeconds.remainder(60).toString().padLeft(2, '0');
+    return hours > 0
+        ? '${hours.toString().padLeft(2, '0')}:$minutes:$seconds'
+        : '$minutes:$seconds';
+  }
+
+  @override
+  void dispose() {
+    _positionSubscription?.cancel();
+    _durationSubscription?.cancel();
+    _stateSubscription?.cancel();
+    unawaited(_disposeTempSource());
+    _player.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final progress = (widget.uploadProgress ?? 0).clamp(0.0, 1.0);
+    final duration = _duration.inMilliseconds > 0
+        ? _duration
+        : (widget.attachment.durationMs > 0
+              ? Duration(milliseconds: widget.attachment.durationMs)
+              : Duration.zero);
+    final position = _position > duration && duration > Duration.zero
+        ? duration
+        : _position;
+    final maxMs = duration.inMilliseconds > 0
+        ? duration.inMilliseconds.toDouble()
+        : 1.0;
+    final valueMs = position.inMilliseconds.clamp(0, maxMs.toInt()).toDouble();
+    final showActions =
+        !widget.isUploading && !widget.isFailed && widget.onDownload != null;
+    final statusText = widget.isFailed
+        ? 'Upload failed'
+        : widget.isUploading
+        ? progress > 0
+              ? 'Uploading ${(progress * 100).round()}%'
+              : 'Preparing upload'
+        : duration > Duration.zero
+        ? _timeLabel(duration)
+        : formatFileSize(widget.attachment.size);
+    return Container(
+      width: 260,
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: AppColors.primary.withValues(alpha: 0.08),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: AppColors.primary.withValues(alpha: 0.10)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Row(
+            children: [
+              InkWell(
+                onTap: _toggle,
+                borderRadius: BorderRadius.circular(999),
+                child: CircleAvatar(
+                  backgroundColor: AppColors.primary,
+                  foregroundColor: Colors.white,
+                  child: _loading
+                      ? const SizedBox(
+                          width: 18,
+                          height: 18,
+                          child: CircularProgressIndicator(
+                            strokeWidth: 2,
+                            valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
+                          ),
+                        )
+                      : Icon(
+                          _playing
+                              ? Icons.pause_rounded
+                              : Icons.play_arrow_rounded,
+                        ),
+                ),
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: InkWell(
+                  onTap: widget.onTap,
+                  borderRadius: BorderRadius.circular(8),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        widget.attachment.name,
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(
+                          color: AppColors.text,
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                      const SizedBox(height: 4),
+                      Text(
+                        _error != null ? 'Unable to load audio' : statusText,
+                        style: TextStyle(
+                          color: _error != null ? Colors.red : AppColors.muted,
+                          fontSize: 12,
+                          fontWeight: widget.isUploading || widget.isFailed
+                              ? FontWeight.w700
+                              : FontWeight.w500,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+              if (widget.isUploading)
+                const SizedBox(
+                  width: 20,
+                  height: 20,
+                  child: CircularProgressIndicator(strokeWidth: 2),
+                )
+              else if (widget.isFailed)
+                const Tooltip(
+                  message: 'Upload failed',
+                  child: Icon(Icons.error_outline_rounded, color: Colors.red),
+                )
+              else if (widget.attachment.isRestricted)
+                const Tooltip(
+                  message: 'Restricted',
+                  child: Icon(Icons.lock_rounded, color: AppColors.primary),
+                )
+              else if (showActions)
+                PopupMenuButton<String>(
+                  tooltip: 'Audio actions',
+                  icon: const Icon(
+                    Icons.more_vert_rounded,
+                    color: AppColors.primary,
+                  ),
+                  onSelected: (value) {
+                    if (value == 'download') widget.onDownload?.call();
+                    if (value == 'open_with') widget.onOpenWith?.call();
+                  },
+                  itemBuilder: (_) => const [
+                    PopupMenuItem(value: 'download', child: Text('Download')),
+                    PopupMenuItem(value: 'open_with', child: Text('Open with')),
+                  ],
+                ),
+            ],
+          ),
+          const SizedBox(height: 10),
+          SliderTheme(
+            data: SliderTheme.of(context).copyWith(
+              trackHeight: 3,
+              thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 6),
+              overlayShape: const RoundSliderOverlayShape(overlayRadius: 12),
+            ),
+            child: Slider(
+              value: valueMs,
+              min: 0,
+              max: maxMs,
+              onChanged: duration.inMilliseconds <= 0 || _loading || _error != null
+                  ? null
+                  : (value) => _player.seek(Duration(milliseconds: value.round())),
+            ),
+          ),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Text(
+                _timeLabel(position),
+                style: const TextStyle(color: AppColors.muted, fontSize: 12),
+              ),
+              Text(
+                _timeLabel(duration),
+                style: const TextStyle(color: AppColors.muted, fontSize: 12),
+              ),
+            ],
+          ),
+        ],
       ),
     );
   }
@@ -907,6 +1255,112 @@ class _AttachmentPreviewBody extends StatelessWidget {
   }
 }
 
+
+class _VideoAttachmentPreview extends StatelessWidget {
+  const _VideoAttachmentPreview({required this.attachment, required this.data});
+
+  final ChatAttachment attachment;
+  final _AttachmentPreviewData data;
+
+  @override
+  Widget build(BuildContext context) {
+    return ColoredBox(
+      color: Colors.black,
+      child: Center(
+        child: AspectRatio(
+          aspectRatio: 16 / 9,
+          child: buildEmbeddedVideoPreview(
+            title: attachment.name,
+            url: data.url ?? attachment.url,
+            bytes: data.bytes,
+            autoplay: false,
+            muted: false,
+            loop: false,
+            controls: true,
+            fit: BoxFit.contain,
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _LocationAttachmentPreview extends StatelessWidget {
+  const _LocationAttachmentPreview({required this.attachment});
+
+  final ChatAttachment attachment;
+
+  Future<void> _openMap() async {
+    final latitude = attachment.latitude ?? 0;
+    final longitude = attachment.longitude ?? 0;
+    final target = attachment.url.trim().isNotEmpty
+        ? attachment.url.trim()
+        : 'https://www.google.com/maps/search/?api=1&query=${latitude.toStringAsFixed(6)},${longitude.toStringAsFixed(6)}';
+    final uri = Uri.tryParse(target);
+    if (uri != null) {
+      await launchUrl(uri, mode: LaunchMode.externalApplication);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final address = attachment.locationAddress.trim();
+    final latitude = attachment.latitude;
+    final longitude = attachment.longitude;
+    final coords = latitude != null && longitude != null
+        ? '${latitude.toStringAsFixed(6)}, ${longitude.toStringAsFixed(6)}'
+        : 'Location not available';
+    return Container(
+      width: 260,
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: AppColors.primary.withValues(alpha: 0.08),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: AppColors.primary.withValues(alpha: 0.10)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: const [
+              Icon(Icons.location_on_rounded, color: AppColors.primary),
+              SizedBox(width: 8),
+              Text(
+                'Location',
+                style: TextStyle(
+                  color: AppColors.text,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 10),
+          Text(
+            address.isNotEmpty ? address : coords,
+            style: const TextStyle(color: AppColors.text, height: 1.35),
+          ),
+          if (address.isNotEmpty) ...[
+            const SizedBox(height: 6),
+            Text(
+              coords,
+              style: const TextStyle(color: AppColors.muted, fontSize: 12),
+            ),
+          ],
+          const SizedBox(height: 12),
+          Align(
+            alignment: Alignment.centerLeft,
+            child: OutlinedButton.icon(
+              onPressed: _openMap,
+              icon: const Icon(Icons.map_outlined),
+              label: const Text('Open map'),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
 class _AudioAttachmentPreview extends StatefulWidget {
   const _AudioAttachmentPreview({required this.attachment});
 
@@ -926,6 +1380,8 @@ class _AudioAttachmentPreviewState extends State<_AudioAttachmentPreview> {
   StreamSubscription<Duration>? _positionSubscription;
   StreamSubscription<Duration?>? _durationSubscription;
   StreamSubscription<PlayerState>? _stateSubscription;
+  String? _objectUrl;
+  File? _tempFile;
 
   @override
   void initState() {
@@ -944,21 +1400,52 @@ class _AudioAttachmentPreviewState extends State<_AudioAttachmentPreview> {
 
   Future<String> _prepareSource() async {
     if (kIsWeb) {
-      await _player.setUrl(widget.attachment.url);
-      return widget.attachment.url;
+      final bytes = widget.attachment.previewBytes ??
+          await chatApi.readAttachmentBytes(widget.attachment);
+      final objectUrl = createMediaObjectUrl(
+        bytes,
+        mimeType: widget.attachment.mimeType,
+      );
+      _objectUrl = objectUrl;
+      await _player.setUrl(objectUrl);
+      return objectUrl;
     }
-    final bytes = await chatApi.readAttachmentBytes(widget.attachment);
+    final localPath = widget.attachment.localPath.trim();
+    if (localPath.isNotEmpty) {
+      await _player.setFilePath(localPath);
+      return localPath;
+    }
+    final bytes = widget.attachment.previewBytes ??
+        await chatApi.readAttachmentBytes(widget.attachment);
     final baseDir = await getTemporaryDirectory();
     final safeName = widget.attachment.name.replaceAll(
-      RegExp(r'[<>:"/\|?*]'),
+      RegExp(r'[<>:"/\\|?*]'),
       '_',
     );
     final file = File(
       '${baseDir.path}${Platform.pathSeparator}${DateTime.now().millisecondsSinceEpoch}_$safeName',
     );
+    _tempFile = file;
     await file.writeAsBytes(bytes, flush: true);
     await _player.setFilePath(file.path);
     return file.path;
+  }
+
+  Future<void> _disposePreviewSource() async {
+    final objectUrl = _objectUrl;
+    _objectUrl = null;
+    if (objectUrl != null) {
+      revokeMediaObjectUrl(objectUrl);
+    }
+    final tempFile = _tempFile;
+    _tempFile = null;
+    if (tempFile != null) {
+      try {
+        if (await tempFile.exists()) {
+          await tempFile.delete();
+        }
+      } catch (_) {}
+    }
   }
 
   @override
@@ -966,6 +1453,7 @@ class _AudioAttachmentPreviewState extends State<_AudioAttachmentPreview> {
     _positionSubscription?.cancel();
     _durationSubscription?.cancel();
     _stateSubscription?.cancel();
+    unawaited(_disposePreviewSource());
     _player.dispose();
     super.dispose();
   }
@@ -1004,7 +1492,11 @@ class _AudioAttachmentPreviewState extends State<_AudioAttachmentPreview> {
                 'Unable to load audio preview. Use download to open it locally.\n${snapshot.error}',
           );
         }
-        final duration = _duration;
+        final duration = _duration.inMilliseconds > 0
+            ? _duration
+            : (widget.attachment.durationMs > 0
+                  ? Duration(milliseconds: widget.attachment.durationMs)
+                  : Duration.zero);
         final position = _position > duration ? duration : _position;
         final maxMs = duration.inMilliseconds > 0
             ? duration.inMilliseconds.toDouble()
@@ -1061,29 +1553,39 @@ class _AudioAttachmentPreviewState extends State<_AudioAttachmentPreview> {
                               Text(
                                 widget.attachment.caption.isNotEmpty
                                     ? widget.attachment.caption
-                                    : 'Voice message',
-                                style: const TextStyle(color: AppColors.muted),
+                                    : formatFileSize(widget.attachment.size),
+                                style: const TextStyle(
+                                  color: AppColors.muted,
+                                  fontSize: 12,
+                                ),
                               ),
                             ],
                           ),
                         ),
                       ],
                     ),
-                    const SizedBox(height: 16),
+                    const SizedBox(height: 12),
                     Slider(
                       value: valueMs,
+                      min: 0,
                       max: maxMs,
-                      onChanged: duration == Duration.zero
-                          ? null
-                          : (value) => _player.seek(
-                              Duration(milliseconds: value.round()),
-                            ),
+                      onChanged: duration.inMilliseconds > 0
+                          ? (value) => _player.seek(
+                                Duration(milliseconds: value.round()),
+                              )
+                          : null,
                     ),
                     Row(
                       mainAxisAlignment: MainAxisAlignment.spaceBetween,
                       children: [
-                        Text(_timeLabel(position)),
-                        Text(_timeLabel(duration)),
+                        Text(
+                          _timeLabel(position),
+                          style: const TextStyle(color: AppColors.muted),
+                        ),
+                        Text(
+                          _timeLabel(duration),
+                          style: const TextStyle(color: AppColors.muted),
+                        ),
                       ],
                     ),
                   ],
@@ -1093,252 +1595,6 @@ class _AudioAttachmentPreviewState extends State<_AudioAttachmentPreview> {
           ),
         );
       },
-    );
-  }
-}
-
-class _VideoAttachmentPreview extends StatelessWidget {
-  const _VideoAttachmentPreview({required this.attachment, required this.data});
-
-  final ChatAttachment attachment;
-  final _AttachmentPreviewData data;
-
-  @override
-  Widget build(BuildContext context) {
-    return ColoredBox(
-      color: Colors.black,
-      child: Center(
-        child: SizedBox.expand(
-          child: buildEmbeddedVideoPreview(
-            title: attachment.name,
-            url: data.url ?? attachment.url,
-            bytes: data.bytes,
-            autoplay: false,
-            muted: false,
-            loop: false,
-            controls: true,
-            fit: BoxFit.contain,
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-class _LocationAttachmentPreview extends StatelessWidget {
-  const _LocationAttachmentPreview({required this.attachment});
-
-  final ChatAttachment attachment;
-
-  int _tileX(double longitude, int zoom) {
-    return ((longitude + 180.0) / 360.0 * (1 << zoom)).floor();
-  }
-
-  int _tileY(double latitude, int zoom) {
-    final latRad = latitude * pi / 180.0;
-    return ((1.0 - log(tan(latRad) + 1.0 / cos(latRad)) / pi) /
-            2.0 *
-            (1 << zoom))
-        .floor();
-  }
-
-  String _tileUrl(int x, int y, int zoom) {
-    return 'https://tile.openstreetmap.org/$zoom/$x/$y.png';
-  }
-
-  String get _title =>
-      attachment.isLiveLocation ? 'Live location' : 'Current location';
-
-  String get _detail {
-    if (attachment.locationAddress.isNotEmpty)
-      return attachment.locationAddress;
-    if (attachment.latitude != null && attachment.longitude != null) {
-      return '${attachment.latitude!.toStringAsFixed(5)}, ${attachment.longitude!.toStringAsFixed(5)}';
-    }
-    return _title;
-  }
-
-  Widget _mapTiles({required double height}) {
-    final lat = attachment.latitude;
-    final lon = attachment.longitude;
-    if (lat == null || lon == null) {
-      return _mapFallback(height: height);
-    }
-    const zoom = 15;
-    final centerX = _tileX(lon, zoom);
-    final centerY = _tileY(lat, zoom);
-    return SizedBox(
-      height: height,
-      child: Stack(
-        fit: StackFit.expand,
-        children: [
-          GridView.count(
-            crossAxisCount: 3,
-            physics: const NeverScrollableScrollPhysics(),
-            padding: EdgeInsets.zero,
-            children: [
-              for (var y = centerY - 1; y <= centerY + 1; y++)
-                for (var x = centerX - 1; x <= centerX + 1; x++)
-                  Image.network(
-                    _tileUrl(x, y, zoom),
-                    fit: BoxFit.cover,
-                    errorBuilder: (_, __, ___) =>
-                        Container(color: const Color(0xFFE8E2C6)),
-                  ),
-            ],
-          ),
-          const Center(
-            child: Icon(
-              Icons.location_on,
-              color: Colors.redAccent,
-              size: 54,
-              shadows: [Shadow(color: Colors.white, blurRadius: 6)],
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _mapFallback({required double height}) {
-    return Container(
-      height: height,
-      color: const Color(0xFFE8E2C6),
-      child: const Center(
-        child: Icon(Icons.location_on, size: 58, color: Colors.redAccent),
-      ),
-    );
-  }
-
-  Future<void> _openMap(BuildContext context) async {
-    await showDialog<void>(
-      context: context,
-      builder: (dialogContext) => AlertDialog(
-        title: Text(_title),
-        content: SizedBox(
-          width: 560,
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              ClipRRect(
-                borderRadius: BorderRadius.circular(10),
-                child: _mapTiles(height: 320),
-              ),
-              const SizedBox(height: 12),
-              SelectableText(_detail),
-              if (attachment.isLiveLocation && attachment.liveMinutes > 0) ...[
-                const SizedBox(height: 8),
-                Text(
-                  'Expires after ${attachment.liveMinutes} minutes. Updates every 1 minute.',
-                  style: Theme.of(context).textTheme.bodySmall,
-                ),
-              ],
-            ],
-          ),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(dialogContext),
-            child: const Text('Close'),
-          ),
-        ],
-      ),
-    );
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final detail = _detail;
-    return InkWell(
-      onTap: () => _openMap(context),
-      borderRadius: BorderRadius.circular(10),
-      child: ClipRRect(
-        borderRadius: BorderRadius.circular(10),
-        child: SizedBox(
-          width: 318,
-          height: 190,
-          child: Stack(
-            fit: StackFit.expand,
-            children: [
-              _mapTiles(height: 190),
-              Positioned(
-                left: 0,
-                right: 0,
-                bottom: 0,
-                child: DecoratedBox(
-                  decoration: BoxDecoration(
-                    gradient: LinearGradient(
-                      begin: Alignment.topCenter,
-                      end: Alignment.bottomCenter,
-                      colors: [
-                        Colors.transparent,
-                        Colors.black.withValues(alpha: 0.45),
-                      ],
-                    ),
-                  ),
-                  child: Padding(
-                    padding: const EdgeInsets.fromLTRB(12, 26, 10, 8),
-                    child: Row(
-                      crossAxisAlignment: CrossAxisAlignment.end,
-                      children: [
-                        Expanded(
-                          child: Column(
-                            mainAxisSize: MainAxisSize.min,
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Text(
-                                _title,
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
-                                style: const TextStyle(
-                                  color: Colors.white,
-                                  fontWeight: FontWeight.w700,
-                                  fontSize: 12,
-                                ),
-                              ),
-                              if (detail.isNotEmpty)
-                                Text(
-                                  detail,
-                                  maxLines: 1,
-                                  overflow: TextOverflow.ellipsis,
-                                  style: const TextStyle(
-                                    color: Colors.white,
-                                    fontSize: 10,
-                                  ),
-                                ),
-                            ],
-                          ),
-                        ),
-                        if (attachment.isLiveLocation &&
-                            attachment.liveMinutes > 0)
-                          Container(
-                            margin: const EdgeInsets.only(right: 6),
-                            padding: const EdgeInsets.symmetric(
-                              horizontal: 6,
-                              vertical: 3,
-                            ),
-                            decoration: BoxDecoration(
-                              color: Colors.black.withValues(alpha: 0.38),
-                              borderRadius: BorderRadius.circular(999),
-                            ),
-                            child: Text(
-                              '${attachment.liveMinutes} min',
-                              style: const TextStyle(
-                                color: Colors.white,
-                                fontSize: 10,
-                              ),
-                            ),
-                          ),
-                      ],
-                    ),
-                  ),
-                ),
-              ),
-            ],
-          ),
-        ),
-      ),
     );
   }
 }

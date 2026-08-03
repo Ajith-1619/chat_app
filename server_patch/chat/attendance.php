@@ -99,6 +99,127 @@ function attendance_rows(PDO $pdo, int $empId, string $fromDate, string $toDate,
     return array_values(array_reverse($rowsByDate));
 }
 
+function attendance_first_table(PDO $pdo, array $candidates): string
+{
+    foreach ($candidates as $table) {
+        $stmt = $pdo->prepare("SELECT COUNT(*) FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = :table_name");
+        $stmt->execute([':table_name' => $table]);
+        if ((int)$stmt->fetchColumn() > 0) return $table;
+    }
+    return '';
+}
+
+function attendance_columns(PDO $pdo, string $table): array
+{
+    $stmt = $pdo->prepare(
+        "SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = :table_name"
+    );
+    $stmt->execute([':table_name' => $table]);
+    return array_map('strval', $stmt->fetchAll(PDO::FETCH_COLUMN) ?: []);
+}
+
+function attendance_first_column(array $columns, array $candidates): string
+{
+    foreach ($candidates as $column) {
+        if (in_array($column, $columns, true)) return $column;
+    }
+    return '';
+}
+
+function attendance_shift_catalog(PDO $employeePdo): array
+{
+    $table = attendance_first_table($employeePdo, ['shift_master', 'tbl_shift', 'shifts', 'shift', 'employee_shift_master']);
+    if ($table === '') return [];
+    $columns = attendance_columns($employeePdo, $table);
+    $idCol = attendance_first_column($columns, ['shift_id', 'id']);
+    $nameCol = attendance_first_column($columns, ['shift_name', 'name', 'title']);
+    $timeCol = attendance_first_column($columns, ['shift_time', 'time', 'timing', 'time_range']);
+    $hoursCol = attendance_first_column($columns, ['shift_hours', 'hours', 'working_hours']);
+    if ($idCol === '') return [];
+    $select = ["`$idCol` AS shift_id"];
+    $select[] = $nameCol !== '' ? "`$nameCol` AS name" : "'' AS name";
+    $select[] = $timeCol !== '' ? "`$timeCol` AS time" : "'' AS time";
+    $select[] = $hoursCol !== '' ? "`$hoursCol` AS hours" : "'' AS hours";
+    $sql = 'SELECT ' . implode(', ', $select) . " FROM `$table` ORDER BY `$idCol` ASC LIMIT 100";
+    $stmt = $employeePdo->query($sql);
+    $result = [];
+    foreach (($stmt?->fetchAll(PDO::FETCH_ASSOC) ?: []) as $row) {
+        $shiftId = trim((string)($row['shift_id'] ?? ''));
+        if ($shiftId === '') continue;
+        $result[] = [
+            'shift_id' => $shiftId,
+            'name' => trim((string)($row['name'] ?? $shiftId)),
+            'time' => trim((string)($row['time'] ?? '')),
+            'hours' => trim((string)($row['hours'] ?? '')),
+        ];
+    }
+    return $result;
+}
+
+function attendance_shift_options(PDO $employeePdo, string $credentials): array
+{
+    $result = [];
+    if ($credentials !== '') {
+        try {
+            $ch = curl_init('https://skylinkonline.net/servicev2/get_shift.php');
+            if ($ch !== false) {
+                curl_setopt_array($ch, [
+                    CURLOPT_POST => true,
+                    CURLOPT_RETURNTRANSFER => true,
+                    CURLOPT_TIMEOUT => 30,
+                    CURLOPT_CONNECTTIMEOUT => 10,
+                    CURLOPT_HTTPHEADER => [
+                        'Accept: application/json',
+                        'Content-Type: application/x-www-form-urlencoded',
+                    ],
+                    CURLOPT_POSTFIELDS => http_build_query(['key' => $credentials]),
+                ]);
+                $response = curl_exec($ch);
+                $status = (int)curl_getinfo($ch, CURLINFO_RESPONSE_CODE);
+                curl_close($ch);
+                if ($response !== false && $status >= 200 && $status < 300) {
+                    $decoded = json_decode((string)$response, true);
+                    $server = is_array($decoded) ? ($decoded['server'] ?? null) : null;
+                    $first = is_array($server) && !empty($server) ? ($server[0] ?? null) : null;
+                    $data = is_array($first) ? ($first['DATA'] ?? null) : null;
+                    if (is_array($data)) {
+                        foreach ($data as $row) {
+                            if (!is_array($row)) continue;
+                            $shiftId = trim((string)($row['shift_id'] ?? ''));
+                            if ($shiftId === '') continue;
+                            $result[] = [
+                                'shift_id' => $shiftId,
+                                'name' => trim((string)($row['name'] ?? $row['shift_name'] ?? $shiftId)),
+                                'time' => trim((string)($row['shift_time'] ?? $row['time'] ?? $shiftId)),
+                                'hours' => trim((string)($row['shift_hours'] ?? $row['hours'] ?? '')),
+                            ];
+                        }
+                    }
+                }
+            }
+        } catch (Throwable $ignored) {
+        }
+    }
+    if (!$result) {
+        $result = attendance_shift_catalog($employeePdo);
+    }
+    $seen = [];
+    $normalized = [];
+    foreach ($result as $row) {
+        $shiftId = trim((string)($row['shift_id'] ?? ''));
+        if ($shiftId === '' || isset($seen[$shiftId])) continue;
+        $seen[$shiftId] = true;
+        $normalized[] = [
+            'shift_id' => $shiftId,
+            'name' => trim((string)($row['name'] ?? $shiftId)),
+            'time' => trim((string)($row['time'] ?? '')),
+            'hours' => trim((string)($row['hours'] ?? '')),
+        ];
+    }
+    return $normalized;
+}
+
+
 function attendance_duration(int $seconds): string
 {
     if ($seconds <= 0) return '--';
@@ -114,11 +235,19 @@ if ($_SERVER['REQUEST_METHOD'] === 'GET') {
 $input = json_decode(file_get_contents('php://input') ?: '{}', true);
 if (!is_array($input)) chat_json(['status' => false, 'error' => 'Invalid JSON'], 422);
 $action = strtolower(trim((string)($input['action'] ?? '')));
-if (!in_array($action, ['start_tracking', 'stop_tracking'], true)) {
+if (!in_array($action, ['get_shifts', 'start_tracking', 'stop_tracking'], true)) {
     chat_json(['status' => false, 'error' => 'Invalid attendance action'], 422);
 }
 
 try {
+    if ($action === 'get_shifts') {
+        $credentials = trim((string)($input['credentials'] ?? ''));
+        chat_json([
+            'status' => true,
+            'shifts' => attendance_shift_options($employeePdo, $credentials),
+        ]);
+    }
+
     $chatPdo = chat_db();
     chat_ensure_schema($chatPdo);
     if ($action === 'start_tracking') {

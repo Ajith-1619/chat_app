@@ -639,6 +639,7 @@ function chat_user_uploaded_storage_bytes(PDO $pdo, int $empId): int
     chat_ensure_column($pdo, 'xmpp_messages', 'file_name', 'VARCHAR(255) NULL AFTER file_url');
     chat_ensure_column($pdo, 'xmpp_messages', 'file_type', 'VARCHAR(255) NULL AFTER file_name');
     chat_ensure_column($pdo, 'xmpp_messages', 'file_size', 'BIGINT NOT NULL DEFAULT 0 AFTER file_type');
+    chat_ensure_column($pdo, 'xmpp_messages', 'duration_ms', 'INT NOT NULL DEFAULT 0 AFTER file_size');
     chat_ensure_column($pdo, 'xmpp_messages', 'read_at', 'DATETIME NULL AFTER status');
     chat_ensure_column($pdo, 'xmpp_messages', 'deleted_at', 'DATETIME NULL AFTER read_at');
     $stmt = $pdo->prepare("SELECT COALESCE(SUM(CAST(file_size AS UNSIGNED)), 0) FROM xmpp_messages WHERE from_jid = :jid AND file_url IS NOT NULL AND file_url <> '' AND deleted_at IS NULL");
@@ -838,6 +839,7 @@ function chat_ensure_schema(PDO $pdo): void
     chat_ensure_column($pdo, 'xmpp_messages', 'file_type', 'VARCHAR(255) NULL AFTER file_name');
     $pdo->exec('ALTER TABLE xmpp_messages MODIFY file_type VARCHAR(255) NULL');
     chat_ensure_column($pdo, 'xmpp_messages', 'file_size', 'BIGINT NOT NULL DEFAULT 0 AFTER file_type');
+    chat_ensure_column($pdo, 'xmpp_messages', 'duration_ms', 'INT NOT NULL DEFAULT 0 AFTER file_size');
     chat_ensure_column($pdo, 'xmpp_messages', 'file_restricted', 'TINYINT(1) NOT NULL DEFAULT 0 AFTER file_size');
     chat_ensure_column($pdo, 'xmpp_messages', 'read_at', 'DATETIME NULL AFTER status');
     chat_ensure_column($pdo, 'xmpp_messages', 'reply_to_id', 'BIGINT NULL AFTER message_type');

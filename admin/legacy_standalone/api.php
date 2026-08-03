@@ -1,6 +1,7 @@
 <?php
 declare(strict_types=1);
 require_once __DIR__ . '/_bootstrap.php';
+require_once __DIR__ . '/../../server_patch/chat/archive_storage_helper.php';
 
 try {
     $admin = flow_admin_require();
@@ -1896,7 +1897,7 @@ function admin_post_action(PDO $pdo, int $adminEmpId, string $action): array
 {
     flow_admin_require_csrf();
     $id = (int)($_POST['id'] ?? 0);
-    if ($id <= 0 && !in_array($action, ['set_member_role', 'add_member', 'remove_member', 'add_external_member', 'remove_external_member', 'approve_external_request', 'reject_external_request', 'save_ai_provider', 'save_ai_type_rule', 'save_ai_user_access', 'save_group_ai_access'], true)) {
+    if ($id <= 0 && !in_array($action, ['set_member_role', 'add_member', 'remove_member', 'add_external_member', 'remove_external_member', 'approve_external_request', 'reject_external_request', 'save_ai_provider', 'save_ai_type_rule', 'save_ai_user_access', 'save_group_ai_access', 'save_archive_provider', 'save_archive_policy', 'queue_archive_job', 'exchange_archive_google_code'], true)) {
         return ['status' => false, 'error' => 'Valid id is required.'];
     }
 
@@ -1975,6 +1976,18 @@ function admin_post_action(PDO $pdo, int $adminEmpId, string $action): array
 
         case 'save_group_ai_access':
             return admin_save_group_ai_access($pdo, $adminEmpId);
+
+        case 'save_archive_provider':
+            return archive_storage_save_provider($pdo, $adminEmpId);
+
+        case 'exchange_archive_google_code':
+            return archive_storage_exchange_google_code($pdo, $adminEmpId);
+
+        case 'save_archive_policy':
+            return archive_storage_save_policy($pdo, $adminEmpId);
+
+        case 'queue_archive_job':
+            return archive_storage_queue_job($pdo, $adminEmpId);
 
         case 'add_member':
             return admin_add_group_member($pdo, $adminEmpId);
@@ -2093,6 +2106,7 @@ try {
         'attachments' => admin_attachments($pdo, $search),
         'location' => admin_location($pdo),
         'ai_access' => admin_ai_access($pdo, $search),
+        'archive_storage' => archive_storage_admin_payload($pdo, $search),
         'notifications' => admin_notifications($pdo, $search),
         'releases' => admin_releases($pdo),
         'diagnostics' => admin_simple($pdo, 'xmpp_diagnostics', 'created_at DESC'),

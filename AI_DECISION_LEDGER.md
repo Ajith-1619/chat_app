@@ -583,3 +583,46 @@
 - Date: 2026-08-01 17:55:00 +05:30
 - Decision: Bump to a new 2.0.9+32 release and register only the Android artifact as a live draft.
 - Reason: This avoids overwriting the existing 2.0.8 release trail and matches the request to move only the APK into the live approval pipeline while still giving a fresh web build artifact locally.
+
+## DEC-20260803-WEB-PUNCH-SHIFT-FALLBACK
+- Date: 2026-08-03 18:20:00 +05:30
+- Decision: Keep the live shift API path unchanged and add a local assigned-shift fallback from profile data.
+- Reason: This is the smallest safe fix that unblocks web punch-in immediately without rewriting the attendance backend contract.
+
+## DEC-20260803-WEB-PUNCH-SHIFT-PROXY
+- Date: 2026-08-03 21:10:00 +05:30
+- Decision: Move web shift retrieval behind chat/attendance.php instead of relying only on the profile fallback.
+- Reason: The fallback prevents a blank dropdown, but the proxy restores the full shift list on web without exposing the browser to external attendance endpoint failures.
+
+
+## 2026-08-03 - LMS webhook sender identity decision
+- Decision: Normalize webhook sender_jid using the sender employee id plus the Flow chat domain instead of trusting the raw stored JID.
+- Reason: LMS permission mapping extracts the numeric employee id from sender_jid, so the webhook producer must guarantee that format even if upstream message identity formatting evolves.
+## DEC-20260803-ARCHIVE-STORAGE
+- Decision: Implement archive storage as a provider-driven backend with Google Drive as the first concrete provider rather than hard-coding Drive behavior into Flow core.
+- Reason: This keeps archive storage extensible for OneDrive, S3, Azure Blob, NAS, and future providers without reworking the archive lifecycle model.
+- Decision: Keep archived conversations searchable and stream archived manifests directly from archive storage instead of forcing restore-to-server reads.
+- Reason: This matches the product goal of reducing active server disk usage while preserving user access and search continuity.
+
+## DEC-20260803-VOICE-AUDIO-VIDEO-PLAYBACK
+- Date: 2026-08-03 23:40:00 +05:30
+- Decision: Persist audio duration as first-class message metadata instead of inferring it client-side from downloaded media every time.
+- Reason: This fixes the 00:00 voice-note bug at the actual data-contract layer and keeps playback stable across reloads, devices, and history fetches.
+- Decision: For web audio preview, load attachment bytes and create a local object URL rather than relying on the stored attachment URL directly.
+- Reason: Flow stores some media behind encrypted/indirect URLs, so byte-backed playback is the safest way to preserve in-app playback without weakening attachment protection.
+
+
+## DEC-20260803-HORIZON-LATENCY-MAP-UX
+- Date: 2026-08-03 23:58:00 +05:30
+- Decision: Optimize Horizon by reducing backend query fan-out first, instead of only increasing request timeout.
+- Reason: The user-facing pain is caused by real load-path inefficiency, so keeping the 20-second timeout and making the payload cheaper is safer and more scalable than masking the issue.
+- Decision: Keep reverse-geocoding in Horizon timeline bounded rather than removing addresses entirely.
+- Reason: Address context is still useful operationally, but an unbounded geocode loop can easily dominate the request time for long punch sessions.
+- Decision: Improve the existing in-app canvas/tile map interaction instead of replacing the Horizon preview with an external map dependency.
+- Reason: This preserves the current Flow in-app experience and keeps the fix scoped to smoother pointer-focused zoom and pan behavior.
+
+
+## DEC-20260803-MESSAGE-EDIT-INSTANT-REFRESH
+- Date: 2026-08-03 23:59:00 +05:30
+- Decision: Fix edited-message repaint at the local state replacement layer instead of forcing a full history reload after each edit.
+- Reason: The bug is caused by fragile object-identity lookups in the visible message list, so an id-based update is the smallest safe fix and avoids unnecessary network churn or scroll disruption.

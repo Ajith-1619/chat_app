@@ -143,6 +143,45 @@ function saved_messages_drive_text_payload(int $empId, string $body): string
     ], JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE) ?: '{}';
 }
 
+function saved_messages_drive_allowed_emp(int $empId): bool
+{
+    return in_array($empId, [302, 232, 78, 116, 553, 218], true);
+}
+
+function saved_messages_has_column(PDO $pdo, string $column): bool
+{
+    $stmt = $pdo->prepare(
+        'SELECT COUNT(*)
+         FROM INFORMATION_SCHEMA.COLUMNS
+         WHERE TABLE_SCHEMA = DATABASE()
+           AND TABLE_NAME = :table_name
+           AND COLUMN_NAME = :column_name'
+    );
+    $stmt->execute([
+        ':table_name' => 'xmpp_saved_messages',
+        ':column_name' => $column,
+    ]);
+    return ((int)$stmt->fetchColumn()) > 0;
+}
+function saved_messages_ensure_archive_columns(PDO $pdo): void
+{
+    $columns = [
+        'storage_mode' => "VARCHAR(20) NOT NULL DEFAULT 'database' AFTER file_type",
+        'drive_provider_id' => 'BIGINT NULL AFTER storage_mode',
+        'drive_file_id' => 'VARCHAR(255) NULL AFTER drive_provider_id',
+        'drive_folder_id' => 'VARCHAR(255) NULL AFTER drive_file_id',
+        'drive_payload_type' => "VARCHAR(20) NOT NULL DEFAULT 'message' AFTER drive_folder_id",
+        'drive_mime_type' => 'VARCHAR(160) NULL AFTER drive_payload_type',
+        'drive_size_bytes' => 'BIGINT NOT NULL DEFAULT 0 AFTER drive_mime_type',
+        'metadata_json' => 'LONGTEXT NULL AFTER drive_size_bytes',
+    ];
+    foreach ($columns as $column => $definition) {
+        if (!saved_messages_has_column($pdo, $column)) {
+            $pdo->exec("ALTER TABLE `xmpp_saved_messages` ADD COLUMN `$column` $definition");
+        }
+    }
+}
+
 function saved_messages_utf8_safe(mixed $value): mixed
 {
     if (is_array($value)) {
@@ -189,6 +228,7 @@ try {
     $session = chat_require_user();
     $pdo = chat_db();
     chat_ensure_schema($pdo);
+    saved_messages_ensure_archive_columns($pdo);
     $empId = (int)$session['emp_id'];
 
     if ($_SERVER['REQUEST_METHOD'] === 'GET') {
@@ -199,14 +239,28 @@ try {
             }
         }
 
-        $stmt = $pdo->prepare(
-            'SELECT ' . implode(', ', $selectColumns) . '
-             FROM xmpp_saved_messages
-             WHERE emp_id = :emp_id
-             ORDER BY id DESC LIMIT 200'
-        );
-        $stmt->execute([':emp_id' => $empId]);
-        $messages = $stmt->fetchAll(PDO::FETCH_ASSOC) ?: [];
+        $isRsm = strtolower(trim((string)($_GET['scope'] ?? ''))) === 'rsm';
+        if ($isRsm && !in_array($empId, [302, 116], true)) {
+            chat_json(['status' => false, 'error' => 'RSM is restricted to employees 302 and 116.'], 403);
+        }
+        if ($isRsm) {
+            $selectColumns[] = 'emp_id AS saved_by_emp_id';
+            $stmt = $pdo->prepare(
+                'SELECT ' . implode(', ', $selectColumns) . '
+                 FROM xmpp_saved_messages
+                 WHERE emp_id IN (302, 116)
+                 ORDER BY id DESC LIMIT 400'
+            );
+            $stmt->execute();
+        } else {
+            $stmt = $pdo->prepare(
+                'SELECT ' . implode(', ', $selectColumns) . '
+                 FROM xmpp_saved_messages
+                 WHERE emp_id = :emp_id
+                 ORDER BY id DESC LIMIT 200'
+            );
+            $stmt->execute([':emp_id' => $empId]);
+        }        $messages = $stmt->fetchAll(PDO::FETCH_ASSOC) ?: [];
         $messages = array_map('saved_messages_output_row', $messages);
         chat_json(['status' => true, 'messages' => $messages]);
     }
@@ -235,8 +289,14 @@ try {
     $persistedFileUrl = $fileUrl !== '' ? $fileUrl : null;
     try {
         $hasArchiveColumns = saved_messages_has_column($pdo, 'storage_mode');
-        $provider = $hasArchiveColumns ? saved_messages_active_provider($pdo) : null;
+        $driveAllowed = saved_messages_drive_allowed_emp($empId);
+        $driveResult = $driveAllowed ? 'provider_not_connected' : 'employee_not_allowlisted';
+        if (!$hasArchiveColumns) {
+            $driveResult = 'archive_columns_missing';
+        }
+        $provider = ($hasArchiveColumns && $driveAllowed) ? saved_messages_active_provider($pdo) : null;
         if ($provider) {
+            $driveResult = 'drive';
             $folder = saved_messages_drive_folder($pdo, $provider, $empId);
             $providerId = (int)($provider['id'] ?? 0);
             if ($fileUrl !== '') {
@@ -299,7 +359,8 @@ try {
         }
     } catch (Throwable $error) {
         error_log('saved_messages drive offload failed: ' . $error->getMessage());
-        $metadata['drive_error'] = $error->getMessage();
+        $driveResult = 'drive_upload_failed';
+        $metadata['drive_error'] = 'Google Drive upload failed; message retained in database.';
     }
 
     if ($hasArchiveColumns) {
@@ -352,6 +413,8 @@ try {
         'status' => true,
         'message_id' => $messageId,
         'storage_mode' => $storageMode,
+        'drive_enabled' => $driveAllowed,
+        'drive_result' => $driveResult,
         'file_url' => $storageMode === 'drive' && $drivePayloadType === 'file' ? saved_messages_proxy_url($messageId) : $persistedFileUrl,
     ]);
 } catch (Throwable $error) {

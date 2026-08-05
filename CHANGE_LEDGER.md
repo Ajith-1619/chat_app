@@ -965,3 +965,63 @@
 - 2026-08-04: Fixed missing xmpp_saved_messages schema migration in server_patch/chat/bootstrap.php by adding chat_ensure_column upgrades for Saved Messages Drive-storage columns on existing live databases.
 
 - 2026-08-04: Fixed missing xmpp_saved_messages schema migration in server_patch/chat/bootstrap.php by adding chat_ensure_column upgrades for Saved Messages Drive-storage columns on existing live databases.
+
+## 2026-08-05 Saved Messages schema compatibility
+- Fixed saved_messages.php to detect optional archive columns before SELECT/INSERT.
+- Legacy xmpp_saved_messages schemas now fall back to database storage instead of failing on storage_mode.
+- PHP lint passed for saved_messages.php, saved_message_stream.php, and upload_file.php.
+
+
+## 2026-08-05 Saved Messages Google Drive allowlist
+- Requirement: real-time Saved Messages Drive offload for employees 302, 232, 78, 116, 553, and 218 only, covering text, files, and images.
+- Change: `server_patch/chat/saved_messages.php` now gates Drive offload by the six-employee allowlist and keeps other users on database storage.
+- Observability: POST response now returns `drive_enabled` and `drive_result` (`drive`, `provider_not_connected`, `employee_not_allowlisted`, `drive_upload_failed`, or `archive_columns_missing`).
+- Verification: PHP syntax checks passed for Saved Messages, stream, and archive helper endpoints.
+
+## 2026-08-05 Saved Messages archive-column self-healing
+- Root cause: live `xmpp_saved_messages` schema did not contain Drive archive columns, so saves fell back to database with `archive_columns_missing`.
+- Change: `saved_messages.php` now verifies/adds the archive columns on request before selecting storage mode, then applies the six-employee Drive allowlist.
+- Deployment: upload the updated `server_patch/chat/saved_messages.php` to `/var/www/html/router_login/chat/saved_messages.php`; no Flutter/web build is required.
+- Verification: PHP lint passed.
+
+## 2026-08-05 - Horizon timeout root-cause correction
+- Changed `server_patch/chat/myhub.php` so Horizon attendance reads the primary employee DB first and opens the task DB only as a fallback.
+- Added bounded DB connection timeouts for task and employee connections in `db.php`.
+- Removed unconditional `id` ordering from Horizon location queries to support the deployed location schema.
+- Added employee 218 to the existing Horizon elevated visibility allowlist.
+## 2026-08-05 Horizon Live View Stabilization
+- Requirement: Make Horizon cards-first, add a separate compact all-employee live map, preserve employee-card and marker navigation to individual route timelines, and remove the recurring 20-second Horizon timeout.
+- Status: Implemented locally; production deployment pending.
+- Verification: PHP lint passed for `server_patch/chat/myhub.php` and `db.php`; Flutter analyze completed with informational lints only and no compile errors.
+
+## 2026-08-05 Horizon Navigation Correction
+- Main Horizon remains cards-first; employee route/timeline is no longer rendered inline on the landing page.
+- Employee card click opens a separate `HorizonEmployeeMapScreen` route.
+- All employees live view opens a separate `HorizonAllEmployeesMapScreen` route with compact map and cards.
+- Web release rebuilt successfully after the navigation correction.
+
+## 2026-08-05 Horizon Card Grid and Separate Route Correction
+- Replaced Horizon employee list rows with responsive employee cards: 3 columns on wide web, 2 on tablet, 1 on mobile.
+- Removed the selected employee route/timeline from the Horizon landing page.
+- Employee cards now open a dedicated employee route/timeline page.
+- The All employees live view remains a separate map page and uses the same card grid.
+- Verified `flutter analyze --no-pub lib/myhub_horizon_screen.dart lib/chat_api.dart`: no errors; only existing style infos in chat_api.dart.
+- Verified `flutter build web --release`: succeeded; output is `build/web` and WASM dry run succeeded.
+
+## 2026-08-05 Horizon Compact Map and Timeline Scroll Fix
+- Reduced all-employees map height from 340px to 260px so employee cards remain visible in the same viewport.
+- Reduced individual route map to 220px mobile / 280px wider layouts.
+- Wrapped individual route/timeline content in `SingleChildScrollView`; half-hour points and address details are now reachable by scrolling.
+- Preserved existing draggable/zoomable OSM map interaction. Google Maps requires a configured browser API key and billing project before switching providers.
+- Validation: `flutter analyze --no-pub lib/myhub_horizon_screen.dart` passed; `flutter build web --release` passed with WASM dry run.
+
+## 2026-08-05 Horizon Normal Map Sizing
+- Requirement: Keep Horizon maps at a normal centered width/height and preserve the employee cards and scrollable timeline below.
+- Change: Constrained the individual route map to 920px and the all-employee overview map to 1100px, while retaining responsive mobile width and existing pan/zoom behavior.
+- Verification: `flutter analyze --no-pub lib\myhub_horizon_screen.dart` passed. `flutter build web --release` timed out after 124 seconds; no fresh release artifact is claimed.
+
+## 2026-08-05 RSM Shared Saved Archive
+- Requirement: Provide an RSM conversation visible only to employees 302 and 116, aggregating saved messages/files from both users with Drive-backed content access.
+- Implementation: Added an access-controlled `scope=rsm` saved-message query, separate RSM cache key, `saved_by_emp_id` model metadata, and an RSM virtual chat entry in the home list and desktop/mobile routing.
+- Verification: `saved_messages.php` PHP lint passed; targeted Flutter analyzer completed with existing lint/info warnings and no new compile errors.
+- Risk/decision: RSM is currently a virtual Flow conversation backed by the saved-message store; it is not an ejabberd/XMPP room. Real room provisioning and server-side write fan-out require the deployed channel API/XMPP provisioning contract.

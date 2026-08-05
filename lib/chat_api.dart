@@ -800,6 +800,7 @@ class SavedMessage {
     this.fileUrl = '',
     this.fileName = '',
     this.fileType = '',
+    this.savedByEmpId = '',
   });
 
   factory SavedMessage.fromJson(Map<String, dynamic> json) => SavedMessage(
@@ -809,6 +810,7 @@ class SavedMessage {
     fileUrl: '${json['file_url'] ?? ''}',
     fileName: '${json['file_name'] ?? ''}',
     fileType: '${json['file_type'] ?? ''}',
+    savedByEmpId: '${json['saved_by_emp_id'] ?? ''}',
   );
 
   final int id;
@@ -817,6 +819,7 @@ class SavedMessage {
   final String fileUrl;
   final String fileName;
   final String fileType;
+  final String savedByEmpId;
   bool get hasFile => fileUrl.trim().isNotEmpty;
   Map<String, dynamic> toJson() => {
     'id': id,
@@ -825,6 +828,7 @@ class SavedMessage {
     'file_url': fileUrl,
     'file_name': fileName,
     'file_type': fileType,
+    'saved_by_emp_id': savedByEmpId,
   };
 }
 
@@ -2661,8 +2665,8 @@ class ChatApi {
         .toList();
   }
 
-  Future<List<SavedMessage>> getSavedMessages() async {
-    final body = await _getJson('chat/saved_messages.php');
+  Future<List<SavedMessage>> getSavedMessages({bool rsm = false}) async {
+    final body = await _getJson('chat/saved_messages.php${rsm ? '?scope=rsm' : ''}');
     final messages = body['messages'];
     if (messages is! List) return const [];
     final result = messages
@@ -2670,14 +2674,16 @@ class ChatApi {
         .map((item) => SavedMessage.fromJson(Map<String, dynamic>.from(item)))
         .toList();
     await AppCache.instance.writeJson(
-      'saved_messages',
+      rsm ? 'saved_messages_rsm' : 'saved_messages',
       result.map((message) => message.toJson()).toList(),
     );
     return result;
   }
 
-  Future<List<SavedMessage>> cachedSavedMessages() async {
-    final cached = await AppCache.instance.readJson('saved_messages');
+  Future<List<SavedMessage>> cachedSavedMessages({bool rsm = false}) async {
+    final cached = await AppCache.instance.readJson(
+      rsm ? 'saved_messages_rsm' : 'saved_messages',
+    );
     if (cached is! List) return const [];
     return cached
         .whereType<Map>()
@@ -2782,6 +2788,7 @@ class ChatApi {
         'section': 'horizon',
         if (includeLocations) 'include_locations': '1',
       },
+      timeout: includeLocations ? const Duration(seconds: 45) : null,
     );
     return Map<String, dynamic>.from(body);
   }
@@ -2790,6 +2797,7 @@ class ChatApi {
     final body = await _getJson(
       'chat/myhub.php',
       query: {'section': 'horizon_timeline', 'emp_id': '$empId'},
+      timeout: const Duration(seconds: 45),
     );
     return Map<String, dynamic>.from(body);
   }
@@ -4052,6 +4060,7 @@ class ChatApi {
     String path, {
     Map<String, String>? query,
     bool recordDiagnostic = true,
+    Duration? timeout,
   }) async {
     final traceId = _newTraceId('get');
     final stopwatch = Stopwatch()..start();
@@ -4062,7 +4071,7 @@ class ChatApi {
             _uri(path, query: query),
             headers: _headers(traceId: traceId),
           )
-          .timeout(const Duration(seconds: 20));
+          .timeout(timeout ?? const Duration(seconds: 20));
       connectionStatus.value = 'connected';
     } catch (error) {
       connectionStatus.value = 'disconnected';
@@ -4339,4 +4348,3 @@ class ChatApi {
     }
   }
 }
-

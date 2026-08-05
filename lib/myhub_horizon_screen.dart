@@ -17,8 +17,6 @@ class MyHubHorizonScreen extends StatefulWidget {
 
 class _MyHubHorizonScreenState extends State<MyHubHorizonScreen> {
   late Future<Map<String, dynamic>> _future;
-  Map<String, dynamic>? _selectedEmployee;
-  Future<Map<String, dynamic>>? _selectedTimelineFuture;
 
   @override
   void initState() {
@@ -29,48 +27,6 @@ class _MyHubHorizonScreenState extends State<MyHubHorizonScreen> {
   void _refresh() {
     setState(() {
       _future = _horizonApi.getMyHubHorizon(includeLocations: false);
-      if (_selectedEmployee != null) {
-        final empId = _employeeEmpId(_selectedEmployee!);
-        if (empId > 0) {
-          _selectedTimelineFuture = _horizonApi.getMyHubHorizonTimeline(empId);
-        }
-      }
-    });
-  }
-
-  void _selectEmployee(Map<String, dynamic> employee) {
-    final empId = _employeeEmpId(employee);
-    setState(() {
-      _selectedEmployee = employee;
-      _selectedTimelineFuture = empId > 0
-          ? _horizonApi.getMyHubHorizonTimeline(empId)
-          : null;
-    });
-  }
-
-  void _syncSelectedEmployee(List<Map<String, dynamic>> employees) {
-    if (employees.isEmpty) return;
-    final currentId = _selectedEmployee == null
-        ? 0
-        : _employeeEmpId(_selectedEmployee!);
-    final match = employees.cast<Map<String, dynamic>?>().firstWhere(
-      (item) => item != null && _employeeEmpId(item) == currentId,
-      orElse: () => null,
-    );
-    if (match != null) {
-      _selectedEmployee = match;
-      return;
-    }
-    final fallback = employees.firstWhere(
-      (item) => _employeeEmpId(item) > 0,
-      orElse: () => employees.first,
-    );
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (!mounted) return;
-      if (_selectedEmployee == null ||
-          _employeeEmpId(_selectedEmployee!) != _employeeEmpId(fallback)) {
-        _selectEmployee(fallback);
-      }
     });
   }
 
@@ -106,11 +62,6 @@ class _MyHubHorizonScreenState extends State<MyHubHorizonScreen> {
               message: 'No employees have punched in today.',
             );
           }
-          _syncSelectedEmployee(employees);
-          final selectedEmployee = _selectedEmployee;
-          final selectedEmpId = selectedEmployee == null
-              ? 0
-              : _employeeEmpId(selectedEmployee);
           return RefreshIndicator(
             onRefresh: () async => _refresh(),
             child: ListView(
@@ -118,26 +69,8 @@ class _MyHubHorizonScreenState extends State<MyHubHorizonScreen> {
               children: [
                 _HorizonSummary(data: data),
                 const SizedBox(height: 12),
-                _HorizonOverviewLauncher(
-                  employees: employees,
-                ),
+                _HorizonOverviewLauncher(employees: employees),
                 const SizedBox(height: 12),
-                if (selectedEmployee != null && _selectedTimelineFuture != null)
-                  _SelectedEmployeeTimelineSection(
-                    employee: selectedEmployee,
-                    future: _selectedTimelineFuture!,
-                    onRefresh: () => _selectEmployee(selectedEmployee),
-                    onOpenFullscreen: () {
-                      Navigator.of(context).push(
-                        MaterialPageRoute<void>(
-                          builder: (_) => HorizonEmployeeMapScreen(
-                            empId: _employeeEmpId(selectedEmployee),
-                            employeeName: _employeeName(selectedEmployee),
-                          ),
-                        ),
-                      );
-                    },
-                  ),
                 const SizedBox(height: 12),
                 Text(
                   'Today attendance list',
@@ -146,22 +79,20 @@ class _MyHubHorizonScreenState extends State<MyHubHorizonScreen> {
                   ),
                 ),
                 const SizedBox(height: 8),
-                ...employees.map(
-                  (item) => _HorizonEmployeeTile(
-                    employee: item,
-                    isSelected: _employeeEmpId(item) == selectedEmpId,
-                    onTap: () => _selectEmployee(item),
-                    onOpenFullscreen: () {
-                      Navigator.of(context).push(
-                        MaterialPageRoute<void>(
-                          builder: (_) => HorizonEmployeeMapScreen(
-                            empId: _employeeEmpId(item),
-                            employeeName: _employeeName(item),
-                          ),
+                _HorizonEmployeeCards(
+                  employees: employees,
+                  onOpen: (item) {
+                    final empId = _employeeEmpId(item);
+                    if (empId <= 0) return;
+                    Navigator.of(context).push(
+                      MaterialPageRoute<void>(
+                        builder: (_) => HorizonEmployeeMapScreen(
+                          empId: empId,
+                          employeeName: _employeeName(item),
                         ),
-                      );
-                    },
-                  ),
+                      ),
+                    );
+                  },
                 ),
               ],
             ),
@@ -246,15 +177,16 @@ class _HorizonOverviewLauncher extends StatelessWidget {
           markerCount > 0
               ? '$markerCount employees have valid live coordinates. Open the separate map view to inspect them.'
               : 'Open a separate map view for visible employees. Coordinates will appear once live data is available.',
-          style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-            color: AppColors.muted,
-          ),
+          style: Theme.of(
+            context,
+          ).textTheme.bodyMedium?.copyWith(color: AppColors.muted),
         ),
         trailing: FilledButton.icon(
           onPressed: () {
             Navigator.of(context).push(
               MaterialPageRoute<void>(
-                builder: (_) => HorizonAllEmployeesMapScreen(employees: employees),
+                builder: (_) =>
+                    HorizonAllEmployeesMapScreen(employees: employees),
               ),
             );
           },
@@ -267,10 +199,7 @@ class _HorizonOverviewLauncher extends StatelessWidget {
 }
 
 class HorizonAllEmployeesMapScreen extends StatefulWidget {
-  const HorizonAllEmployeesMapScreen({
-    super.key,
-    required this.employees,
-  });
+  const HorizonAllEmployeesMapScreen({super.key, required this.employees});
 
   final List<Map<String, dynamic>> employees;
 
@@ -330,19 +259,25 @@ class _HorizonAllEmployeesMapScreenState
           }
           final data = snapshot.data ?? const <String, dynamic>{};
           final employees = _list(data['employees']);
-          final markers = employees.map(_employeeMarker).whereType<_EmployeeMarker>().toList();
-          final selectedEmployee = employees.cast<Map<String, dynamic>?>().firstWhere(
-            (item) => item != null && _employeeEmpId(item) == _selectedEmpId,
-            orElse: () => employees.isNotEmpty ? employees.first : null,
-          );
+          final markers = employees
+              .map(_employeeMarker)
+              .whereType<_EmployeeMarker>()
+              .toList();
+          final selectedEmployee = employees
+              .cast<Map<String, dynamic>?>()
+              .firstWhere(
+                (item) =>
+                    item != null && _employeeEmpId(item) == _selectedEmpId,
+                orElse: () => employees.isNotEmpty ? employees.first : null,
+              );
           return ListView(
             padding: const EdgeInsets.all(16),
             children: [
               Text(
                 'Last known punched-in location for every visible employee.',
-                style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                  color: AppColors.muted,
-                ),
+                style: Theme.of(
+                  context,
+                ).textTheme.bodyMedium?.copyWith(color: AppColors.muted),
               ),
               const SizedBox(height: 12),
               Card(
@@ -351,80 +286,84 @@ class _HorizonAllEmployeesMapScreenState
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      AspectRatio(
-                        aspectRatio: 16 / 9,
-                        child: ClipRRect(
-                          borderRadius: BorderRadius.circular(14),
-                          child: markers.isEmpty
-                              ? const ColoredBox(
-                                  color: Color(0xFFF4F7FB),
-                                  child: Center(
-                                    child: Text('No valid employee coordinates available.'),
-                                  ),
-                                )
-                              : _HorizonEmployeesOverviewMap(
-                                  markers: markers,
-                                  selectedEmpId: _selectedEmpId,
-                                  onSelected: (employee) {
-                                    setState(() {
-                                      _selectedEmpId = _employeeEmpId(employee);
-                                    });
-                                  },
-                                ),
+                      Align(
+                        alignment: Alignment.center,
+                        child: ConstrainedBox(
+                          constraints: const BoxConstraints(maxWidth: 1100),
+                          child: SizedBox(
+                            width: double.infinity,
+                            height: 260,
+                            child: ClipRRect(
+                              borderRadius: BorderRadius.circular(14),
+                              child: markers.isEmpty
+                                  ? const ColoredBox(
+                                      color: Color(0xFFF4F7FB),
+                                      child: Center(
+                                        child: Text(
+                                          'No valid employee coordinates available.',
+                                        ),
+                                      ),
+                                    )
+                                  : _HorizonEmployeesOverviewMap(
+                                      markers: markers,
+                                      selectedEmpId: _selectedEmpId,
+                                      onSelected: (employee) {
+                                        final empId = _employeeEmpId(employee);
+                                        setState(() {
+                                          _selectedEmpId = empId;
+                                        });
+                                        if (empId <= 0) return;
+                                        Navigator.of(context).push(
+                                          MaterialPageRoute<void>(
+                                            builder: (_) =>
+                                                HorizonEmployeeMapScreen(
+                                                  empId: empId,
+                                                  employeeName: _employeeName(
+                                                    employee,
+                                                  ),
+                                                ),
+                                          ),
+                                        );
+                                      },
+                                    ),
+                            ),
+                          ),
                         ),
                       ),
                       const SizedBox(height: 12),
-                      Wrap(
-                        spacing: 8,
-                        runSpacing: 8,
-                        children: employees.map((employee) {
-                          final marker = _employeeMarker(employee);
-                          final selected = _employeeEmpId(employee) == _selectedEmpId;
-                          return ActionChip(
-                            avatar: Icon(
-                              marker == null
-                                  ? Icons.location_off_rounded
-                                  : Icons.location_on_rounded,
-                              size: 18,
-                              color: marker == null
-                                  ? AppColors.muted
-                                  : AppColors.primary,
+                      _HorizonEmployeeCards(
+                        employees: employees,
+                        selectedEmpId: _selectedEmpId,
+                        onOpen: (employee) {
+                          final empId = _employeeEmpId(employee);
+                          if (empId <= 0) return;
+                          setState(() {
+                            _selectedEmpId = empId;
+                          });
+                          Navigator.of(context).push(
+                            MaterialPageRoute<void>(
+                              builder: (_) => HorizonEmployeeMapScreen(
+                                empId: empId,
+                                employeeName: _employeeName(employee),
+                              ),
                             ),
-                            label: Text(_employeeName(employee)),
-                            backgroundColor: selected
-                                ? AppColors.primary.withValues(alpha: 0.12)
-                                : null,
-                            onPressed: () {
-                              setState(() {
-                                _selectedEmpId = _employeeEmpId(employee);
-                              });
-                              if (marker == null) return;
-                              Navigator.of(context).push(
-                                MaterialPageRoute<void>(
-                                  builder: (_) => HorizonEmployeeMapScreen(
-                                    empId: _employeeEmpId(employee),
-                                    employeeName: _employeeName(employee),
-                                  ),
-                                ),
-                              );
-                            },
                           );
-                        }).toList(),
+                        },
                       ),
                       if (selectedEmployee != null) ...[
                         const SizedBox(height: 12),
                         Text(
                           _employeeName(selectedEmployee),
-                          style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                            fontWeight: FontWeight.w800,
-                          ),
+                          style: Theme.of(context).textTheme.titleMedium
+                              ?.copyWith(fontWeight: FontWeight.w800),
                         ),
                         const SizedBox(height: 4),
                         Text(
                           (() {
-                            final address = (selectedEmployee['location_address'] ?? '')
-                                .toString()
-                                .trim();
+                            final address =
+                                (selectedEmployee['location_address'] ?? '')
+                                    .toString()
+                                    .trim();
                             if (address.isNotEmpty) return address;
                             final lat = selectedEmployee['latitude'];
                             final lng = selectedEmployee['longitude'];
@@ -433,9 +372,8 @@ class _HorizonAllEmployeesMapScreenState
                             }
                             return 'No live location available for this employee yet.';
                           })(),
-                          style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                            color: AppColors.muted,
-                          ),
+                          style: Theme.of(context).textTheme.bodyMedium
+                              ?.copyWith(color: AppColors.muted),
                         ),
                       ],
                     ],
@@ -449,44 +387,46 @@ class _HorizonAllEmployeesMapScreenState
     );
   }
 }
-class _SelectedEmployeeTimelineSection extends StatelessWidget {
-  const _SelectedEmployeeTimelineSection({
-    required this.employee,
-    required this.future,
-    required this.onRefresh,
-    required this.onOpenFullscreen,
+
+class _HorizonEmployeeCards extends StatelessWidget {
+  const _HorizonEmployeeCards({
+    required this.employees,
+    required this.onOpen,
+    this.selectedEmpId = 0,
   });
 
-  final Map<String, dynamic> employee;
-  final Future<Map<String, dynamic>> future;
-  final VoidCallback onRefresh;
-  final VoidCallback onOpenFullscreen;
+  final List<Map<String, dynamic>> employees;
+  final ValueChanged<Map<String, dynamic>> onOpen;
+  final int selectedEmpId;
 
   @override
   Widget build(BuildContext context) {
-    return FutureBuilder<Map<String, dynamic>>(
-      future: future,
-      builder: (context, snapshot) {
-        if (snapshot.connectionState == ConnectionState.waiting) {
-          return const Card(
-            child: Padding(
-              padding: EdgeInsets.all(24),
-              child: Center(child: CircularProgressIndicator()),
-            ),
-          );
-        }
-        if (snapshot.hasError) {
-          return _HorizonEmpty(
-            message: '${snapshot.error}',
-            onRetry: onRefresh,
-          );
-        }
-        final data = snapshot.data ?? const <String, dynamic>{};
-        return _HorizonTimelineDetail(
-          employeeName: _employeeName(employee),
-          data: data,
-          onRefresh: onRefresh,
-          onOpenFullscreen: onOpenFullscreen,
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final columns = constraints.maxWidth >= 980
+            ? 3
+            : constraints.maxWidth >= 620
+            ? 2
+            : 1;
+        return GridView.builder(
+          shrinkWrap: true,
+          physics: const NeverScrollableScrollPhysics(),
+          itemCount: employees.length,
+          gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+            crossAxisCount: columns,
+            crossAxisSpacing: 12,
+            mainAxisSpacing: 12,
+            mainAxisExtent: 164,
+          ),
+          itemBuilder: (context, index) {
+            final employee = employees[index];
+            return _HorizonEmployeeTile(
+              employee: employee,
+              isSelected: _employeeEmpId(employee) == selectedEmpId,
+              onTap: () => onOpen(employee),
+              onOpenFullscreen: () => onOpen(employee),
+            );
+          },
         );
       },
     );
@@ -510,32 +450,65 @@ class _HorizonEmployeeTile extends StatelessWidget {
   Widget build(BuildContext context) {
     final name = _employeeName(employee);
     final designation = '${employee['designation'] ?? ''}'.trim();
-    final status = '${employee['status'] ?? ''}';
+    final status = '${employee['status'] ?? ''}'.trim();
+    final statusColor = status.toLowerCase().contains('out')
+        ? const Color(0xFF64748B)
+        : const Color(0xFF16A34A);
     return Card(
-      margin: const EdgeInsets.only(bottom: 10),
-      color: isSelected ? AppColors.primary.withValues(alpha: 0.06) : null,
-      child: ListTile(
-        leading: CircleAvatar(
-          backgroundColor: AppColors.primary,
-          child: Text(
-            _initials(name),
-            style: const TextStyle(
-              color: Colors.white,
-              fontWeight: FontWeight.w800,
-            ),
-          ),
-        ),
-        title: Text(name, maxLines: 1, overflow: TextOverflow.ellipsis),
-        subtitle: Padding(
-          padding: const EdgeInsets.only(top: 4),
+      margin: EdgeInsets.zero,
+      clipBehavior: Clip.antiAlias,
+      color: isSelected ? AppColors.primary.withValues(alpha: 0.08) : null,
+      child: InkWell(
+        onTap: onTap,
+        child: Padding(
+          padding: const EdgeInsets.all(14),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              if (designation.isNotEmpty)
-                Text(designation, maxLines: 1, overflow: TextOverflow.ellipsis),
-              const SizedBox(height: 6),
+              Row(
+                children: [
+                  CircleAvatar(
+                    radius: 22,
+                    backgroundColor: AppColors.primary,
+                    child: Text(
+                      _initials(name),
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontWeight: FontWeight.w800,
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          name,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(fontWeight: FontWeight.w800),
+                        ),
+                        if (designation.isNotEmpty)
+                          Text(
+                            designation,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: TextStyle(color: AppColors.muted),
+                          ),
+                      ],
+                    ),
+                  ),
+                  IconButton(
+                    tooltip: 'Open route',
+                    onPressed: onOpenFullscreen,
+                    icon: const Icon(Icons.open_in_new_rounded, size: 20),
+                  ),
+                ],
+              ),
+              const Spacer(),
               Wrap(
-                spacing: 8,
+                spacing: 6,
                 runSpacing: 6,
                 children: [
                   _MiniPill(
@@ -550,18 +523,16 @@ class _HorizonEmployeeTile extends StatelessWidget {
                     label: 'Hours',
                     value: '${employee['working_hours'] ?? '--'}',
                   ),
-                  _MiniPill(label: 'Status', value: status),
+                  Chip(
+                    visualDensity: VisualDensity.compact,
+                    avatar: Icon(Icons.circle, size: 10, color: statusColor),
+                    label: Text(status.isEmpty ? 'Unknown' : status),
+                  ),
                 ],
               ),
             ],
           ),
         ),
-        trailing: IconButton(
-          tooltip: 'Open full route',
-          onPressed: onOpenFullscreen,
-          icon: const Icon(Icons.open_in_full_rounded),
-        ),
-        onTap: onTap,
       ),
     );
   }
@@ -620,10 +591,13 @@ class _HorizonEmployeeMapScreenState extends State<HorizonEmployeeMapScreen> {
               onRetry: _refresh,
             );
           }
-          return _HorizonTimelineDetail(
-            employeeName: widget.employeeName,
-            data: snapshot.data ?? const <String, dynamic>{},
-            onRefresh: _refresh,
+          return SingleChildScrollView(
+            padding: const EdgeInsets.all(16),
+            child: _HorizonTimelineDetail(
+              employeeName: widget.employeeName,
+              data: snapshot.data ?? const <String, dynamic>{},
+              onRefresh: _refresh,
+            ),
           );
         },
       ),
@@ -636,13 +610,11 @@ class _HorizonTimelineDetail extends StatelessWidget {
     required this.employeeName,
     required this.data,
     required this.onRefresh,
-    this.onOpenFullscreen,
   });
 
   final String employeeName;
   final Map<String, dynamic> data;
   final VoidCallback onRefresh;
-  final VoidCallback? onOpenFullscreen;
 
   @override
   Widget build(BuildContext context) {
@@ -655,22 +627,37 @@ class _HorizonTimelineDetail extends StatelessWidget {
           data: data,
           employeeName: employeeName,
           onRefresh: onRefresh,
-          onOpenFullscreen: onOpenFullscreen,
         ),
         const SizedBox(height: 12),
-        AspectRatio(
-          aspectRatio: 16 / 10,
-          child: Card(
-            clipBehavior: Clip.antiAlias,
-            child: points.isEmpty
-                ? const Center(
-                    child: Text('No location points captured for this punch.'),
-                  )
-                : _HorizonMapView(points: points, halfHourPoints: halfHours),
+        Align(
+          alignment: Alignment.center,
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 920),
+            child: LayoutBuilder(
+              builder: (context, constraints) {
+                final mapHeight = constraints.maxWidth < 600 ? 220.0 : 280.0;
+                return SizedBox(
+                  width: double.infinity,
+                  height: mapHeight,
+                  child: Card(
+                    clipBehavior: Clip.antiAlias,
+                    child: points.isEmpty
+                        ? const Center(
+                            child: Text(
+                              'No location points captured for this punch.',
+                            ),
+                          )
+                        : _HorizonMapView(
+                            points: points,
+                            halfHourPoints: halfHours,
+                          ),
+                  ),
+                );
+              },
+            ),
           ),
         ),
-        const SizedBox(height: 12),
-        Text(
+        const SizedBox(height: 12),        Text(
           '30 minute timeline',
           style: Theme.of(
             context,
@@ -691,13 +678,11 @@ class _MapHeader extends StatelessWidget {
     required this.data,
     required this.employeeName,
     required this.onRefresh,
-    this.onOpenFullscreen,
   });
 
   final Map<String, dynamic> data;
   final String employeeName;
   final VoidCallback onRefresh;
-  final VoidCallback? onOpenFullscreen;
 
   @override
   Widget build(BuildContext context) {
@@ -721,12 +706,6 @@ class _MapHeader extends StatelessWidget {
                     ),
                   ),
                 ),
-                if (onOpenFullscreen != null)
-                  TextButton.icon(
-                    onPressed: onOpenFullscreen,
-                    icon: const Icon(Icons.open_in_full_rounded),
-                    label: const Text('Full view'),
-                  ),
                 IconButton(
                   tooltip: 'Refresh timeline',
                   onPressed: onRefresh,
@@ -858,8 +837,11 @@ class _HorizonEmployeesOverviewMapState
                   for (var y = centerTileY - 3; y <= centerTileY + 3; y++)
                     for (var x = centerTileX - 3; x <= centerTileX + 3; x++)
                       Positioned(
-                        left: size.width / 2 + ((x * 256.0) - viewWorldX) * scale,
-                        top: size.height / 2 + ((y * 256.0) - viewWorldY) * scale,
+                        left:
+                            size.width / 2 + ((x * 256.0) - viewWorldX) * scale,
+                        top:
+                            size.height / 2 +
+                            ((y * 256.0) - viewWorldY) * scale,
                         width: 256 * scale,
                         height: 256 * scale,
                         child: Image.network(
@@ -920,7 +902,10 @@ class _HorizonEmployeesOverviewMapState
                                     ? AppColors.primary
                                     : const Color(0xFFEF4444),
                                 shape: BoxShape.circle,
-                                border: Border.all(color: Colors.white, width: 3),
+                                border: Border.all(
+                                  color: Colors.white,
+                                  width: 3,
+                                ),
                                 boxShadow: const [
                                   BoxShadow(
                                     color: Color(0x22000000),
@@ -979,9 +964,12 @@ class _HorizonEmployeesOverviewMapState
     final next = zoom.clamp(11, 18);
     if ((_manualZoom ?? currentZoom) == next) return;
     final scale = _mapScale(viewportSize);
-    final focalPoint = focal ?? Offset(viewportSize.width / 2, viewportSize.height / 2);
-    final currentViewWorldX = _worldX(centerLng, currentZoom) + _panWorldOffset.dx;
-    final currentViewWorldY = _worldY(centerLat, currentZoom) + _panWorldOffset.dy;
+    final focalPoint =
+        focal ?? Offset(viewportSize.width / 2, viewportSize.height / 2);
+    final currentViewWorldX =
+        _worldX(centerLng, currentZoom) + _panWorldOffset.dx;
+    final currentViewWorldY =
+        _worldY(centerLat, currentZoom) + _panWorldOffset.dy;
     final worldXAtPointer =
         currentViewWorldX + (focalPoint.dx - (viewportSize.width / 2)) / scale;
     final worldYAtPointer =
@@ -995,8 +983,12 @@ class _HorizonEmployeesOverviewMapState
     setState(() {
       _manualZoom = next;
       _panWorldOffset = Offset(
-        nextPointerWorldX - nextBaseWorldX - (focalPoint.dx - (viewportSize.width / 2)) / scale,
-        nextPointerWorldY - nextBaseWorldY - (focalPoint.dy - (viewportSize.height / 2)) / scale,
+        nextPointerWorldX -
+            nextBaseWorldX -
+            (focalPoint.dx - (viewportSize.width / 2)) / scale,
+        nextPointerWorldY -
+            nextBaseWorldY -
+            (focalPoint.dy - (viewportSize.height / 2)) / scale,
       );
     });
   }
@@ -1085,8 +1077,11 @@ class _HorizonMapViewState extends State<_HorizonMapView> {
                   for (var y = centerTileY - 3; y <= centerTileY + 3; y++)
                     for (var x = centerTileX - 3; x <= centerTileX + 3; x++)
                       Positioned(
-                        left: size.width / 2 + ((x * 256.0) - viewWorldX) * scale,
-                        top: size.height / 2 + ((y * 256.0) - viewWorldY) * scale,
+                        left:
+                            size.width / 2 + ((x * 256.0) - viewWorldX) * scale,
+                        top:
+                            size.height / 2 +
+                            ((y * 256.0) - viewWorldY) * scale,
                         width: 256 * scale,
                         height: 256 * scale,
                         child: Image.network(
@@ -1154,9 +1149,12 @@ class _HorizonMapViewState extends State<_HorizonMapView> {
     final next = zoom.clamp(11, 18);
     if ((_manualZoom ?? currentZoom) == next) return;
     final scale = _mapScale(viewportSize);
-    final focalPoint = focal ?? Offset(viewportSize.width / 2, viewportSize.height / 2);
-    final currentViewWorldX = _worldX(centerLng, currentZoom) + _panWorldOffset.dx;
-    final currentViewWorldY = _worldY(centerLat, currentZoom) + _panWorldOffset.dy;
+    final focalPoint =
+        focal ?? Offset(viewportSize.width / 2, viewportSize.height / 2);
+    final currentViewWorldX =
+        _worldX(centerLng, currentZoom) + _panWorldOffset.dx;
+    final currentViewWorldY =
+        _worldY(centerLat, currentZoom) + _panWorldOffset.dy;
     final worldXAtPointer =
         currentViewWorldX + (focalPoint.dx - (viewportSize.width / 2)) / scale;
     final worldYAtPointer =
@@ -1170,8 +1168,12 @@ class _HorizonMapViewState extends State<_HorizonMapView> {
     setState(() {
       _manualZoom = next;
       _panWorldOffset = Offset(
-        nextPointerWorldX - nextBaseWorldX - (focalPoint.dx - (viewportSize.width / 2)) / scale,
-        nextPointerWorldY - nextBaseWorldY - (focalPoint.dy - (viewportSize.height / 2)) / scale,
+        nextPointerWorldX -
+            nextBaseWorldX -
+            (focalPoint.dx - (viewportSize.width / 2)) / scale,
+        nextPointerWorldY -
+            nextBaseWorldY -
+            (focalPoint.dy - (viewportSize.height / 2)) / scale,
       );
     });
   }
@@ -1537,7 +1539,6 @@ double _worldY(double latitude, int zoom) {
       (1 << zoom) *
       256.0;
 }
-
 
 double _longitudeFromWorld(double worldX, int zoom) =>
     (worldX / ((1 << zoom) * 256.0) * 360.0) - 180.0;

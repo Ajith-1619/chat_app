@@ -879,6 +879,9 @@ class _HomeScreenState extends State<HomeScreen> {
         if (!previews.any((chat) => chat.jid == _savedMessagesJid)) {
           previews.insert(0, _savedMessagesPreview);
         }
+        if (_canOpenRsm && !previews.any((chat) => chat.jid == _rsmJid)) {
+          previews.insert(1, _rsmPreview);
+        }
         _liveChats
           ..clear()
           ..addAll(previews);
@@ -1394,6 +1397,23 @@ class _HomeScreenState extends State<HomeScreen> {
     isPinned: true,
   );
 
+  static const String _rsmJid = 'rsm@conference.chat.skylinkonline.net';
+
+  bool get _canOpenRsm {
+    final empId = int.tryParse(widget.currentUser.empId) ?? 0;
+    return empId == 302 || empId == 116;
+  }
+
+  ChatPreview get _rsmPreview => const ChatPreview(
+    empId: 'rsm',
+    jid: _rsmJid,
+    name: 'RSM',
+    designation: '302 and 116 saved archive',
+    message: 'Shared saved messages and files from Google Drive',
+    time: '',
+    avatarColor: Color(0xFF7C4DFF),
+    isPinned: true,
+  );
   void _onHomeSearchChanged(String value) {
     setState(() => _query = value);
     _searchDebounce?.cancel();
@@ -1423,6 +1443,21 @@ class _HomeScreenState extends State<HomeScreen> {
     });
   }
 
+  Future<void> _openRsm() async {
+    if (!_canOpenRsm) return;
+    if (MediaQuery.sizeOf(context).width >= 900) {
+      setState(() {
+        _selectedDesktopChat = _rsmPreview;
+        _selectedDesktopInitialMessageId = 0;
+        _showDesktopProfile = false;
+      });
+      return;
+    }
+    await Navigator.of(context).push(
+      MaterialPageRoute<void>(builder: (_) => const SavedMessagesScreen(rsm: true)),
+    );
+    if (mounted) await _loadChats(silent: true);
+  }
   Future<void> _openSavedMessages() async {
     if (MediaQuery.sizeOf(context).width >= 900) {
       setState(() {
@@ -1439,6 +1474,10 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   Future<void> _openChat(ChatPreview chat, {int initialMessageId = 0}) async {
+    if (chat.jid == _rsmJid) {
+      await _openRsm();
+      return;
+    }
     if (chat.jid == _savedMessagesJid) {
       await _openSavedMessages();
       return;
@@ -2034,6 +2073,8 @@ class _HomeScreenState extends State<HomeScreen> {
                 ? _DesktopEmptyChat(currentUser: widget.currentUser)
                 : _selectedDesktopChat!.jid == _savedMessagesJid
                 ? const SavedMessagesScreen()
+                : _selectedDesktopChat!.jid == _rsmJid
+                ? const SavedMessagesScreen(rsm: true)
                 : ChatScreen(
                     key: ValueKey(
                       '${_selectedDesktopChat!.jid}-$_selectedDesktopInitialMessageId',
@@ -4970,7 +5011,9 @@ class _SavedPasteIntent extends Intent {
 }
 
 class SavedMessagesScreen extends StatefulWidget {
-  const SavedMessagesScreen({super.key});
+  const SavedMessagesScreen({super.key, this.rsm = false});
+
+  final bool rsm;
 
   @override
   State<SavedMessagesScreen> createState() => _SavedMessagesScreenState();
@@ -4995,7 +5038,7 @@ class _SavedMessagesScreenState extends State<SavedMessagesScreen> {
   }
 
   Future<void> _loadCached() async {
-    final cached = await chatApi.cachedSavedMessages();
+    final cached = await chatApi.cachedSavedMessages(rsm: widget.rsm);
     if (mounted && cached.isNotEmpty) {
       setState(() {
         _messages = cached;
@@ -5008,7 +5051,7 @@ class _SavedMessagesScreenState extends State<SavedMessagesScreen> {
   Future<void> _load() async {
     setState(() => _error = '');
     try {
-      final messages = await chatApi.getSavedMessages();
+      final messages = await chatApi.getSavedMessages(rsm: widget.rsm);
       if (mounted) {
         setState(() {
           _messages = messages;
@@ -5296,14 +5339,14 @@ class _SavedMessagesScreenState extends State<SavedMessagesScreen> {
     return Scaffold(
       appBar: AppBar(
         titleSpacing: 0,
-        title: const Row(
+        title: Row(
           children: [
             CircleAvatar(
               radius: 18,
               child: Icon(Icons.bookmark_rounded, size: 20),
             ),
             SizedBox(width: 12),
-            Text('Saved Messages'),
+            Text(widget.rsm ? 'RSM' : 'Saved Messages'),
           ],
         ),
         actions: [

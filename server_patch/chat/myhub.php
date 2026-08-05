@@ -378,7 +378,7 @@ function myhub_horizon_allowed(int $empId): bool
 }
 function myhub_horizon_super_admin(int $empId): bool
 {
-    return in_array($empId, [116, 232, 302, 428, 553], true);
+    return in_array($empId, [116, 218, 232, 302, 428, 553], true);
 }
 
 function myhub_horizon_visible_emp_ids(PDO $employeePdo, int $viewerEmpId): array
@@ -426,16 +426,12 @@ function myhub_horizon_ts(array $row, string $epochCol, string $dateCol): int
 
 function myhub_horizon_today_punch_rows(PDO $pdo): array
 {
-    $sources = [$pdo];
-    try {
-        $taskPdo = myhub_task_db();
-        if ($taskPdo !== $pdo) $sources[] = $taskPdo;
-    } catch (Throwable $ignored) {
-    }
-    foreach ($sources as $sourcePdo) {
+    // Keep Horizon responsive: the employee DB is the primary attendance source.
+    // Only open the remote task/location DB when the employee DB has no punch table.
+    $readSource = static function (PDO $sourcePdo): ?array {
         try {
             $table = myhub_first_table($sourcePdo, ['punch', 'attendance', 'employee_punch', 'tbl_punch']);
-            if ($table === '') continue;
+            if ($table === '') return null;
             $columns = myhub_columns($sourcePdo, $table);
             $empCol = myhub_first_column($columns, ['emp_id', 'employee_id', 'user_id']);
             $shiftCol = myhub_first_column($columns, ['shift_id', 'shift', 'id']);
@@ -444,7 +440,7 @@ function myhub_horizon_today_punch_rows(PDO $pdo): array
             $inDateCol = myhub_first_column($columns, ['date_created', 'punch_in_time', 'in_time', 'created_at']);
             $outDateCol = myhub_first_column($columns, ['out_time', 'punch_out_time', 'updated_at']);
             $idCol = myhub_first_column($columns, ['id', 'punch_id']);
-            if ($empCol === '' || ($inEpochCol === '' && $inDateCol === '')) continue;
+            if ($empCol === '' || ($inEpochCol === '' && $inDateCol === '')) return null;
             $select = [
                 ($idCol !== '' ? "`{$idCol}`" : '0') . ' AS id',
                 "`{$empCol}` AS emp_id",
@@ -454,7 +450,9 @@ function myhub_horizon_today_punch_rows(PDO $pdo): array
                 ($inDateCol !== '' ? "`{$inDateCol}`" : "''") . ' AS date_created',
                 ($outDateCol !== '' ? "`{$outDateCol}`" : "''") . ' AS out_time',
             ];
-            $dateExpr = $inDateCol !== '' ? "DATE(`{$inDateCol}`) = CURDATE()" : "FROM_UNIXTIME(`{$inEpochCol}`, '%Y-%m-%d') = CURDATE()";
+            $dateExpr = $inDateCol !== ''
+                ? "DATE(`{$inDateCol}`) = CURDATE()"
+                : "FROM_UNIXTIME(`{$inEpochCol}`, '%Y-%m-%d') = CURDATE()";
             $orderExpr = $idCol !== '' ? "`{$idCol}` DESC" : ($inDateCol !== '' ? "`{$inDateCol}` DESC" : "`{$inEpochCol}` DESC");
             $stmt = $sourcePdo->prepare(
                 'SELECT ' . implode(', ', $select) . " FROM `{$table}` WHERE {$dateExpr} ORDER BY `{$empCol}` ASC, {$orderExpr}"
@@ -469,7 +467,20 @@ function myhub_horizon_today_punch_rows(PDO $pdo): array
             return $rows;
         } catch (Throwable $e) {
             error_log('MyHub Horizon punch source failed: ' . $e->getMessage());
+            return null;
         }
+    };
+
+    $rows = $readSource($pdo);
+    if ($rows !== null) return $rows;
+    try {
+        $taskPdo = myhub_task_db();
+        if ($taskPdo !== $pdo) {
+            $rows = $readSource($taskPdo);
+            if ($rows !== null) return $rows;
+        }
+    } catch (Throwable $e) {
+        error_log('MyHub Horizon task DB fallback failed: ' . $e->getMessage());
     }
     return [];
 }
@@ -542,7 +553,7 @@ function myhub_horizon_latest_locations(PDO $taskPdo, array $rows): array
            AND COALESCE(latitude, "") <> ""
            AND COALESCE(longitude, "") <> ""
            AND ((date_created BETWEEN :from_dt AND :to_dt) OR (timestamp BETWEEN :from_ts AND :to_ts))
-         ORDER BY date_created DESC, id DESC'
+         ORDER BY date_created DESC'
     );
     $stmt->execute($params);
 
@@ -645,7 +656,7 @@ function myhub_horizon_timeline(PDO $employeePdo, int $viewerEmpId): never
                    AND COALESCE(latitude, "") <> ""
                    AND COALESCE(longitude, "") <> ""
                    AND ((date_created BETWEEN :from_dt AND :to_dt) OR (timestamp BETWEEN :from_ts AND :to_ts))
-                 ORDER BY date_created ASC, id ASC
+                 ORDER BY date_created ASC
                  LIMIT 2000'
             );
             $stmt->execute([':user_id' => $chatId, ':from_dt' => date('Y-m-d H:i:s', $inTs), ':to_dt' => date('Y-m-d H:i:s', $endTs), ':from_ts' => (string)$inTs, ':to_ts' => (string)$endTs]);

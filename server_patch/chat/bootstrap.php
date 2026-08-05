@@ -97,11 +97,45 @@ function chat_start(): void
     }
 }
 
+function chat_json_safe_value(mixed $value): mixed
+{
+    if (is_array($value)) {
+        foreach ($value as $key => $child) {
+            $value[$key] = chat_json_safe_value($child);
+        }
+        return $value;
+    }
+    if (!is_string($value) || $value === '') {
+        return $value;
+    }
+    if (preg_match('//u', $value) === 1) {
+        return $value;
+    }
+    if (function_exists('iconv')) {
+        $converted = @iconv('UTF-8', 'UTF-8//IGNORE', $value);
+        if (is_string($converted) && preg_match('//u', $converted) === 1) {
+            return $converted;
+        }
+    }
+    $clean = preg_replace('/[^\x09\x0A\x0D\x20-\x7E]/', '', $value);
+    return is_string($clean) ? $clean : '';
+}
+
 function chat_json(array $data, int $status = 200): never
 {
     http_response_code($status);
     header('Content-Type: application/json; charset=utf-8');
-    echo json_encode($data, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+    $payload = json_encode(
+        $data,
+        JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_INVALID_UTF8_SUBSTITUTE | JSON_PARTIAL_OUTPUT_ON_ERROR
+    );
+    if (!is_string($payload)) {
+        $payload = json_encode(
+            chat_json_safe_value($data),
+            JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_INVALID_UTF8_SUBSTITUTE | JSON_PARTIAL_OUTPUT_ON_ERROR
+        );
+    }
+    echo is_string($payload) ? $payload : '{"status":false,"error":"JSON_ENCODE_FAILED"}';
     exit;
 }
 
@@ -1137,6 +1171,14 @@ function chat_ensure_schema(PDO $pdo): void
             INDEX idx_saved_emp_created (emp_id, created_at)
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci'
     );
+    chat_ensure_column($pdo, 'xmpp_saved_messages', 'storage_mode', "VARCHAR(20) NOT NULL DEFAULT 'database' AFTER file_type");
+    chat_ensure_column($pdo, 'xmpp_saved_messages', 'drive_provider_id', 'BIGINT NULL AFTER storage_mode');
+    chat_ensure_column($pdo, 'xmpp_saved_messages', 'drive_file_id', 'VARCHAR(255) NULL AFTER drive_provider_id');
+    chat_ensure_column($pdo, 'xmpp_saved_messages', 'drive_folder_id', 'VARCHAR(255) NULL AFTER drive_file_id');
+    chat_ensure_column($pdo, 'xmpp_saved_messages', 'drive_payload_type', "VARCHAR(20) NOT NULL DEFAULT 'message' AFTER drive_folder_id");
+    chat_ensure_column($pdo, 'xmpp_saved_messages', 'drive_mime_type', 'VARCHAR(160) NULL AFTER drive_payload_type');
+    chat_ensure_column($pdo, 'xmpp_saved_messages', 'drive_size_bytes', 'BIGINT NOT NULL DEFAULT 0 AFTER drive_mime_type');
+    chat_ensure_column($pdo, 'xmpp_saved_messages', 'metadata_json', 'LONGTEXT NULL AFTER drive_size_bytes');
     $pdo->exec(
         'CREATE TABLE IF NOT EXISTS xmpp_reminders (
             id BIGINT AUTO_INCREMENT PRIMARY KEY,
@@ -1606,3 +1648,4 @@ function chat_record_channel_message_tags(PDO $pdo, array $group, int $messageId
         }
     }
 }
+

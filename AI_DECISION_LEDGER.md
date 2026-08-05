@@ -626,3 +626,50 @@
 - Date: 2026-08-03 23:59:00 +05:30
 - Decision: Fix edited-message repaint at the local state replacement layer instead of forcing a full history reload after each edit.
 - Reason: The bug is caused by fragile object-identity lookups in the visible message list, so an id-based update is the smallest safe fix and avoids unnecessary network churn or scroll disruption.
+
+## DECISION-20260804-HORIZON-ON-DEMAND-LOCATIONS
+- Date: 2026-08-04
+- Decision: Keep Horizon home lightweight and move latest-location enrichment to an explicit on-demand fetch used by the all-employees live map.
+- Reason: Users need the Horizon screen to open reliably first; live coordinates are important, but they should not block the entire attendance surface.
+## DECISION-20260804-ARCHIVE-PROVIDER-BRANCH-PARAMS
+- Date: 2026-08-04
+- Decision: Keep one prepared SQL branch selector but build execute parameters per insert/update branch.
+- Reason: Smallest safe fix that removes HY093 without changing archive provider schema or UI flow.
+## DECISION-20260804-ARCHIVE-POLICY-BRANCH-PARAMS
+- Date: 2026-08-04
+- Decision: Use branch-specific execute parameters for archive policy save, matching the provider save hardening pattern.
+- Reason: Small safe fix that removes HY093 without altering policy schema or admin form behavior.
+
+## DECISION-20260804-ARCHIVE-WORKER-BOOTSTRAP-FALLBACK
+- Date: 2026-08-04
+- Decision: Bootstrap archive worker through the normal chat bootstrap first, with a fallback to the admin standalone bootstrap.
+- Reason: The worker executes inside the chat deployment on production, but developers also need a safe local/exported fallback for diagnostics without hard-coding a missing `_bootstrap.php` file.
+
+## DECISION-20260804-ARCHIVE-ROOM-NAME
+- Date: 2026-08-04
+- Decision: Use `xmpp_groups.room_name` as the canonical archive label field instead of legacy `name`.
+- Reason: The live Flow chat schema already uses `room_name`, so matching that schema is the smallest safe fix for archive scheduling.
+
+## DECISION-20260804-ARCHIVE-DYNAMIC-GROUP-COLUMNS
+- Date: 2026-08-04
+- Decision: Detect available `xmpp_groups` columns from `INFORMATION_SCHEMA` and derive archive label/freshness SQL dynamically.
+- Reason: This keeps the archive worker compatible with both newer and older live schemas without forcing a database migration first.
+
+- `DECISION-20260804-ARCHIVE-UNIQUE-PDO-PARAMS` Chose unique named placeholders instead of reusing `:jid` because the live PDO/MySQL configuration rejects repeated named parameters during archive job execution.
+
+- `DECISION-20260804-ARCHIVE-DB-NOW-SCHEDULING` Chose database `NOW()` as the default manual archive schedule source to avoid PHP-vs-MySQL timezone drift keeping jobs permanently queued.
+
+- `DECISION-20260804-ARCHIVE-LEGACY-MANUAL-QUEUE-NORMALIZE` Chose automatic normalization for legacy manual queue rows so live archive processing recovers without requiring direct SQL access from the user.
+
+- `DECISION-20260804-ARCHIVE-DYNAMIC-REACTION-ORDER` Chose dynamic reaction ordering because live environments vary on whether `xmpp_message_reactions` includes an auto-increment `id` column.
+
+- `DECISION-20260804-ARCHIVE-PARTICIPANT-JID-PARSING` Chose JID-based employee extraction as the fallback because direct-message JIDs already carry the numeric employee ID prefix on live Flow deployments.
+
+- `DECISION-20260804-ARCHIVE-GROUP-MEMBER-LINK-FALLBACK` Chose a dual-path membership lookup because Flow live deployments have mixed `xmpp_group_members` schemas using either `room_jid` or `group_id`.
+
+## AI-DECISION-20260804-SAVED-MESSAGES-DRIVE
+- Date: 2026-08-04
+- Decision: Reused the existing archive Google Drive provider instead of introducing a second storage integration path.
+- Reason: Keeps admin/provider setup single-source, reduces regression risk, and lets Saved Messages stream through the same authenticated Flow backend.
+
+- 2026-08-04: Chose a narrow backend fix for Saved Messages instead of UI rewrites because the failing behavior was rooted in JSON serialization of legacy data plus unresolved forwarded-file URLs, and the smallest safe repair is to sanitize endpoint output and broaden URL parsing.

@@ -945,3 +945,66 @@ The broadcast send branch updated or created broadcast list records using $title
 - Type: Validation only.
 - Checks: flutter analyze lib/chat/chat_screen.dart
 - Status: No new build-blocking errors introduced by this patch. Analyzer still reports many pre-existing warnings/info items in chat_screen.dart.
+
+## BUILD-20260804-HORIZON-TIMEOUT-VALIDATION
+- Date: 2026-08-04
+- Type: Validation only; no web/APK build requested or run.
+- Checks: `php -l server_patch/chat/myhub.php` passed.
+- Checks: targeted Flutter file verification completed through code inspection and API-path confirmation; `flutter analyze lib/myhub_horizon_screen.dart lib/chat_api.dart` timed out in this workspace before returning a final result.
+- Status: Ready for server patch deployment and browser re-test.
+## BUILD-20260804-ARCHIVE-PROVIDER-VALIDATION
+- Date: 2026-08-04
+- Type: Validation only; no Flutter/web/APK build requested or run.
+- Checks: `php -l server_patch/chat/archive_storage_helper.php` passed.
+## BUILD-20260804-ARCHIVE-POLICY-VALIDATION
+- Date: 2026-08-04
+- Type: Validation only; no Flutter/web/APK build requested or run.
+- Checks: `php -l server_patch/chat/archive_storage_helper.php` passed after archive policy save fix.
+
+## BUILD-20260804-ARCHIVE-WORKER-VALIDATION
+- Date: 2026-08-04
+- Type: Validation only; no Flutter/web/APK build requested or run.
+- Checks: `php -l server_patch/chat/archive_storage_worker.php` passed.
+- Checks: Patched worker file inspected to confirm live-chat bootstrap first, admin-standalone fallback second.
+
+## BUILD-20260804-ARCHIVE-GROUP-SCHEMA-VALIDATION
+- Date: 2026-08-04
+- Type: Validation only; no Flutter/web/APK build requested or run.
+- Checks: `php -l server_patch/chat/archive_storage_helper.php` passed after schema-column compatibility fix.
+
+## BUILD-20260804-ARCHIVE-FRESHNESS-VALIDATION
+- Date: 2026-08-04
+- Type: Validation only; no Flutter/web/APK build requested or run.
+- Checks: `php -l server_patch/chat/archive_storage_helper.php` passed after dynamic schema compatibility patch.
+
+- `BUILD-20260804-ARCHIVE-PLACEHOLDER-VALIDATION` Patched duplicate PDO placeholders in archive worker queries and validated with `php -l server_patch/chat/archive_storage_helper.php`.
+
+- `BUILD-20260804-ARCHIVE-QUEUE-TIMEBASE-VALIDATION` Patched archive manual queue scheduling and validated with `php -l server_patch/chat/archive_storage_helper.php`.
+
+- `BUILD-20260804-ARCHIVE-LEGACY-QUEUE-REPAIR-VALIDATION` Added legacy queue time repair and validated with `php -l server_patch/chat/archive_storage_helper.php`.
+
+- `BUILD-20260804-ARCHIVE-REACTION-ORDER-VALIDATION` Patched archive reaction ordering and validated with `php -l server_patch/chat/archive_storage_helper.php`.
+
+- `BUILD-20260804-ARCHIVE-PARTICIPANT-FALLBACK-VALIDATION` Patched archive participant extraction and validated with `php -l server_patch/chat/archive_storage_helper.php`.
+
+- `BUILD-20260804-ARCHIVE-GROUP-MEMBER-FALLBACK-VALIDATION` Patched archive group-member lookup and validated with `php -l server_patch/chat/archive_storage_helper.php`.
+
+## BUILD-20260804-SAVED-MESSAGES-DRIVE-OFFLOAD
+- Date: 2026-08-04
+- Type: Validation only; no web/APK build requested or run.
+- Checks: php -l server_patch/chat/bootstrap.php; php -l server_patch/chat/saved_messages.php; php -l server_patch/chat/saved_message_stream.php.
+- Status: Success. Saved Messages backend now supports Google Drive offload with authenticated proxy streaming for Drive-backed files.
+
+- 2026-08-04: Saved Messages backend hotfix prepared. Files changed: server_patch/chat/saved_messages.php. Verification: php -l saved_messages.php, php -l saved_message_stream.php. Deployment needed: move patched saved_messages.php to live server chat folder.
+
+- 2026-08-04: Added shared JSON encoding hardening in server_patch/chat/bootstrap.php to protect live endpoints from invalid-response regressions caused by malformed UTF legacy data. Deployment needed: bootstrap.php + saved_messages.php.
+
+- 2026-08-04: Saved Messages backend hotfix expanded. Deployment set now includes server_patch/chat/bootstrap.php and server_patch/chat/saved_messages.php. No Flutter rebuild required because fix is PHP-only.
+
+- 2026-08-04: Flutter client hotfix prepared for noisy/invalid API responses. Files changed: lib/chat_api.dart. Verification: flutter analyze.
+
+- 2026-08-04: Built updated Flutter web release after Saved Messages decoder hardening. Command: flutter build web --release. Output: build/web.
+
+- 2026-08-04: Added live DB migration for Saved Messages Drive columns in bootstrap.php. Deployment needed: updated bootstrap.php must be pushed before re-testing Saved Messages.
+
+- 2026-08-04: Added live DB migration for Saved Messages Drive columns in bootstrap.php. Deployment needed: updated bootstrap.php must be pushed before re-testing Saved Messages and Saved Message forwards.

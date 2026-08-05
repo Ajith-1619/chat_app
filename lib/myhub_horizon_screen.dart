@@ -23,12 +23,12 @@ class _MyHubHorizonScreenState extends State<MyHubHorizonScreen> {
   @override
   void initState() {
     super.initState();
-    _future = _horizonApi.getMyHubHorizon();
+    _future = _horizonApi.getMyHubHorizon(includeLocations: false);
   }
 
   void _refresh() {
     setState(() {
-      _future = _horizonApi.getMyHubHorizon();
+      _future = _horizonApi.getMyHubHorizon(includeLocations: false);
       if (_selectedEmployee != null) {
         final empId = _employeeEmpId(_selectedEmployee!);
         if (empId > 0) {
@@ -282,141 +282,169 @@ class HorizonAllEmployeesMapScreen extends StatefulWidget {
 class _HorizonAllEmployeesMapScreenState
     extends State<HorizonAllEmployeesMapScreen> {
   int _selectedEmpId = 0;
+  late Future<Map<String, dynamic>> _future;
 
   @override
   void initState() {
     super.initState();
     final first = widget.employees.cast<Map<String, dynamic>?>().firstWhere(
-      (item) => item != null && _employeeMarker(item) != null,
+      (item) => item != null && _employeeEmpId(item) > 0,
       orElse: () => widget.employees.isNotEmpty ? widget.employees.first : null,
     );
     if (first != null) {
       _selectedEmpId = _employeeEmpId(first);
     }
+    _future = _horizonApi.getMyHubHorizon(includeLocations: true);
+  }
+
+  void _refresh() {
+    setState(() {
+      _future = _horizonApi.getMyHubHorizon(includeLocations: true);
+    });
   }
 
   @override
   Widget build(BuildContext context) {
-    final markers = widget.employees
-        .map(_employeeMarker)
-        .whereType<_EmployeeMarker>()
-        .toList();
-    final selectedEmployee = widget.employees
-        .cast<Map<String, dynamic>?>()
-        .firstWhere(
-          (item) => item != null && _employeeEmpId(item) == _selectedEmpId,
-          orElse: () => null,
-        );
     return Scaffold(
-      appBar: AppBar(title: const Text('All employees live view')),
-      body: ListView(
-        padding: const EdgeInsets.all(16),
-        children: [
-          Text(
-            'Last known punched-in location for every visible employee.',
-            style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-              color: AppColors.muted,
-            ),
-          ),
-          const SizedBox(height: 12),
-          Card(
-            child: Padding(
-              padding: const EdgeInsets.all(16),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  AspectRatio(
-                    aspectRatio: 16 / 9,
-                    child: ClipRRect(
-                      borderRadius: BorderRadius.circular(14),
-                      child: markers.isEmpty
-                          ? const ColoredBox(
-                              color: Color(0xFFF4F7FB),
-                              child: Center(
-                                child: Text('No valid employee coordinates available.'),
-                              ),
-                            )
-                          : _HorizonEmployeesOverviewMap(
-                              markers: markers,
-                              selectedEmpId: _selectedEmpId,
-                              onSelected: (employee) {
-                                setState(() {
-                                  _selectedEmpId = _employeeEmpId(employee);
-                                });
-                              },
-                            ),
-                    ),
-                  ),
-                  const SizedBox(height: 12),
-                  Wrap(
-                    spacing: 8,
-                    runSpacing: 8,
-                    children: widget.employees.map((employee) {
-                      final marker = _employeeMarker(employee);
-                      final selected = _employeeEmpId(employee) == _selectedEmpId;
-                      return ActionChip(
-                        avatar: Icon(
-                          marker == null
-                              ? Icons.location_off_rounded
-                              : Icons.location_on_rounded,
-                          size: 18,
-                          color: marker == null
-                              ? AppColors.muted
-                              : AppColors.primary,
-                        ),
-                        label: Text(_employeeName(employee)),
-                        backgroundColor: selected
-                            ? AppColors.primary.withValues(alpha: 0.12)
-                            : null,
-                        onPressed: () {
-                          setState(() {
-                            _selectedEmpId = _employeeEmpId(employee);
-                          });
-                          if (marker == null) return;
-                          Navigator.of(context).push(
-                            MaterialPageRoute<void>(
-                              builder: (_) => HorizonEmployeeMapScreen(
-                                empId: _employeeEmpId(employee),
-                                employeeName: _employeeName(employee),
-                              ),
-                            ),
-                          );
-                        },
-                      );
-                    }).toList(),
-                  ),
-                  if (selectedEmployee != null) ...[
-                    const SizedBox(height: 12),
-                    Text(
-                      _employeeName(selectedEmployee),
-                      style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                        fontWeight: FontWeight.w800,
-                      ),
-                    ),
-                    const SizedBox(height: 4),
-                    Text(
-                      (() {
-                        final address = (selectedEmployee['location_address'] ?? '')
-                            .toString()
-                            .trim();
-                        if (address.isNotEmpty) return address;
-                        final lat = selectedEmployee['latitude'];
-                        final lng = selectedEmployee['longitude'];
-                        if ((lat ?? 0) != 0 || (lng ?? 0) != 0) {
-                          return ', ';
-                        }
-                        return 'No live location available for this employee yet.';
-                      })(),
-                      style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                        color: AppColors.muted,
-                      ),
-                    ),
-                  ],
-                ],
-              ),
-            ),
+      appBar: AppBar(
+        title: const Text('All employees live view'),
+        actions: [
+          IconButton(
+            tooltip: 'Refresh',
+            onPressed: _refresh,
+            icon: const Icon(Icons.refresh_rounded),
           ),
         ],
+      ),
+      body: FutureBuilder<Map<String, dynamic>>(
+        future: _future,
+        builder: (context, snapshot) {
+          if (snapshot.connectionState == ConnectionState.waiting) {
+            return const Center(child: CircularProgressIndicator());
+          }
+          if (snapshot.hasError) {
+            return _HorizonEmpty(
+              message: '${snapshot.error}',
+              onRetry: _refresh,
+            );
+          }
+          final data = snapshot.data ?? const <String, dynamic>{};
+          final employees = _list(data['employees']);
+          final markers = employees.map(_employeeMarker).whereType<_EmployeeMarker>().toList();
+          final selectedEmployee = employees.cast<Map<String, dynamic>?>().firstWhere(
+            (item) => item != null && _employeeEmpId(item) == _selectedEmpId,
+            orElse: () => employees.isNotEmpty ? employees.first : null,
+          );
+          return ListView(
+            padding: const EdgeInsets.all(16),
+            children: [
+              Text(
+                'Last known punched-in location for every visible employee.',
+                style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                  color: AppColors.muted,
+                ),
+              ),
+              const SizedBox(height: 12),
+              Card(
+                child: Padding(
+                  padding: const EdgeInsets.all(16),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      AspectRatio(
+                        aspectRatio: 16 / 9,
+                        child: ClipRRect(
+                          borderRadius: BorderRadius.circular(14),
+                          child: markers.isEmpty
+                              ? const ColoredBox(
+                                  color: Color(0xFFF4F7FB),
+                                  child: Center(
+                                    child: Text('No valid employee coordinates available.'),
+                                  ),
+                                )
+                              : _HorizonEmployeesOverviewMap(
+                                  markers: markers,
+                                  selectedEmpId: _selectedEmpId,
+                                  onSelected: (employee) {
+                                    setState(() {
+                                      _selectedEmpId = _employeeEmpId(employee);
+                                    });
+                                  },
+                                ),
+                        ),
+                      ),
+                      const SizedBox(height: 12),
+                      Wrap(
+                        spacing: 8,
+                        runSpacing: 8,
+                        children: employees.map((employee) {
+                          final marker = _employeeMarker(employee);
+                          final selected = _employeeEmpId(employee) == _selectedEmpId;
+                          return ActionChip(
+                            avatar: Icon(
+                              marker == null
+                                  ? Icons.location_off_rounded
+                                  : Icons.location_on_rounded,
+                              size: 18,
+                              color: marker == null
+                                  ? AppColors.muted
+                                  : AppColors.primary,
+                            ),
+                            label: Text(_employeeName(employee)),
+                            backgroundColor: selected
+                                ? AppColors.primary.withValues(alpha: 0.12)
+                                : null,
+                            onPressed: () {
+                              setState(() {
+                                _selectedEmpId = _employeeEmpId(employee);
+                              });
+                              if (marker == null) return;
+                              Navigator.of(context).push(
+                                MaterialPageRoute<void>(
+                                  builder: (_) => HorizonEmployeeMapScreen(
+                                    empId: _employeeEmpId(employee),
+                                    employeeName: _employeeName(employee),
+                                  ),
+                                ),
+                              );
+                            },
+                          );
+                        }).toList(),
+                      ),
+                      if (selectedEmployee != null) ...[
+                        const SizedBox(height: 12),
+                        Text(
+                          _employeeName(selectedEmployee),
+                          style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                            fontWeight: FontWeight.w800,
+                          ),
+                        ),
+                        const SizedBox(height: 4),
+                        Text(
+                          (() {
+                            final address = (selectedEmployee['location_address'] ?? '')
+                                .toString()
+                                .trim();
+                            if (address.isNotEmpty) return address;
+                            final lat = selectedEmployee['latitude'];
+                            final lng = selectedEmployee['longitude'];
+                            if ((lat ?? 0) != 0 || (lng ?? 0) != 0) {
+                              return '${lat ?? ''}, ${lng ?? ''}';
+                            }
+                            return 'No live location available for this employee yet.';
+                          })(),
+                          style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                            color: AppColors.muted,
+                          ),
+                        ),
+                      ],
+                    ],
+                  ),
+                ),
+              ),
+            ],
+          );
+        },
       ),
     );
   }

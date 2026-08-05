@@ -635,3 +635,51 @@ oom_jid, numeric-employee based sender_jid, sender_name, ody irukkanum; 5xx/net
 - Date: 2026-08-03 23:59:00 +05:30
 - Request: When a message is edited, the changed text should update immediately in the open chat screen without leaving and reopening the conversation.
 - Status: Implemented in local code; validation completed.
+
+## REQ-20260804-HORIZON-MAIN-TIMEOUT
+- Date: 2026-08-04
+- Request: Horizon screen should stop timing out on open; main page must load even when live-location enrichment is heavy.
+- Status: Implemented in Flutter + server patch; build not requested.
+## REQ-20260804-ARCHIVE-PROVIDER-SAVE-FIX
+- Date: 2026-08-04
+- Request: Archive Storage provider form should save without SQL parameter mismatch and Google Drive fields must be clarified for setup.
+- Status: Implemented.
+## REQ-20260804-ARCHIVE-POLICY-SAVE-FIX
+- Date: 2026-08-04
+- Request: Archive policy form should save without PDO HY093 placeholder mismatch.
+- Status: Implemented.
+
+## REQ-20260804-ARCHIVE-WORKER-BOOTSTRAP-FIX
+- Date: 2026-08-04
+- Request: Archive storage worker should run both from the live chat server URL and local PHP CLI without failing on a missing `_bootstrap.php` include.
+- Status: Implemented.
+
+## REQ-20260804-ARCHIVE-GROUP-SCHEMA-FIX
+- Date: 2026-08-04
+- Request: Archive worker should support the live `xmpp_groups` schema and stop failing on unknown `g.name` column during policy scheduling.
+- Status: Implemented.
+
+## REQ-20260804-ARCHIVE-GROUP-FRESHNESS-COMPAT
+- Date: 2026-08-04
+- Request: Archive worker should handle live `xmpp_groups` schemas that do not contain `updated_at` and still schedule archive policies correctly.
+- Status: Implemented.
+
+- `REQ-20260804-ARCHIVE-DUPLICATE-PLACEHOLDER-FIX` Archive worker must avoid duplicate PDO placeholder names so Google Drive archive jobs can process queued conversations without `SQLSTATE[HY093]`.
+
+- `REQ-20260804-ARCHIVE-QUEUE-TIME-SYNC` Manual archive jobs must use database time when no explicit schedule is provided so queued jobs become immediately due on live servers.
+
+- `REQ-20260804-ARCHIVE-LEGACY-QUEUED-REPAIR` Previously queued manual archive jobs created with future `scheduled_at` values must be auto-repaired so they can be processed without direct database edits.
+
+- `REQ-20260804-ARCHIVE-REACTION-ORDER-COMPAT` Archive execution must not assume an `id` column exists on `xmpp_message_reactions` in live deployments.
+
+- `REQ-20260804-ARCHIVE-PARTICIPANT-SCHEMA-COMPAT` Archive manifest generation must not assume `sender_emp_id` exists in `xmpp_messages`; participant extraction must work from either explicit employee columns or numeric JIDs.
+
+- `REQ-20260804-ARCHIVE-GROUP-MEMBER-SCHEMA-COMPAT` Archive participant extraction must support live `xmpp_group_members` schemas that use either `room_jid` or `group_id` linkage.
+
+## REQ-20260804-SAVED-MESSAGES-DRIVE
+- Date: 2026-08-04
+- Requirement: Saved Messages actual content must move to Google Drive while Flow keeps metadata and normal app access.
+- Scope: server_patch/chat saved messages persistence and streaming access.
+- Status: Implemented backend-first with Drive offload + DB metadata/cache compatibility.
+
+- 2026-08-04: Fixed Saved Messages backend regression causing invalid JSON responses and forwarded file persistence failures by sanitizing legacy payload output and expanding saved-message upload path resolution for media/file URLs.

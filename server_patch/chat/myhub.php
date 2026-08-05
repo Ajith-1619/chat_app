@@ -582,11 +582,14 @@ function myhub_horizon(PDO $employeePdo, int $viewerEmpId): never
     $people = myhub_horizon_employee_map($employeePdo, array_keys($rows));
     $employees = [];
     $now = time();
+    $includeLocations = (string)($_GET['include_locations'] ?? '') === '1';
     $latestLocations = [];
-    try {
-        $latestLocations = myhub_horizon_latest_locations(myhub_task_db(), $rows);
-    } catch (Throwable $e) {
-        error_log('MyHub Horizon latest locations failed: ' . $e->getMessage());
+    if ($includeLocations) {
+        try {
+            $latestLocations = myhub_horizon_latest_locations(myhub_task_db(), $rows);
+        } catch (Throwable $e) {
+            error_log('MyHub Horizon latest locations failed: ' . $e->getMessage());
+        }
     }
     foreach ($rows as $empId => $row) {
         $inTs = myhub_horizon_ts($row, 'punch_in', 'date_created');

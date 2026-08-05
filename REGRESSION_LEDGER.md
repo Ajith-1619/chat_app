@@ -857,3 +857,66 @@
 - Regression Scope: message edit dialog flow, checklist edit, poll edit, in-place chat list repaint.
 - Verification: Targeted Flutter analyze completed; no new errors attributable to this patch.
 - Remaining Risk: Live UI confirmation is still needed to verify that all edit entry points repaint instantly in the deployed app.
+
+## REGRESSION-20260804-HORIZON-SPLIT-LOAD
+- Date: 2026-08-04
+- Regression scope: My Hub Horizon home load, employee fallback selection, all-employees live map, full-day employee route view.
+- Verification: PHP lint passed for `server_patch/chat/myhub.php`.
+- Verification: Code-path check confirmed main Horizon load now skips latest-location enrichment unless explicitly requested by the all-employees live view.
+- Remaining: Live browser validation still needed after deploying the updated server patch.
+## REGRESSION-20260804-ARCHIVE-PROVIDER-SAVE
+- Date: 2026-08-04
+- Scope: Archive provider save/create/edit path only.
+- Verification: PHP lint passed; branch-specific placeholder handling verified in code.
+## REGRESSION-20260804-ARCHIVE-POLICY-SAVE
+- Date: 2026-08-04
+- Scope: Archive policy create/edit flow.
+- Verification: PHP lint passed; insert/update placeholder handling verified in code.
+
+## REGRESSION-20260804-ARCHIVE-WORKER-BOOTSTRAP
+- Date: 2026-08-04
+- Scope: Archive storage background worker boot path only.
+- Verification: PHP lint passed for `server_patch/chat/archive_storage_worker.php`; include-path logic reviewed for both live URL and local CLI contexts.
+- Remaining: Live server file deployment/retest still needed because this workspace does not contain deployment-owned `server_patch/config.php` and `server_patch/db.php`.
+
+## REGRESSION-20260804-ARCHIVE-GROUP-SCHEMA
+- Date: 2026-08-04
+- Scope: Archive policy scheduling and group/channel label lookup.
+- Verification: PHP lint passed and all `g.name` references in archive helper were removed in favor of `room_name`.
+- Remaining: Live worker rerun still needed after uploading the patched helper file.
+
+## REGRESSION-20260804-ARCHIVE-FRESHNESS-COMPAT
+- Date: 2026-08-04
+- Scope: Archive scheduling, archive label lookup, and live `xmpp_groups` schema compatibility.
+- Verification: PHP lint passed; helper now avoids assuming `name`, `title`, or `updated_at` exist on every deployment.
+- Remaining: Live worker rerun needed after uploading patched helper file.
+
+- `REGRESSION-20260804-ARCHIVE-PLACEHOLDER-COMPAT` Verified archive helper syntax after unique-parameter fix; follow-up live worker run required after server upload to confirm queued job processing resumes.
+
+- `REGRESSION-20260804-ARCHIVE-QUEUE-TIMEBASE` Verified syntax after queue scheduling patch; existing already-queued rows still need reschedule or requeue on live data.
+
+- `REGRESSION-20260804-ARCHIVE-LEGACY-QUEUE-REPAIR` Repair is limited to manual queued rows (`policy_id IS NULL`) that were never started and were incorrectly scheduled in the future.
+
+- `REGRESSION-20260804-ARCHIVE-REACTION-ORDER-COMPAT` Reaction ordering now falls back to available columns (`created_at`, `emp_id`, `reaction`) on older live schemas.
+
+- `REGRESSION-20260804-ARCHIVE-PARTICIPANT-FALLBACK` Participant permissions now support live schemas with or without `sender_emp_id`, while still including group membership records when available.
+
+- `REGRESSION-20260804-ARCHIVE-GROUP-MEMBER-FALLBACK` Group participant extraction now works on live schemas where membership rows are linked by `group_id` instead of `room_jid`.
+
+## REG-20260804-SAVED-MESSAGES-DRIVE
+- Date: 2026-08-04
+- Risk reviewed: Existing Saved Messages Flutter API contract could regress if response shape changed.
+- Mitigation: Preserved id/body/file_url/file_name/file_type/created_at contract and added Drive proxy only behind backend.
+- Validation: php lint passed for bootstrap.php, saved_messages.php, saved_message_stream.php.
+
+- 2026-08-04: Verified PHP syntax for saved_messages.php and saved_message_stream.php after Saved Messages invalid-response fix; regression focus covers saved-message load and forwarded attachment persistence without changing chat composer or stream endpoint contracts.
+
+- 2026-08-04: Re-verified php -l for bootstrap.php and saved_messages.php after shared JSON response hardening. Expected regression improvement: legacy/bad UTF rows no longer break endpoint JSON decoding in Flutter web.
+
+- 2026-08-04: Verified php -l for bootstrap.php and saved_messages.php after shared JSON fallback patch. Regression target: Saved Messages GET now stays JSON-safe even when legacy rows contain malformed text metadata.
+
+- 2026-08-04: Ran flutter analyze after chat_api.dart decode hardening. Regression target: web Saved Messages should no longer fail on warning-prefixed JSON payloads; if full HTML still returns, the UI now reveals the real response snippet.
+
+- 2026-08-04: Verified php -l for bootstrap.php after adding xmpp_saved_messages migration lines. Regression target: live Saved Messages tables created before Drive offload now upgrade in place instead of failing SELECT/INSERT queries.
+
+- 2026-08-04: Verified php -l for bootstrap.php after adding xmpp_saved_messages migration lines. Regression target: live Saved Messages tables created before Drive offload now upgrade in place instead of failing SELECT/INSERT queries.

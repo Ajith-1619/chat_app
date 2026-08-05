@@ -2,7 +2,11 @@
 declare(strict_types=1);
 
 if (!function_exists('flow_admin_db')) {
-    require_once __DIR__ . '/../../admin/legacy_standalone/_bootstrap.php';
+    if (function_exists('chat_db')) {
+        function flow_admin_db(): PDO { return chat_db(); }
+    } else {
+        require_once __DIR__ . '/../../admin/legacy_standalone/_bootstrap.php';
+    }
 }
 
 const FLOW_ARCHIVE_PROVIDER_GOOGLE_DRIVE = 'google_drive';
@@ -448,8 +452,7 @@ function archive_storage_save_provider(PDO $pdo, int $adminEmpId): array
               VALUES
               (:provider_key, :provider_name, :status, :oauth_client_id, :oauth_client_secret, :oauth_redirect_uri, :oauth_scope, :refresh_token, :access_token, :root_folder_id, :root_folder_path, :storage_limit_bytes, :config_json, :created_by, NOW(), NOW())"
     );
-    $stmt->execute([
-        ':id' => $id,
+    $params = [
         ':provider_key' => $providerKey,
         ':provider_name' => $name,
         ':status' => $status,
@@ -463,8 +466,13 @@ function archive_storage_save_provider(PDO $pdo, int $adminEmpId): array
         ':root_folder_path' => $rootFolderPath,
         ':storage_limit_bytes' => $storageLimitBytes,
         ':config_json' => json_encode($config, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE),
-        ':created_by' => $adminEmpId,
-    ]);
+    ];
+    if ($id > 0) {
+        $params[':id'] = $id;
+    } else {
+        $params[':created_by'] = $adminEmpId;
+    }
+    $stmt->execute($params);
     $providerId = $id > 0 ? $id : (int)$pdo->lastInsertId();
     archive_storage_audit($pdo, $adminEmpId, 'save_archive_provider', 'flow_archive_providers', (string)$providerId, [
         'provider_key' => $providerKey,
@@ -521,8 +529,7 @@ function archive_storage_save_policy(PDO $pdo, int $adminEmpId): array
               VALUES
               (:policy_name, :provider_id, :module_type, :trigger_mode, :inactivity_days, :archive_after_status, :include_attachments, :include_media, :include_manifest, :compression_mode, :enabled, :schedule_cron, :filter_json, :created_by, NOW(), NOW())"
     );
-    $stmt->execute([
-        ':id' => $id,
+    $params = [
         ':policy_name' => $name,
         ':provider_id' => $providerId,
         ':module_type' => $moduleType,
@@ -536,8 +543,13 @@ function archive_storage_save_policy(PDO $pdo, int $adminEmpId): array
         ':enabled' => $enabled,
         ':schedule_cron' => $scheduleCron !== '' ? $scheduleCron : null,
         ':filter_json' => json_encode($filterJson, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE),
-        ':created_by' => $adminEmpId,
-    ]);
+    ];
+    if ($id > 0) {
+        $params[':id'] = $id;
+    } else {
+        $params[':created_by'] = $adminEmpId;
+    }
+    $stmt->execute($params);
     $policyId = $id > 0 ? $id : (int)$pdo->lastInsertId();
     archive_storage_audit($pdo, $adminEmpId, 'save_archive_policy', 'flow_archive_policies', (string)$policyId, [
         'policy_name' => $name,
@@ -551,14 +563,48 @@ function archive_storage_save_policy(PDO $pdo, int $adminEmpId): array
 
 function archive_storage_group_label(PDO $pdo, string $entityId): string
 {
-    $row = archive_storage_one($pdo, 'SELECT name, title FROM xmpp_groups WHERE id = :id LIMIT 1', [':id' => $entityId]);
-    return trim((string)($row['name'] ?? $row['title'] ?? ('Conversation ' . $entityId)));
+    $labelColumn = archive_storage_group_label_column($pdo);
+    $row = archive_storage_one($pdo, "SELECT {$labelColumn} AS label_value, room_jid FROM xmpp_groups WHERE id = :id LIMIT 1", [':id' => $entityId]);
+    return trim((string)($row['label_value'] ?? $row['room_jid'] ?? ('Conversation ' . $entityId)));
 }
 
 function archive_storage_group_jid(PDO $pdo, string $entityId): string
 {
     $row = archive_storage_one($pdo, 'SELECT room_jid FROM xmpp_groups WHERE id = :id LIMIT 1', [':id' => $entityId]);
     return trim((string)($row['room_jid'] ?? ''));
+}
+
+function archive_storage_table_columns(PDO $pdo, string $table): array
+{
+    static $cache = [];
+    $key = spl_object_hash($pdo) . ':' . strtolower($table);
+    if (array_key_exists($key, $cache)) {
+        return $cache[$key];
+    }
+    $rows = archive_storage_rows(
+        $pdo,
+        "SELECT COLUMN_NAME
+         FROM INFORMATION_SCHEMA.COLUMNS
+         WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = :table",
+        [':table' => $table]
+    );
+    $columns = [];
+    foreach ($rows as $row) {
+        $name = strtolower((string)($row['COLUMN_NAME'] ?? ''));
+        if ($name !== '') {
+            $columns[$name] = true;
+        }
+    }
+    return $cache[$key] = $columns;
+}
+
+function archive_storage_group_label_column(PDO $pdo): string
+{
+    $columns = archive_storage_table_columns($pdo, 'xmpp_groups');
+    if (isset($columns['room_name'])) return 'room_name';
+    if (isset($columns['name'])) return 'name';
+    if (isset($columns['title'])) return 'title';
+    return 'room_jid';
 }
 
 function archive_storage_queue_job(PDO $pdo, int $adminEmpId): array
@@ -577,22 +623,29 @@ function archive_storage_queue_job(PDO $pdo, int $adminEmpId): array
     if ($conversationJid === '' && in_array($moduleType, ['group', 'channel'], true)) $conversationJid = archive_storage_group_jid($pdo, $entityId);
     if ($conversationJid === '') return ['status' => false, 'error' => 'Conversation JID is required for archive jobs.'];
 
-    $stmt = $pdo->prepare(
-        "INSERT INTO flow_archive_jobs
-        (policy_id, provider_id, module_type, entity_id, entity_label, conversation_jid, status, scheduled_at, created_by, created_at, updated_at)
-        VALUES
-        (:policy_id, :provider_id, :module_type, :entity_id, :entity_label, :conversation_jid, 'queued', :scheduled_at, :created_by, NOW(), NOW())"
-    );
-    $stmt->execute([
+    $insertSql = $scheduledAt !== ''
+        ? "INSERT INTO flow_archive_jobs
+           (policy_id, provider_id, module_type, entity_id, entity_label, conversation_jid, status, scheduled_at, created_by, created_at, updated_at)
+           VALUES
+           (:policy_id, :provider_id, :module_type, :entity_id, :entity_label, :conversation_jid, 'queued', :scheduled_at, :created_by, NOW(), NOW())"
+        : "INSERT INTO flow_archive_jobs
+           (policy_id, provider_id, module_type, entity_id, entity_label, conversation_jid, status, scheduled_at, created_by, created_at, updated_at)
+           VALUES
+           (:policy_id, :provider_id, :module_type, :entity_id, :entity_label, :conversation_jid, 'queued', NOW(), :created_by, NOW(), NOW())";
+    $params = [
         ':policy_id' => $policyId > 0 ? $policyId : null,
         ':provider_id' => $providerId,
         ':module_type' => $moduleType,
         ':entity_id' => $entityId,
         ':entity_label' => $entityLabel !== '' ? $entityLabel : null,
         ':conversation_jid' => $conversationJid,
-        ':scheduled_at' => $scheduledAt !== '' ? $scheduledAt : date('Y-m-d H:i:s'),
         ':created_by' => $adminEmpId,
-    ]);
+    ];
+    if ($scheduledAt !== '') {
+        $params[':scheduled_at'] = $scheduledAt;
+    }
+    $stmt = $pdo->prepare($insertSql);
+    $stmt->execute($params);
     $jobId = (int)$pdo->lastInsertId();
     archive_storage_audit($pdo, $adminEmpId, 'queue_archive_job', 'flow_archive_jobs', (string)$jobId, [
         'policy_id' => $policyId,
@@ -845,15 +898,50 @@ function archive_storage_resolve_local_upload_path(string $relativePath): ?strin
 
 function archive_storage_message_rows(PDO $pdo, string $conversationJid): array
 {
+    $columns = archive_storage_table_columns($pdo, 'xmpp_messages');
+    $selectColumns = [
+        'id',
+        'from_jid',
+        'to_jid',
+        'body',
+        'created_at',
+    ];
+    $optionalColumns = [
+        'stanza_id',
+        'message_type',
+        'file_url',
+        'file_name',
+        'file_size',
+        'file_type',
+        'mime_type',
+        'file_path',
+        'updated_at',
+        'reply_to_id',
+        'thread_root_id',
+        'mentions_json',
+        'sender_emp_id',
+        'source_name',
+        'source_device',
+        'latitude',
+        'longitude',
+        'location_address',
+        'is_deleted',
+    ];
+    foreach ($optionalColumns as $column) {
+        if (isset($columns[strtolower($column)])) {
+            $selectColumns[] = $column;
+        }
+    }
     $rows = archive_storage_rows(
         $pdo,
-        "SELECT id, stanza_id, from_jid, to_jid, body, message_type, file_url, file_name, file_size, file_type, mime_type, file_path,
-                created_at, updated_at, reply_to_id, thread_root_id, mentions_json, sender_emp_id, source_name, source_device,
-                latitude, longitude, location_address, is_deleted
+        'SELECT ' . implode(', ', $selectColumns) . "
          FROM xmpp_messages
-         WHERE (to_jid = :jid OR from_jid = :jid)
+         WHERE (to_jid = :message_to_jid OR from_jid = :message_from_jid)
          ORDER BY created_at ASC, id ASC",
-        [':jid' => $conversationJid]
+        [
+            ':message_to_jid' => $conversationJid,
+            ':message_from_jid' => $conversationJid,
+        ]
     );
     foreach ($rows as &$row) {
         $row['mentions_json'] = $row['mentions_json'] !== null && $row['mentions_json'] !== '' ? json_decode((string)$row['mentions_json'], true) : [];
@@ -866,9 +954,23 @@ function archive_storage_message_rows(PDO $pdo, string $conversationJid): array
 function archive_storage_reactions(PDO $pdo, int $messageId): array
 {
     if ($messageId <= 0 || !archive_storage_table_exists($pdo, 'xmpp_message_reactions')) return [];
+    $columns = archive_storage_table_columns($pdo, 'xmpp_message_reactions');
+    $orderParts = [];
+    if (isset($columns['created_at'])) {
+        $orderParts[] = 'created_at ASC';
+    }
+    if (isset($columns['id'])) {
+        $orderParts[] = 'id ASC';
+    } elseif (isset($columns['emp_id'])) {
+        $orderParts[] = 'emp_id ASC';
+    }
+    if (isset($columns['reaction'])) {
+        $orderParts[] = 'reaction ASC';
+    }
+    $orderSql = $orderParts ? (' ORDER BY ' . implode(', ', $orderParts)) : '';
     return archive_storage_rows(
         $pdo,
-        'SELECT message_id, emp_id, reaction, created_at FROM xmpp_message_reactions WHERE message_id = :message_id ORDER BY created_at ASC, id ASC',
+        'SELECT message_id, emp_id, reaction, created_at FROM xmpp_message_reactions WHERE message_id = :message_id' . $orderSql,
         [':message_id' => $messageId]
     );
 }
@@ -876,21 +978,75 @@ function archive_storage_reactions(PDO $pdo, int $messageId): array
 function archive_storage_participants(PDO $pdo, string $conversationJid): array
 {
     $participants = [];
-    foreach (archive_storage_rows(
-        $pdo,
-        "SELECT DISTINCT COALESCE(emp_id, sender_emp_id, 0) AS emp_id
-         FROM (
-            SELECT sender_emp_id, sender_emp_id AS emp_id FROM xmpp_messages WHERE to_jid = :jid OR from_jid = :jid
-            UNION ALL
-            SELECT emp_id, emp_id FROM xmpp_group_members WHERE room_jid = :jid
-         ) source
-         WHERE COALESCE(emp_id, 0) > 0",
-        [':jid' => $conversationJid]
-    ) as $row) {
-        $empId = (int)($row['emp_id'] ?? 0);
-        if ($empId > 0) $participants[] = $empId;
+    $messageColumns = archive_storage_table_columns($pdo, 'xmpp_messages');
+    $messageSelect = [];
+    if (isset($messageColumns['sender_emp_id'])) {
+        $messageSelect[] = 'sender_emp_id';
     }
-    $participants = array_values(array_unique($participants));
+    if (isset($messageColumns['from_jid'])) {
+        $messageSelect[] = 'from_jid';
+    }
+    if (isset($messageColumns['to_jid'])) {
+        $messageSelect[] = 'to_jid';
+    }
+    if ($messageSelect) {
+        foreach (archive_storage_rows(
+            $pdo,
+            'SELECT ' . implode(', ', array_unique($messageSelect)) . "
+             FROM xmpp_messages
+             WHERE to_jid = :message_to_jid OR from_jid = :message_from_jid",
+            [
+                ':message_to_jid' => $conversationJid,
+                ':message_from_jid' => $conversationJid,
+            ]
+        ) as $row) {
+            $senderEmpId = (int)($row['sender_emp_id'] ?? 0);
+            if ($senderEmpId > 0) {
+                $participants[] = $senderEmpId;
+            }
+            foreach (['from_jid', 'to_jid'] as $jidField) {
+                $jid = trim((string)($row[$jidField] ?? ''));
+                if ($jid === '' || strcasecmp($jid, $conversationJid) === 0 || stripos($jid, '@conference.') !== false) {
+                    continue;
+                }
+                if (preg_match('/^(\d+)@/i', $jid, $match)) {
+                    $participants[] = (int)$match[1];
+                }
+            }
+        }
+    }
+    if (archive_storage_table_exists($pdo, 'xmpp_group_members')) {
+        $groupMemberColumns = archive_storage_table_columns($pdo, 'xmpp_group_members');
+        $groupMemberRows = [];
+        if (isset($groupMemberColumns['room_jid'])) {
+            $groupMemberRows = archive_storage_rows(
+                $pdo,
+                'SELECT emp_id FROM xmpp_group_members WHERE room_jid = :group_room_jid',
+                [':group_room_jid' => $conversationJid]
+            );
+        } elseif (isset($groupMemberColumns['group_id'])) {
+            $groupRow = archive_storage_one(
+                $pdo,
+                'SELECT id FROM xmpp_groups WHERE room_jid = :conversation_jid LIMIT 1',
+                [':conversation_jid' => $conversationJid]
+            );
+            $groupId = (int)($groupRow['id'] ?? 0);
+            if ($groupId > 0) {
+                $groupMemberRows = archive_storage_rows(
+                    $pdo,
+                    'SELECT emp_id FROM xmpp_group_members WHERE group_id = :group_id',
+                    [':group_id' => $groupId]
+                );
+            }
+        }
+        foreach ($groupMemberRows as $row) {
+            $empId = (int)($row['emp_id'] ?? 0);
+            if ($empId > 0) {
+                $participants[] = $empId;
+            }
+        }
+    }
+    $participants = array_values(array_unique(array_filter(array_map('intval', $participants), static fn($value) => $value > 0)));
     sort($participants);
     return $participants;
 }
@@ -1080,9 +1236,26 @@ function archive_storage_process_job(PDO $pdo, int $jobId): array
     return ['status' => true, 'job_id' => $jobId, 'message' => 'Archive job completed.', 'manifest_file_id' => (string)($manifestFile['id'] ?? '')];
 }
 
+function archive_storage_repair_legacy_manual_queue_times(PDO $pdo): void
+{
+    archive_storage_ensure_schema($pdo);
+    $pdo->exec(
+        "UPDATE flow_archive_jobs
+         SET scheduled_at = COALESCE(created_at, NOW()),
+             updated_at = NOW()
+         WHERE status = 'queued'
+           AND policy_id IS NULL
+           AND started_at IS NULL
+           AND retry_count = 0
+           AND scheduled_at IS NOT NULL
+           AND scheduled_at > NOW()"
+    );
+}
+
 function archive_storage_process_due_jobs(PDO $pdo, int $limit = 3): array
 {
     archive_storage_ensure_schema($pdo);
+    archive_storage_repair_legacy_manual_queue_times($pdo);
     $rows = archive_storage_rows(
         $pdo,
         "SELECT id
@@ -1122,23 +1295,47 @@ function archive_storage_schedule_policies(PDO $pdo): array
     archive_storage_ensure_schema($pdo);
     $scheduled = [];
     $policies = archive_storage_rows($pdo, "SELECT * FROM flow_archive_policies WHERE enabled = 1 AND module_type IN ('group','channel')");
+    $groupColumns = archive_storage_table_columns($pdo, 'xmpp_groups');
+    $labelColumn = archive_storage_group_label_column($pdo);
+    $selectExtras = [];
+    $groupByExtras = [];
+    if (isset($groupColumns['updated_at'])) {
+        $selectExtras[] = 'MAX(g.updated_at) AS group_updated_at';
+    }
+    if (isset($groupColumns['created_at'])) {
+        $selectExtras[] = 'MAX(g.created_at) AS group_created_at';
+    }
+    $extraSql = $selectExtras ? ', ' . implode(', ', $selectExtras) : '';
     foreach ($policies as $policy) {
         $days = max(1, (int)($policy['inactivity_days'] ?? 90));
         $moduleType = (string)($policy['module_type'] ?? 'channel');
         $typeCondition = $moduleType === 'group' ? "COALESCE(group_type,'group')='group'" : "COALESCE(group_type,'channel')='channel'";
         $rows = archive_storage_rows(
             $pdo,
-            "SELECT g.id, g.name, g.room_jid, MAX(m.created_at) AS last_message_at
+            "SELECT g.id, g.{$labelColumn} AS room_label, g.room_jid, MAX(m.created_at) AS last_message_at{$extraSql}
              FROM xmpp_groups g
              LEFT JOIN xmpp_messages m ON m.to_jid = g.room_jid
              WHERE {$typeCondition} AND COALESCE(g.is_archived,0) = 1
-             GROUP BY g.id, g.name, g.room_jid
-             HAVING COALESCE(MAX(m.created_at), g.updated_at, g.created_at) <= DATE_SUB(NOW(), INTERVAL :days DAY)",
-            [':days' => $days]
+             GROUP BY g.id, g.{$labelColumn}, g.room_jid",
+            []
         );
+        $cutoffTs = time() - ($days * 86400);
         foreach ($rows as $row) {
             $entityId = (string)($row['id'] ?? '');
             if ($entityId === '') continue;
+            $lastActivity = trim((string)($row['last_message_at'] ?? ''));
+            if ($lastActivity === '' && isset($row['group_updated_at'])) {
+                $lastActivity = trim((string)($row['group_updated_at'] ?? ''));
+            }
+            if ($lastActivity === '' && isset($row['group_created_at'])) {
+                $lastActivity = trim((string)($row['group_created_at'] ?? ''));
+            }
+            if ($lastActivity !== '') {
+                $lastTs = strtotime($lastActivity);
+                if ($lastTs !== false && $lastTs > $cutoffTs) {
+                    continue;
+                }
+            }
             $exists = archive_storage_one($pdo, "SELECT id FROM flow_archive_items WHERE module_type = :module_type AND entity_id = :entity_id LIMIT 1", [
                 ':module_type' => $moduleType,
                 ':entity_id' => $entityId,
@@ -1159,7 +1356,7 @@ function archive_storage_schedule_policies(PDO $pdo): array
                 ':provider_id' => (int)$policy['provider_id'],
                 ':module_type' => $moduleType,
                 ':entity_id' => $entityId,
-                ':entity_label' => (string)($row['name'] ?? ('Conversation ' . $entityId)),
+                ':entity_label' => (string)($row['room_label'] ?? ('Conversation ' . $entityId)),
                 ':conversation_jid' => (string)($row['room_jid'] ?? ''),
                 ':created_by' => (int)($policy['created_by'] ?? 0),
             ]);

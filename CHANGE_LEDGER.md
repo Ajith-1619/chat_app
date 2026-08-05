@@ -900,3 +900,68 @@
 - Change: Added a reusable `_replaceMessageById(...)` helper and switched all message-edit save paths to update `_messages` by stable message id rather than `indexOf(message)` object identity.
 - Root cause: Edit dialogs can complete after the history list has been refreshed or recreated, which breaks object-identity lookups and leaves the on-screen message stale until the chat is reloaded.
 - Risk: Low. Scope is limited to local chat-state replacement for edited messages and does not change the backend edit API contract.
+
+## CHANGE-20260804-HORIZON-SPLIT-LOAD
+- Date: 2026-08-04
+- Root cause: Horizon home waited on heavy latest-location enrichment for every visible employee, so the main MyHub request could exceed the 20-second client timeout.
+- Changed: `lib/chat_api.dart` now supports `include_locations` on the Horizon API call.
+- Changed: `lib/myhub_horizon_screen.dart` main Horizon screen now loads without location enrichment; all-employees live view fetches the heavier location payload separately.
+- Changed: `server_patch/chat/myhub.php` only resolves latest employee locations when `include_locations=1` is requested.
+## CHANGE-20260804-ARCHIVE-PROVIDER-PARAM-FIX
+- Date: 2026-08-04
+- Root cause: Archive provider save used one shared execute payload for both INSERT and UPDATE, so PDO received undefined placeholders (`:id` or `:created_by`) depending on branch and threw HY093.
+- Changed: `server_patch/chat/archive_storage_helper.php` now builds branch-specific execute parameters before saving archive providers.
+## CHANGE-20260804-ARCHIVE-POLICY-PARAM-FIX
+- Date: 2026-08-04
+- Root cause: Archive policy save reused one execute payload for both INSERT and UPDATE, so PDO received undefined placeholders depending on branch.
+- Changed: `server_patch/chat/archive_storage_helper.php` now builds branch-specific parameters for archive policy save.
+
+## CHANGE-20260804-ARCHIVE-WORKER-BOOTSTRAP
+- Date: 2026-08-04
+- Root cause: `server_patch/chat/archive_storage_worker.php` required a non-existent local `_bootstrap.php`, so the live URL returned HTTP 500 and the local CLI command failed before any archive job processing began.
+- Changed: `server_patch/chat/archive_storage_worker.php` now tries `bootstrap.php` first for live chat deployments and falls back to `../../admin/legacy_standalone/_bootstrap.php` when running in exported/local contexts.
+- Risk: Low. Scope is isolated to archive worker bootstrapping.
+
+## CHANGE-20260804-ARCHIVE-GROUP-COLUMN-FIX
+- Date: 2026-08-04
+- Root cause: Archive scheduling queries referenced `xmpp_groups.name`, but the live chat schema exposes group/channel labels through `room_name`.
+- Changed: `server_patch/chat/archive_storage_helper.php` now uses `room_name` for group/channel label lookup and archive-policy scheduling queries.
+- Risk: Low. Change is scoped to archive-only selection/label logic.
+
+## CHANGE-20260804-ARCHIVE-FRESHNESS-COLUMN-FIX
+- Date: 2026-08-04
+- Root cause: Archive policy scheduler hard-coded `g.updated_at` in the HAVING clause, but the live `xmpp_groups` table can exist without that column.
+- Changed: `server_patch/chat/archive_storage_helper.php` now inspects available `xmpp_groups` columns and builds label/freshness expressions dynamically.
+- Risk: Low. Archive-only scheduling logic.
+
+- `CHANGE-20260804-ARCHIVE-PLACEHOLDER-UNIQUENESS` Updated [server_patch/chat/archive_storage_helper.php](C:/Users/Ajith P/Downloads/chat_app/server_patch/chat/archive_storage_helper.php) to replace reused `:jid` placeholders with unique named params in archive message and participant queries.
+
+- `CHANGE-20260804-ARCHIVE-QUEUE-TIMEBASE` Updated [server_patch/chat/archive_storage_helper.php](C:/Users/Ajith%20P/Downloads/chat_app/server_patch/chat/archive_storage_helper.php) so manual archive jobs use DB `NOW()` for `scheduled_at` unless an explicit schedule is entered.
+
+- `CHANGE-20260804-ARCHIVE-LEGACY-QUEUE-REPAIR` Updated [server_patch/chat/archive_storage_helper.php](C:/Users/Ajith%20P/Downloads/chat_app/server_patch/chat/archive_storage_helper.php) to auto-repair legacy manual queued archive jobs before due-job processing.
+
+- `CHANGE-20260804-ARCHIVE-REACTION-ORDER-FIX` Updated [server_patch/chat/archive_storage_helper.php](C:/Users/Ajith%20P/Downloads/chat_app/server_patch/chat/archive_storage_helper.php) so archive reaction queries no longer hardcode `id ASC` when the reactions table lacks an `id` column.
+
+- `CHANGE-20260804-ARCHIVE-PARTICIPANT-FALLBACK` Updated [server_patch/chat/archive_storage_helper.php](C:/Users/Ajith%20P/Downloads/chat_app/server_patch/chat/archive_storage_helper.php) to replace the hardcoded `sender_emp_id` SQL with schema-safe participant extraction.
+
+- `CHANGE-20260804-ARCHIVE-GROUP-MEMBER-FALLBACK` Updated [server_patch/chat/archive_storage_helper.php](C:/Users/Ajith%20P/Downloads/chat_app/server_patch/chat/archive_storage_helper.php) to add `xmpp_group_members` schema fallback from `room_jid` to `group_id`.
+
+## CHANGE-20260804-SAVED-MESSAGES-DRIVE
+- Date: 2026-08-04
+- Files changed:
+  - server_patch/chat/bootstrap.php
+  - server_patch/chat/saved_messages.php
+  - server_patch/chat/saved_message_stream.php
+- Summary: Added Saved Messages Drive metadata columns, Drive upload/offload path, and authenticated streaming proxy for Drive-backed saved attachments.
+
+- 2026-08-04: Updated server_patch/chat/saved_messages.php to sanitize UTF-8 output before JSON encoding, add runtime-safe endpoint error handling, and resolve upload paths from /uploads/, relative paths, and media.php?path= style URLs for Saved Messages forwarding.
+
+- 2026-08-04: Hardened server_patch/chat/bootstrap.php chat_json() to survive malformed UTF-8 and partial legacy data so chat endpoints return valid JSON instead of HTML/invalid responses during Saved Messages and other legacy payload reads.
+
+- 2026-08-04: Added shared JSON hardening to server_patch/chat/bootstrap.php so malformed legacy strings no longer break API responses into invalid HTML/garbage payloads during Saved Messages and similar reads.
+
+- 2026-08-04: Hardened lib/chat_api.dart response decoding to tolerate server warnings/noise before JSON and surface the first response snippet when a live endpoint still returns invalid content, improving diagnosis for Saved Messages and similar endpoints.
+
+- 2026-08-04: Fixed missing xmpp_saved_messages schema migration in server_patch/chat/bootstrap.php by adding chat_ensure_column upgrades for Saved Messages Drive-storage columns on existing live databases.
+
+- 2026-08-04: Fixed missing xmpp_saved_messages schema migration in server_patch/chat/bootstrap.php by adding chat_ensure_column upgrades for Saved Messages Drive-storage columns on existing live databases.

@@ -2773,10 +2773,15 @@ class ChatApi {
     return Map<String, dynamic>.from(body);
   }
 
-  Future<Map<String, dynamic>> getMyHubHorizon() async {
+  Future<Map<String, dynamic>> getMyHubHorizon({
+    bool includeLocations = false,
+  }) async {
     final body = await _getJson(
       'chat/myhub.php',
-      query: {'section': 'horizon'},
+      query: {
+        'section': 'horizon',
+        if (includeLocations) 'include_locations': '1',
+      },
     );
     return Map<String, dynamic>.from(body);
   }
@@ -4276,17 +4281,44 @@ class ChatApi {
   }
 
   Map<String, dynamic> _decode(http.Response response) {
+    final rawText = utf8.decode(response.bodyBytes, allowMalformed: true);
+    final normalized = rawText.replaceFirst('\uFEFF', '').trim();
+    final direct = _tryDecodeJsonMap(normalized);
+    if (direct != null) return direct;
+    final extracted = _extractJsonObject(normalized);
+    if (extracted != null) {
+      final decoded = _tryDecodeJsonMap(extracted);
+      if (decoded != null) return decoded;
+    }
+    final compact = normalized.replaceAll(RegExp(r'\s+'), ' ').trim();
+    final snippet = compact.length > 180 ? compact.substring(0, 180) : compact;
+    final message = snippet.isEmpty
+        ? 'The server returned an invalid response.'
+        : 'The server returned an invalid response. $snippet';
+    throw ApiException(message, statusCode: response.statusCode);
+  }
+
+  Map<String, dynamic>? _tryDecodeJsonMap(String value) {
+    if (value.isEmpty) return null;
     try {
-      final decoded = jsonDecode(utf8.decode(response.bodyBytes));
+      final decoded = jsonDecode(value);
       if (decoded is Map<String, dynamic>) return decoded;
       if (decoded is Map) return Map<String, dynamic>.from(decoded);
     } on FormatException {
-      // Converted to a friendly API error below.
+      return null;
     }
-    throw ApiException(
-      'The server returned an invalid response.',
-      statusCode: response.statusCode,
-    );
+    return null;
+  }
+
+  String? _extractJsonObject(String value) {
+    if (value.isEmpty) return null;
+    final start = value.indexOf('{');
+    final end = value.lastIndexOf('}');
+    if (start < 0 || end <= start) return null;
+    final candidate = value.substring(start, end + 1).trim();
+    return candidate.startsWith('{') && candidate.endsWith('}')
+        ? candidate
+        : null;
   }
 
   String _errorMessage(Map<String, dynamic> body, {required String fallback}) {

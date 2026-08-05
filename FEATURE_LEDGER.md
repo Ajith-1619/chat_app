@@ -535,3 +535,51 @@
 ## FEAT-20260803-MESSAGE-EDIT-INSTANT-REFRESH
 - Message edit flows now update the visible chat list by stable message id instead of depending on the original ChatMessage object instance.
 - Edited normal messages, checklists, and polls now repaint immediately in the open conversation after save.
+
+## FEATURE-20260804-HORIZON-SPLIT-LOAD
+- Date: 2026-08-04
+- Area: My Hub Horizon
+- Capability: Main Horizon page now loads attendance/employee visibility first, while all-employees live map fetches location-enriched payload on demand.
+- Status: Implemented.
+## FEATURE-20260804-ARCHIVE-PROVIDER-SETUP-HARDENING
+- Date: 2026-08-04
+- Area: Admin Archive Storage
+- Capability: Provider save flow now handles insert/update placeholders correctly and supports cleaner Google Drive onboarding.
+- Status: Implemented.
+
+## FEATURE-20260804-ARCHIVE-WORKER-EXECUTION
+- Date: 2026-08-04
+- Area: Archive Storage
+- Capability: Archive worker now boots from the standard chat runtime on live deployments and falls back to the admin standalone bootstrap for exported/local contexts.
+- Status: Implemented.
+
+## FEATURE-20260804-ARCHIVE-LIVE-GROUP-COMPAT
+- Date: 2026-08-04
+- Area: Archive Storage
+- Capability: Archive policy scheduler and group label resolution now use the live `xmpp_groups.room_name` label shape.
+- Status: Implemented.
+
+## FEATURE-20260804-ARCHIVE-SCHEMA-COMPAT
+- Date: 2026-08-04
+- Area: Archive Storage
+- Capability: Archive scheduling now detects available `xmpp_groups` columns dynamically and works across legacy and live schemas.
+- Status: Implemented.
+
+- `FEATURE-20260804-ARCHIVE-PDO-COMPAT` Archive manifest and participant queries now use unique named parameters for PDO compatibility across live MySQL/PHP environments.
+
+- `FEATURE-20260804-ARCHIVE-MANUAL-QUEUE-NOW` Manual archive queueing now defaults to database `NOW()` instead of PHP local time when no schedule is supplied.
+
+- `FEATURE-20260804-ARCHIVE-LEGACY-QUEUE-AUTO-REPAIR` Archive worker now normalizes legacy manual queued jobs whose `scheduled_at` was incorrectly saved in the future.
+
+- `FEATURE-20260804-ARCHIVE-SCHEMA-SAFE-REACTION-ORDER` Archive reaction extraction now builds its `ORDER BY` clause from the columns actually present in `xmpp_message_reactions`.
+
+- `FEATURE-20260804-ARCHIVE-PARTICIPANT-FALLBACK` Archive participant discovery now falls back to parsing numeric employee IDs from direct-message JIDs when `sender_emp_id` is unavailable.
+
+- `FEATURE-20260804-ARCHIVE-GROUP-MEMBER-FALLBACK` Archive worker now resolves group participants through `xmpp_group_members.room_jid` or `xmpp_group_members.group_id` depending on the live schema.
+
+## FEAT-20260804-SAVED-MESSAGES-DRIVE-OFFLOAD
+- Date: 2026-08-04
+- Feature: Saved Messages can offload text/file payloads to Google Drive using the existing archive provider connection.
+- Notes: Files are streamed back through Flow via chat/saved_message_stream.php; API contract for Flutter remains unchanged.
+
+- 2026-08-04: Saved Messages Drive-backed storage now tolerates legacy malformed text/file metadata and supports forwarded attachment URLs that arrive through media/path wrappers before offload or DB fallback.

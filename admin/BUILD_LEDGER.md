@@ -185,3 +185,8 @@
 - Timestamp: 2026-07-28 12:20:00 +05:30
 - Build: Not run; admin PHP/JS fix only.
 - Verification: PHP lint and JS syntax check passed.
+
+## BUILD-2026-08-06-ADMIN-SESSION-BRIDGE
+- Changed: admin/public/admin-api.php.
+- Verification: PHP lint passed; unauthenticated local bridge returns JSON HTTP 401 instead of HTML/500.
+- Deployment: upload admin/public/admin-api.php and hard-refresh; authenticated Laravel admin session is required.

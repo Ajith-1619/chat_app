@@ -200,3 +200,8 @@
 - Checks: php -l admin/legacy_standalone/_bootstrap.php, php -l admin/legacy_standalone/api.php, and 
 ode --check admin/public/admin/app.js passed.
 - Risk: Live server must receive these updated admin files before browser testing shows the fix.
+
+## REG-2026-08-06-ADMIN-SESSION-BRIDGE
+- Verified unauthenticated bridge behavior: JSON 401 Admin login required.
+- Verified no parse errors after bridge rewrite.
+- Authenticated browser verification remains required after live upload.

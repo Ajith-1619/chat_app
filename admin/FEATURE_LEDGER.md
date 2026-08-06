@@ -79,3 +79,6 @@
 ## FEATURE-2026-07-28-001 - Admin Employee Type Control
 - Status: Complete
 - Summary: Super admins can save employee type A/B/C1/C2 from the user detail panel, with existing backend audited override flow.
+
+## FEAT-2026-08-06-ADMIN-API-SESSION-CONTINUITY
+- The standalone deployment bridge now shares Laravel authentication with the legacy admin API.

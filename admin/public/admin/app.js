@@ -3,10 +3,10 @@ const state = { view: appShell?.dataset.initialView || 'overview', q: '', modal:
 const LOCATION_REFRESH_MS = 5 * 60 * 1000;
 const csrf = document.querySelector('meta[name="flow-admin-csrf"]')?.content || '';
 function resolveApiUrl() {
-  if (appShell?.dataset.apiUrl) return appShell.dataset.apiUrl;
-  const path = window.location.pathname || '/';
-  if (path.includes('/admin') && !path.includes('/public')) return 'api.php?admin=1';
-  return '/api?admin=1';
+  // Use the local PHP JSON bridge; this works even when Apache does not rewrite /api.
+  const url = new URL('admin-api.php', window.location.href);
+  url.searchParams.set('admin', '1');
+  return url.toString();
 }
 const apiUrl = resolveApiUrl();
 const titles = {

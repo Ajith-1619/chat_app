@@ -742,3 +742,47 @@ oom_jid, numeric-employee based sender_jid, sender_name, ody irukkanum; 5xx/net
 - Implementation: Added an access-controlled `scope=rsm` saved-message query, separate RSM cache key, `saved_by_emp_id` model metadata, and an RSM virtual chat entry in the home list and desktop/mobile routing.
 - Verification: `saved_messages.php` PHP lint passed; targeted Flutter analyzer completed with existing lint/info warnings and no new compile errors.
 - Risk/decision: RSM is currently a virtual Flow conversation backed by the saved-message store; it is not an ejabberd/XMPP room. Real room provisioning and server-side write fan-out require the deployed channel API/XMPP provisioning contract.
+
+## 2026-08-06 Admin Local/Deployment Route Fix
+- Requirement: Admin should open locally and must not show HTML/session-expired errors when deployed below `/admin/` or `/admin/public/`.
+- Root cause: Dashboard embedded an absolute Laravel-generated API URL; deployments whose document root is `/admin/public` can resolve API requests to the wrong path and return HTML instead of JSON.
+- Change: Dashboard now embeds a relative `api?admin=1` endpoint, preserving the current deployment base path.
+- Verification: Local Laravel server started at `http://127.0.0.1:8000/` and returned HTTP 200.
+- Deployment: Upload the changed `admin/resources/views/admin/dashboard.blade.php`; no Flutter build is required for this PHP admin fix.
+
+## 2026-08-06 Admin API Runtime Path Fix
+- Root cause confirmed: live dashboard still loaded the older `public/admin/app.js`, which trusted a stale API URL and returned HTML to the JSON loader.
+- Change: `public/admin/app.js` now resolves `api` beside the current admin page URL, supporting both `/admin/` and `/admin/public/` deployments.
+- Deployment files: upload both `resources/views/admin/dashboard.blade.php` and `public/admin/app.js`; clear Laravel views and hard-refresh the browser.
+
+## 2026-08-06 Live Admin Apache Route Fix
+- Verified live `/admin/public/api?...` and `/admin/api?...` returned Apache 404 HTML.
+- Updated `admin/public/admin/app.js` to call the existing admin entrypoint with `?ajax=api&admin=1`, avoiding reliance on Apache rewrite rules.
+- Live direct AJAX URL now reaches the application and returns JSON (unauthenticated probe returned JSON server response instead of HTML).
+- Deployment: upload `admin/public/admin/app.js`; no Blade cache dependency for this change, then hard refresh.
+
+## 2026-08-06 Admin Direct JSON Bridge
+- Live Laravel AJAX bridge returned HTTP 500 while local Laravel route worked.
+- Added `admin/public/admin-api.php`, a direct PHP JSON bridge that loads the existing admin API and avoids Apache/Laravel rewrite differences.
+- Updated `admin/public/admin/app.js` to call `admin-api.php` beside the deployed public entrypoint.
+- PHP lint passed for the new bridge.
+
+## 2026-08-06 Admin Standalone Dependency Fix
+- Live direct bridge returned blank HTTP 500 because the admin API required `../../server_patch/chat/archive_storage_helper.php`, which is outside the deployed admin app.
+- Copied the archive helper into `admin/legacy_standalone/` and updated both helper/bootstrap and API includes to remain inside the admin folder.
+- PHP lint passed for the copied helper and API.
+
+# HORIZON-ROUTE-MODAL-2026-08-06
+- Compact employee route modal with route points, time labels, layer switching, zoom and close controls.
+- Status: Implemented and web-verified.
+
+
+# HORIZON-MODAL-MAP-2026-08-06
+- Modal must match supplied map view: fixed header details, full map viewport, time labels on route points, no modal timeline or scrolling.
+- Status: Implemented.
+
+
+# MYHUB-WORKSPACE-UI-2026-08-06
+- My Hub must present mobile-friendly two-column action cards, while Workspace filters must remain horizontally scrollable on narrow screens and desktop.
+- Status: Implemented.
+

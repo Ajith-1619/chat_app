@@ -1,8 +1,8 @@
-﻿@extends('admin.layout')
+@extends('admin.layout')
 
 @section('content')
 <meta name="flow-admin-csrf" content="{{ $legacyCsrf }}">
-<div class="app-shell" data-admin-name="{{ $admin['name'] ?? 'Admin' }}" data-initial-view="{{ $activeView }}" data-api-url="{{ route('admin.api') }}?admin=1">
+<div class="app-shell" data-admin-name="{{ $admin['name'] ?? 'Admin' }}" data-initial-view="{{ $activeView }}" data-api-url="api?admin=1">
   <aside class="sidebar">
     <div class="brand">
       <div class="brand-mark">F</div>

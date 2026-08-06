@@ -1,7 +1,7 @@
 <?php
 declare(strict_types=1);
 require_once __DIR__ . '/_bootstrap.php';
-require_once __DIR__ . '/../../server_patch/chat/archive_storage_helper.php';
+require_once __DIR__ . '/archive_storage_helper.php';
 
 try {
     $admin = flow_admin_require();

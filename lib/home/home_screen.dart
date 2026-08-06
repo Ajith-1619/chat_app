@@ -392,6 +392,7 @@ class _HomeScreenState extends State<HomeScreen> {
   static const _androidSettings = MethodChannel('skylink/android_settings');
   final _searchController = TextEditingController();
   final _filterScrollController = ScrollController();
+  final _workspaceScrollController = ScrollController();
   final List<ChatPreview> _liveChats = [];
   final Map<String, String> _knownChatTimes = {};
   Timer? _pollTimer;
@@ -939,6 +940,7 @@ class _HomeScreenState extends State<HomeScreen> {
     _pushTokenSubscription?.cancel();
     _searchController.dispose();
     _filterScrollController.dispose();
+    _workspaceScrollController.dispose();
     super.dispose();
   }
 
@@ -4384,123 +4386,161 @@ class MyHubScreen extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final items = [
-      ('Punch In / Out', Icons.fingerprint_rounded),
-      ('Attendance', Icons.calendar_month_outlined),
-      ('Horizon', Icons.travel_explore_rounded),
-      ('Leave Management', Icons.beach_access_outlined),
-      ('Leave Application', Icons.edit_calendar_outlined),
-      ('Achievements', Icons.emoji_events_outlined),
-      ('Employee Directory', Icons.people_outline_rounded),
-      ('Company Announcements', Icons.campaign_outlined),
-      ('Tasks & Tickets', Icons.task_alt_outlined),
-      ('My Activity', Icons.edit_note_rounded),
-      ('Suggestions & Complaints', Icons.feedback_outlined),
-      ('Reminders & Follow-ups', Icons.notifications_active_outlined),
-      ('Projects', Icons.workspaces_outline),
+      ('Punch In / Out', 'Track your work hours', Icons.fingerprint_rounded),
+      ('Attendance', 'View attendance records', Icons.calendar_month_outlined),
+      ('Horizon', 'Explore opportunities and insights', Icons.travel_explore_rounded),
+      ('Leave Management', 'Apply and manage your leaves', Icons.beach_access_outlined),
+      ('Leave Application', 'Submit leave requests', Icons.edit_calendar_outlined),
+      ('Achievements', 'View your awards and recognition', Icons.emoji_events_outlined),
+      ('Employee Directory', 'Find and connect with colleagues', Icons.people_outline_rounded),
+      ('Company Announcements', 'Stay updated with latest news', Icons.campaign_outlined),
+      ('Tasks & Tickets', 'Manage your tasks and tickets', Icons.task_alt_outlined),
+      ('My Activity', 'View your recent activities', Icons.edit_note_rounded),
+      ('Suggestions & Complaints', 'Share feedback and suggestions', Icons.feedback_outlined),
+      ('Reminders & Follow-ups', 'Never miss an important follow-up', Icons.notifications_active_outlined),
+      ('Projects', 'View and manage your projects', Icons.workspaces_outline),
     ];
     return Scaffold(
       appBar: AppBar(title: const Text('My Hub')),
-      body: GridView.builder(
-        padding: const EdgeInsets.all(16),
-        gridDelegate: const SliverGridDelegateWithMaxCrossAxisExtent(
-          maxCrossAxisExtent: 330,
-          mainAxisExtent: 112,
-          crossAxisSpacing: 20,
-          mainAxisSpacing: 20,
-        ),
-        itemCount: items.length,
-        itemBuilder: (_, index) {
-          final item = items[index];
-          return Card(
-            child: InkWell(
-              borderRadius: BorderRadius.circular(16),
-              onTap: () {
-                if (index == 0) {
-                  Navigator.of(context).push(
-                    MaterialPageRoute<void>(
-                      builder: (_) => const ProfileScreen(showAttendance: true),
-                    ),
-                  );
-                } else if (index == 1) {
-                  Navigator.of(context).push(
-                    MaterialPageRoute<void>(
-                      builder: (_) => const AttendanceCalendarScreen(),
-                    ),
-                  );
-                } else if (item.$1 == 'Horizon') {
-                  Navigator.of(context).push(
-                    MaterialPageRoute<void>(
-                      builder: (_) => const MyHubHorizonScreen(),
-                    ),
-                  );
-                } else if (item.$1 == 'Leave Management') {
-                  Navigator.of(context).push(
-                    MaterialPageRoute<void>(
-                      builder: (_) => const MyHubLeaveScreen(),
-                    ),
-                  );
-                } else if (item.$1 == 'Leave Application') {
-                  Navigator.of(context).push(
-                    MaterialPageRoute<void>(
-                      builder: (_) => const MyHubLeaveApplyScreen(),
-                    ),
-                  );
-                } else if (item.$1 == 'My Activity') {
-                  Navigator.of(context).push(
-                    MaterialPageRoute<void>(
-                      builder: (_) => const MyHubActivityScreen(),
-                    ),
-                  );
-                } else if (item.$1 == 'Suggestions & Complaints') {
-                  Navigator.of(context).push(
-                    MaterialPageRoute<void>(
-                      builder: (_) => const MyHubSuggestionsScreen(),
-                    ),
-                  );
-                } else if (item.$1 == 'Reminders & Follow-ups') {
-                  Navigator.of(context).push(
-                    MaterialPageRoute<void>(
-                      builder: (_) => RemindersScreen(currentUser: currentUser),
-                    ),
-                  );
-                } else if (item.$1 == 'Tasks & Tickets') {
-                  Navigator.of(context).push(
-                    MaterialPageRoute<void>(
-                      builder: (_) => const MyHubTasksScreen(),
-                    ),
-                  );
-                } else {
-                  showComingSoon(context, item.$1);
-                }
-              },
-              child: Padding(
-                padding: const EdgeInsets.all(16),
-                child: Row(
-                  children: [
-                    CircleAvatar(
-                      radius: 24,
-                      backgroundColor: const Color(0xFFDCE6FF),
-                      child: Icon(item.$2, color: AppColors.primary),
-                    ),
-                    const SizedBox(width: 14),
-                    Expanded(
-                      child: Text(
-                        item.$1,
-                        style: const TextStyle(fontWeight: FontWeight.w700),
-                      ),
-                    ),
-                    const Icon(Icons.chevron_right_rounded),
-                  ],
-                ),
-              ),
+      body: LayoutBuilder(
+        builder: (context, constraints) {
+          final isMobile = constraints.maxWidth < 600;
+          final columns = isMobile ? 2 : (constraints.maxWidth < 1000 ? 3 : 4);
+          return GridView.builder(
+            padding: EdgeInsets.fromLTRB(isMobile ? 12 : 20, 16, isMobile ? 12 : 20, 24),
+            gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+              crossAxisCount: columns,
+              mainAxisExtent: isMobile ? 136 : 126,
+              crossAxisSpacing: isMobile ? 10 : 16,
+              mainAxisSpacing: isMobile ? 10 : 16,
             ),
+            itemCount: items.length,
+            itemBuilder: (_, index) {
+              final item = items[index];
+              return Card(
+                margin: EdgeInsets.zero,
+                clipBehavior: Clip.antiAlias,
+                child: InkWell(
+                  borderRadius: BorderRadius.circular(8),
+                  onTap: () {
+                    if (index == 0) {
+                      Navigator.of(context).push(
+                        MaterialPageRoute<void>(
+                          builder: (_) => const ProfileScreen(showAttendance: true),
+                        ),
+                      );
+                    } else if (index == 1) {
+                      Navigator.of(context).push(
+                        MaterialPageRoute<void>(
+                          builder: (_) => const AttendanceCalendarScreen(),
+                        ),
+                      );
+                    } else if (item.$1 == 'Horizon') {
+                      Navigator.of(context).push(
+                        MaterialPageRoute<void>(
+                          builder: (_) => const MyHubHorizonScreen(),
+                        ),
+                      );
+                    } else if (item.$1 == 'Leave Management') {
+                      Navigator.of(context).push(
+                        MaterialPageRoute<void>(
+                          builder: (_) => const MyHubLeaveScreen(),
+                        ),
+                      );
+                    } else if (item.$1 == 'Leave Application') {
+                      Navigator.of(context).push(
+                        MaterialPageRoute<void>(
+                          builder: (_) => const MyHubLeaveApplyScreen(),
+                        ),
+                      );
+                    } else if (item.$1 == 'My Activity') {
+                      Navigator.of(context).push(
+                        MaterialPageRoute<void>(
+                          builder: (_) => const MyHubActivityScreen(),
+                        ),
+                      );
+                    } else if (item.$1 == 'Suggestions & Complaints') {
+                      Navigator.of(context).push(
+                        MaterialPageRoute<void>(
+                          builder: (_) => const MyHubSuggestionsScreen(),
+                        ),
+                      );
+                    } else if (item.$1 == 'Reminders & Follow-ups') {
+                      Navigator.of(context).push(
+                        MaterialPageRoute<void>(
+                          builder: (_) => RemindersScreen(currentUser: currentUser),
+                        ),
+                      );
+                    } else if (item.$1 == 'Tasks & Tickets') {
+                      Navigator.of(context).push(
+                        MaterialPageRoute<void>(
+                          builder: (_) => const MyHubTasksScreen(),
+                        ),
+                      );
+                    } else {
+                      showComingSoon(context, item.$1);
+                    }
+                  },
+                  child: Padding(
+                    padding: EdgeInsets.all(isMobile ? 12 : 16),
+                    child: Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        CircleAvatar(
+                          radius: isMobile ? 20 : 22,
+                          backgroundColor: const Color(0xFFEAF0FF),
+                          child: Icon(
+                            item.$3,
+                            color: AppColors.primary,
+                            size: isMobile ? 21 : 23,
+                          ),
+                        ),
+                        SizedBox(width: isMobile ? 9 : 12),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                item.$1,
+                                maxLines: 2,
+                                overflow: TextOverflow.ellipsis,
+                                style: TextStyle(
+                                  fontWeight: FontWeight.w700,
+                                  fontSize: isMobile ? 14 : 15,
+                                ),
+                              ),
+                              const SizedBox(height: 6),
+                              Text(
+                                item.$2,
+                                maxLines: 2,
+                                overflow: TextOverflow.ellipsis,
+                                style: TextStyle(
+                                  color: Theme.of(context).colorScheme.onSurfaceVariant,
+                                  fontSize: isMobile ? 11 : 12,
+                                  height: 1.25,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                        const SizedBox(width: 4),
+                        Icon(
+                          Icons.chevron_right_rounded,
+                          size: 20,
+                          color: Theme.of(context).colorScheme.onSurfaceVariant,
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              );
+            },
           );
         },
       ),
     );
   }
 }
-
 class ArchivedChannelsScreen extends StatelessWidget {
   const ArchivedChannelsScreen({super.key});
 

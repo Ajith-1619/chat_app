@@ -673,23 +673,15 @@ function myhub_horizon_timeline(PDO $employeePdo, int $viewerEmpId): never
         error_log('MyHub Horizon locations failed: ' . $e->getMessage());
     }
     $halfHour = [];
-    $addressCache = [];
+    // Stored location rows provide the address when available. Avoid blocking
+    // reverse-geocoding calls in this timeline request.
     $nextCheckpoint = $inTs;
-    $reverseGeocodeBudget = 4;
     foreach ($points as $point) {
         $pointTs = strtotime((string)$point['captured_at']) ?: 0;
         if ($pointTs <= 0) continue;
         while ($pointTs >= $nextCheckpoint) {
             $copy = $point;
             $copy['checkpoint_at'] = date('Y-m-d H:i:s', $nextCheckpoint);
-            if (trim((string)($copy['address'] ?? '')) === '' && $reverseGeocodeBudget > 0) {
-                $key = number_format((float)$copy['latitude'], 5, '.', '') . ',' . number_format((float)$copy['longitude'], 5, '.', '');
-                if (!isset($addressCache[$key])) {
-                    $addressCache[$key] = chat_reverse_geocode_address((float)$copy['latitude'], (float)$copy['longitude']);
-                    $reverseGeocodeBudget--;
-                }
-                $copy['address'] = $addressCache[$key];
-            }
             $halfHour[] = $copy;
             $nextCheckpoint += 1800;
         }

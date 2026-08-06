@@ -127,3 +127,7 @@
 ## REQ-2026-07-28-001 - Admin user detail and employee type edit reliability
 - Status: Complete
 - Summary: Admin Users page must allow changing employee type and must keep user details loadable for all users even when optional metadata contains bad encoding or optional AI access data fails.
+
+## REQ-2026-08-06-ADMIN-SESSION-BRIDGE
+- Admin API requests from the deployed public bridge must reuse the authenticated Laravel session.
+- Direct execution must never fall back to an unrelated native PHP session.

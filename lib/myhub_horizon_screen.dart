@@ -8,6 +8,34 @@ import 'chat_api.dart';
 
 final ChatApi _horizonApi = sharedChatApi;
 
+Future<void> _showHorizonEmployeeRoute(
+  BuildContext context, {
+  required int empId,
+  required String employeeName,
+}) {
+  final size = MediaQuery.sizeOf(context);
+  return showDialog<void>(
+    context: context,
+    barrierColor: Colors.black54,
+    builder: (_) => Dialog(
+      insetPadding: EdgeInsets.symmetric(
+        horizontal: math.min(48, size.width * .045),
+        vertical: math.min(30, size.height * .045),
+      ),
+      clipBehavior: Clip.antiAlias,
+      child: SizedBox(
+        width: math.min(1160, size.width * .92),
+        height: math.min(700, size.height * .88),
+        child: HorizonEmployeeMapScreen(
+          empId: empId,
+          employeeName: employeeName,
+          modal: true,
+        ),
+      ),
+    ),
+  );
+}
+
 class MyHubHorizonScreen extends StatefulWidget {
   const MyHubHorizonScreen({super.key});
 
@@ -84,14 +112,11 @@ class _MyHubHorizonScreenState extends State<MyHubHorizonScreen> {
                   onOpen: (item) {
                     final empId = _employeeEmpId(item);
                     if (empId <= 0) return;
-                    Navigator.of(context).push(
-                      MaterialPageRoute<void>(
-                        builder: (_) => HorizonEmployeeMapScreen(
-                          empId: empId,
-                          employeeName: _employeeName(item),
-                        ),
-                      ),
-                    );
+                    _showHorizonEmployeeRoute(
+  context,
+  empId: empId,
+  employeeName: _employeeName(item),
+);
                   },
                 ),
               ],
@@ -313,16 +338,10 @@ class _HorizonAllEmployeesMapScreenState
                                           _selectedEmpId = empId;
                                         });
                                         if (empId <= 0) return;
-                                        Navigator.of(context).push(
-                                          MaterialPageRoute<void>(
-                                            builder: (_) =>
-                                                HorizonEmployeeMapScreen(
-                                                  empId: empId,
-                                                  employeeName: _employeeName(
-                                                    employee,
-                                                  ),
-                                                ),
-                                          ),
+                                        _showHorizonEmployeeRoute(
+                                          context,
+                                          empId: empId,
+                                          employeeName: _employeeName(employee),
                                         );
                                       },
                                     ),
@@ -340,14 +359,11 @@ class _HorizonAllEmployeesMapScreenState
                           setState(() {
                             _selectedEmpId = empId;
                           });
-                          Navigator.of(context).push(
-                            MaterialPageRoute<void>(
-                              builder: (_) => HorizonEmployeeMapScreen(
-                                empId: empId,
-                                employeeName: _employeeName(employee),
-                              ),
-                            ),
-                          );
+                          _showHorizonEmployeeRoute(
+  context,
+  empId: empId,
+  employeeName: _employeeName(employee),
+);
                         },
                       ),
                       if (selectedEmployee != null) ...[
@@ -543,10 +559,12 @@ class HorizonEmployeeMapScreen extends StatefulWidget {
     super.key,
     required this.empId,
     required this.employeeName,
+    this.modal = false,
   });
 
   final int empId;
   final String employeeName;
+  final bool modal;
 
   @override
   State<HorizonEmployeeMapScreen> createState() =>
@@ -570,6 +588,7 @@ class _HorizonEmployeeMapScreenState extends State<HorizonEmployeeMapScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
+        automaticallyImplyLeading: !widget.modal,
         title: Text(widget.employeeName),
         actions: [
           IconButton(
@@ -590,14 +609,21 @@ class _HorizonEmployeeMapScreenState extends State<HorizonEmployeeMapScreen> {
               message: '${snapshot.error}',
               onRetry: _refresh,
             );
+          }          final detail = _HorizonTimelineDetail(
+            employeeName: widget.employeeName,
+            data: snapshot.data ?? const <String, dynamic>{},
+            onRefresh: _refresh,
+            modal: widget.modal,
+          );
+          if (widget.modal) {
+            return Padding(
+              padding: const EdgeInsets.all(16),
+              child: detail,
+            );
           }
           return SingleChildScrollView(
             padding: const EdgeInsets.all(16),
-            child: _HorizonTimelineDetail(
-              employeeName: widget.employeeName,
-              data: snapshot.data ?? const <String, dynamic>{},
-              onRefresh: _refresh,
-            ),
+            child: detail,
           );
         },
       ),
@@ -610,16 +636,45 @@ class _HorizonTimelineDetail extends StatelessWidget {
     required this.employeeName,
     required this.data,
     required this.onRefresh,
+    this.modal = false,
   });
 
   final String employeeName;
   final Map<String, dynamic> data;
   final VoidCallback onRefresh;
+  final bool modal;
 
   @override
   Widget build(BuildContext context) {
     final points = _list(data['points']);
     final halfHours = _list(data['half_hour_points']);
+    final map = Card(
+      clipBehavior: Clip.antiAlias,
+      child: points.isEmpty
+          ? const Center(
+              child: Text('No location points captured for this punch.'),
+            )
+          : _HorizonMapView(
+              points: points,
+              halfHourPoints: halfHours,
+            ),
+    );
+
+    if (modal) {
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          _MapHeader(
+            data: data,
+            employeeName: employeeName,
+            onRefresh: onRefresh,
+          ),
+          const SizedBox(height: 12),
+          Expanded(child: map),
+        ],
+      );
+    }
+
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -636,28 +691,13 @@ class _HorizonTimelineDetail extends StatelessWidget {
             child: LayoutBuilder(
               builder: (context, constraints) {
                 final mapHeight = constraints.maxWidth < 600 ? 220.0 : 280.0;
-                return SizedBox(
-                  width: double.infinity,
-                  height: mapHeight,
-                  child: Card(
-                    clipBehavior: Clip.antiAlias,
-                    child: points.isEmpty
-                        ? const Center(
-                            child: Text(
-                              'No location points captured for this punch.',
-                            ),
-                          )
-                        : _HorizonMapView(
-                            points: points,
-                            halfHourPoints: halfHours,
-                          ),
-                  ),
-                );
+                return SizedBox(width: double.infinity, height: mapHeight, child: map);
               },
             ),
           ),
         ),
-        const SizedBox(height: 12),        Text(
+        const SizedBox(height: 12),
+        Text(
           '30 minute timeline',
           style: Theme.of(
             context,
@@ -672,7 +712,6 @@ class _HorizonTimelineDetail extends StatelessWidget {
     );
   }
 }
-
 class _MapHeader extends StatelessWidget {
   const _MapHeader({
     required this.data,
@@ -922,29 +961,33 @@ class _HorizonEmployeesOverviewMapState
                   Positioned(
                     right: 12,
                     top: 12,
-                    child: _MapZoomControls(
-                      zoom: zoom,
-                      onZoomIn: zoom >= 18
-                          ? null
-                          : () => _setZoom(
-                              zoom: zoom + 1,
-                              currentZoom: zoom,
-                              viewportSize: size,
-                              centerLat: centerLat,
-                              centerLng: centerLng,
-                            ),
-                      onZoomOut: zoom <= 11
-                          ? null
-                          : () => _setZoom(
-                              zoom: zoom - 1,
-                              currentZoom: zoom,
-                              viewportSize: size,
-                              centerLat: centerLat,
-                              centerLng: centerLng,
-                            ),
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        _MapZoomControls(
+                          zoom: zoom,
+                          onZoomIn: zoom >= 18
+                              ? null
+                              : () => _setZoom(
+                                  zoom: zoom + 1,
+                                  currentZoom: zoom,
+                                  viewportSize: size,
+                                  centerLat: centerLat,
+                                  centerLng: centerLng,
+                                ),
+                          onZoomOut: zoom <= 11
+                              ? null
+                              : () => _setZoom(
+                                  zoom: zoom - 1,
+                                  currentZoom: zoom,
+                                  viewportSize: size,
+                                  centerLat: centerLat,
+                                  centerLng: centerLng,
+                                ),
+                        ),
+                      ],
                     ),
-                  ),
-                ],
+                  ),                ],
               ),
             ),
           ),
@@ -995,7 +1038,10 @@ class _HorizonEmployeesOverviewMapState
 }
 
 class _HorizonMapView extends StatefulWidget {
-  const _HorizonMapView({required this.points, required this.halfHourPoints});
+  const _HorizonMapView({
+    required this.points,
+    required this.halfHourPoints,
+  });
 
   final List<Map<String, dynamic>> points;
   final List<Map<String, dynamic>> halfHourPoints;
@@ -1006,6 +1052,7 @@ class _HorizonMapView extends StatefulWidget {
 
 class _HorizonMapViewState extends State<_HorizonMapView> {
   int? _manualZoom;
+  bool _satellite = false;
   Offset _panWorldOffset = Offset.zero;
   String _pointSignature = '';
 
@@ -1085,7 +1132,7 @@ class _HorizonMapViewState extends State<_HorizonMapView> {
                         width: 256 * scale,
                         height: 256 * scale,
                         child: Image.network(
-                          _tileUrl(x, y, zoom),
+                          _tileUrl(x, y, zoom, satellite: _satellite),
                           fit: BoxFit.cover,
                           gaplessPlayback: true,
                           filterQuality: FilterQuality.medium,
@@ -1105,31 +1152,43 @@ class _HorizonMapViewState extends State<_HorizonMapView> {
                   ),
                   const Positioned(left: 12, bottom: 12, child: _MapLegend()),
                   Positioned(
-                    right: 12,
+                    left: 12,
                     top: 12,
-                    child: _MapZoomControls(
-                      zoom: zoom,
-                      onZoomIn: zoom >= 18
-                          ? null
-                          : () => _setZoom(
-                              zoom: zoom + 1,
-                              currentZoom: zoom,
-                              viewportSize: size,
-                              centerLat: centerLat,
-                              centerLng: centerLng,
-                            ),
-                      onZoomOut: zoom <= 11
-                          ? null
-                          : () => _setZoom(
-                              zoom: zoom - 1,
-                              currentZoom: zoom,
-                              viewportSize: size,
-                              centerLat: centerLat,
-                              centerLng: centerLng,
-                            ),
+                    child: _HorizonLayerToggle(
+                      satellite: _satellite,
+                      onChanged: (value) => setState(() => _satellite = value),
                     ),
                   ),
-                ],
+                  Positioned(
+                    right: 12,
+                    top: 12,
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        _MapZoomControls(
+                          zoom: zoom,
+                          onZoomIn: zoom >= 18
+                              ? null
+                              : () => _setZoom(
+                                  zoom: zoom + 1,
+                                  currentZoom: zoom,
+                                  viewportSize: size,
+                                  centerLat: centerLat,
+                                  centerLng: centerLng,
+                                ),
+                          onZoomOut: zoom <= 11
+                              ? null
+                              : () => _setZoom(
+                                  zoom: zoom - 1,
+                                  currentZoom: zoom,
+                                  viewportSize: size,
+                                  centerLat: centerLat,
+                                  centerLng: centerLng,
+                                ),
+                        ),
+                      ],
+                    ),
+                  ),                ],
               ),
             ),
           ),
@@ -1183,6 +1242,48 @@ class _HorizonMapViewState extends State<_HorizonMapView> {
       .join('|');
 }
 
+class _HorizonLayerToggle extends StatelessWidget {
+  const _HorizonLayerToggle({
+    required this.satellite,
+    required this.onChanged,
+  });
+
+  final bool satellite;
+  final ValueChanged<bool> onChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      color: Colors.white,
+      borderRadius: BorderRadius.circular(8),
+      elevation: 2,
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          _layerButton('Map', !satellite, () => onChanged(false)),
+          _layerButton('Satellite', satellite, () => onChanged(true)),
+        ],
+      ),
+    );
+  }
+
+  Widget _layerButton(String label, bool selected, VoidCallback onTap) {
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(8),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+        child: Text(
+          label,
+          style: TextStyle(
+            fontWeight: selected ? FontWeight.w800 : FontWeight.w500,
+            color: selected ? AppColors.primary : AppColors.muted,
+          ),
+        ),
+      ),
+    );
+  }
+}
 class _MapZoomControls extends StatelessWidget {
   const _MapZoomControls({
     required this.zoom,
@@ -1327,10 +1428,39 @@ class _HorizonRoutePainter extends CustomPainter {
         .toList();
     final checkpointPaint = Paint()..color = const Color(0xFFFFB020);
     final checkpointBorder = Paint()..color = Colors.white;
-    for (final point in halfParsed) {
+    for (var index = 0; index < halfParsed.length; index++) {
+      final point = halfParsed[index];
       final offset = map(point);
       canvas.drawCircle(offset, 7, checkpointBorder);
       canvas.drawCircle(offset, 5, checkpointPaint);
+      final raw = halfHourPoints[index];
+      final label = _shortTime(
+        raw['checkpoint_at'] ?? raw['captured_at'] ?? raw['created_at'] ?? raw['time'],
+      );
+      if (label != '--') {
+        final painter = TextPainter(
+          text: TextSpan(
+            text: label,
+            style: const TextStyle(
+              color: Color(0xFF1E293B),
+              fontSize: 11,
+              fontWeight: FontWeight.w800,
+            ),
+          ),
+          textDirection: TextDirection.ltr,
+        )..layout();
+        final rect = RRect.fromRectAndRadius(
+          Rect.fromLTWH(
+            offset.dx + 8,
+            offset.dy - painter.height - 8,
+            painter.width + 14,
+            painter.height + 8,
+          ),
+          const Radius.circular(7),
+        );
+        canvas.drawRRect(rect, Paint()..color = Colors.white.withValues(alpha: .94));
+        painter.paint(canvas, Offset(rect.left + 7, rect.top + 4));
+      }
     }
 
     canvas.drawCircle(map(parsed.first), 11, Paint()..color = Colors.white);
@@ -1548,8 +1678,10 @@ double _latitudeFromWorld(double worldY, int zoom) {
   return math.atan((math.exp(n) - math.exp(-n)) / 2.0) * 180.0 / math.pi;
 }
 
-String _tileUrl(int x, int y, int zoom) =>
-    'https://tile.openstreetmap.org/$zoom/$x/$y.png';
+String _tileUrl(int x, int y, int zoom, {bool satellite = false}) =>
+    satellite
+        ? 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/$zoom/$y/$x'
+        : 'https://tile.openstreetmap.org/$zoom/$x/$y.png';
 
 String _shortTime(dynamic value) {
   final raw = '$value'.trim();

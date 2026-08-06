@@ -79,3 +79,7 @@
 ## DECISION-20260728-ADMIN-USER-DETAIL-RESILIENCE
 - Decision: Keep employee type stored through the existing admin override table and make optional AI access data non-blocking for user detail load.
 - Reason: User identity details are the primary admin workflow; optional AI metadata should not prevent super admins from opening or editing an employee.
+
+## AI-2026-08-06-ADMIN-SESSION-BRIDGE
+- Decision: route the direct Apache bridge through Laravel rather than duplicating or weakening authentication.
+- Reason: Laravel uses its own session/cookie handling; a native PHP session cannot read the encrypted Laravel session.

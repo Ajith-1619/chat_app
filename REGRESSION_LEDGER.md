@@ -988,3 +988,50 @@
 - Implementation: Added an access-controlled `scope=rsm` saved-message query, separate RSM cache key, `saved_by_emp_id` model metadata, and an RSM virtual chat entry in the home list and desktop/mobile routing.
 - Verification: `saved_messages.php` PHP lint passed; targeted Flutter analyzer completed with existing lint/info warnings and no new compile errors.
 - Risk/decision: RSM is currently a virtual Flow conversation backed by the saved-message store; it is not an ejabberd/XMPP room. Real room provisioning and server-side write fan-out require the deployed channel API/XMPP provisioning contract.
+
+## 2026-08-06 Admin Local/Deployment Route Fix
+- Requirement: Admin should open locally and must not show HTML/session-expired errors when deployed below `/admin/` or `/admin/public/`.
+- Root cause: Dashboard embedded an absolute Laravel-generated API URL; deployments whose document root is `/admin/public` can resolve API requests to the wrong path and return HTML instead of JSON.
+- Change: Dashboard now embeds a relative `api?admin=1` endpoint, preserving the current deployment base path.
+- Verification: Local Laravel server started at `http://127.0.0.1:8000/` and returned HTTP 200.
+- Deployment: Upload the changed `admin/resources/views/admin/dashboard.blade.php`; no Flutter build is required for this PHP admin fix.
+
+## 2026-08-06 Admin API Runtime Path Fix
+- Root cause confirmed: live dashboard still loaded the older `public/admin/app.js`, which trusted a stale API URL and returned HTML to the JSON loader.
+- Change: `public/admin/app.js` now resolves `api` beside the current admin page URL, supporting both `/admin/` and `/admin/public/` deployments.
+- Deployment files: upload both `resources/views/admin/dashboard.blade.php` and `public/admin/app.js`; clear Laravel views and hard-refresh the browser.
+
+## 2026-08-06 Live Admin Apache Route Fix
+- Verified live `/admin/public/api?...` and `/admin/api?...` returned Apache 404 HTML.
+- Updated `admin/public/admin/app.js` to call the existing admin entrypoint with `?ajax=api&admin=1`, avoiding reliance on Apache rewrite rules.
+- Live direct AJAX URL now reaches the application and returns JSON (unauthenticated probe returned JSON server response instead of HTML).
+- Deployment: upload `admin/public/admin/app.js`; no Blade cache dependency for this change, then hard refresh.
+
+## 2026-08-06 Admin Direct JSON Bridge
+- Live Laravel AJAX bridge returned HTTP 500 while local Laravel route worked.
+- Added `admin/public/admin-api.php`, a direct PHP JSON bridge that loads the existing admin API and avoids Apache/Laravel rewrite differences.
+- Updated `admin/public/admin/app.js` to call `admin-api.php` beside the deployed public entrypoint.
+- PHP lint passed for the new bridge.
+
+## 2026-08-06 Admin Standalone Dependency Fix
+- Live direct bridge returned blank HTTP 500 because the admin API required `../../server_patch/chat/archive_storage_helper.php`, which is outside the deployed admin app.
+- Copied the archive helper into `admin/legacy_standalone/` and updated both helper/bootstrap and API includes to remain inside the admin folder.
+- PHP lint passed for the copied helper and API.
+
+# REGRESSION-2026-08-06-HORIZON
+- Targeted analyzer and web release compilation passed. Manual deployed-server tile interaction remains to be checked.
+
+
+# REGRESSION-HORIZON-TIMEOUT-2026-08-06
+- PHP lint passed for server_patch/chat/myhub.php; Flutter analyzer passed for Horizon screen.
+
+
+# REGRESSION-2026-08-06-HORIZON-MODAL
+- Flutter analyzer passed; Flutter Web release build passed.
+
+
+# REGRESSION-2026-08-06-MYHUB-WORKSPACE-UI
+- Scoped Flutter analyzer completed with no new compile errors; existing warnings/info remain.
+- Flutter Web release build completed and build/web/index.html was generated.
+- Existing My Hub navigation callbacks and Workspace filter state were preserved.
+

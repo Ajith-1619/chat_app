@@ -218,3 +218,8 @@
 - Requirement: Fix admin Users page employee type edit and intermittent unable-to-load user detail errors.
 - Impact Analysis: Admin-only change. Employee Type save button is now wired in inline and modal user detail views. Admin JSON output is protected against invalid UTF-8 employee/profile data. Optional AI access summary failure no longer blocks the entire user detail panel.
 - Regression Verification: PHP lint passed for admin legacy bootstrap/API; admin JS syntax check passed.
+
+## CHG-2026-08-06-ADMIN-SESSION-BRIDGE
+- Reworked admin/public/admin-api.php to dispatch through Laravel as the /api route.
+- Preserved request method, query, cookies, headers, form data, files, and raw body.
+- Root cause addressed: direct bridge used a separate PHP session and returned Admin login required after Laravel login.

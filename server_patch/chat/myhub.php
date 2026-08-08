@@ -1267,16 +1267,26 @@ function myhub_active_leave_otp(PDO $pdo, string $requestKey): ?array
     return $row ?: null;
 }
 
-define('MYHUB_LEAVE_TEST_APPROVER_EMP_ID', 302);
+define('MYHUB_LEAVE_TEST_APPROVER_EMP_ID', 232);
 
 function myhub_dispatch_leave_otp(PDO $pdo, int $empId, array $otpRow): array
 {
+    $employeeName = '';
+    try {
+        $employee = myhub_people(myhub_employee_db(), [$empId])[0] ?? [];
+        $employeeName = trim((string)($employee['name'] ?? $employee['username'] ?? ''));
+    } catch (Throwable $ignored) {
+        $employeeName = '';
+    }
+    $reason = trim((string)($otpRow['reason'] ?? ''));
     $body = sprintf(
-        "Leave request OTP for employee %d\nFrom: %s\nTo: %s\nDays: %s\nOTP: %s",
+        "Leave request OTP\nEmployee: %s (%d)\nFrom: %s\nTo: %s\nDays: %s\nReason: %s\nOTP: %s",
+        $employeeName !== '' ? $employeeName : ('Employee ' . $empId),
         $empId,
         (string)$otpRow['from_date'],
         (string)$otpRow['to_date'],
         rtrim(rtrim(number_format((float)$otpRow['no_of_days'], 2, '.', ''), '0'), '.'),
+        $reason !== '' ? $reason : 'Not provided',
         (string)$otpRow['otp_code']
     );
     $sent = chat_send_system_notification(
@@ -1488,5 +1498,6 @@ try {
     }
     chat_json(['status' => false, 'error' => $message], 500);
 }
+
 
 

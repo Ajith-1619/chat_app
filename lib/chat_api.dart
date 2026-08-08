@@ -530,6 +530,28 @@ class ChatAttachment {
   final bool isRestricted;
   final Uint8List? previewBytes;
   final String localPath;
+  ChatAttachment copyWith({String? caption}) {
+    return ChatAttachment(
+      name: name,
+      url: url,
+      mimeType: mimeType,
+      size: size,
+      caption: caption ?? this.caption,
+      transcription: transcription,
+      waveform: waveform,
+      durationMs: durationMs,
+      latitude: latitude,
+      longitude: longitude,
+      locationAddress: locationAddress,
+      isLiveLocation: isLiveLocation,
+      liveMinutes: liveMinutes,
+      shareId: shareId,
+      messageId: messageId,
+      isRestricted: isRestricted,
+      previewBytes: previewBytes,
+      localPath: localPath,
+    );
+  }
 
   bool get isAudio {
     if (mimeType.toLowerCase().startsWith('audio/')) return true;
@@ -4348,3 +4370,4 @@ class ChatApi {
     }
   }
 }
+

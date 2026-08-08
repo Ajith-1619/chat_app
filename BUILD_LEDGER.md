@@ -1128,3 +1128,15 @@ The broadcast send branch updated or created broadcast list records using $title
 # BUILD-2026-08-06-MYHUB-WORKSPACE-UI
 - Flutter Web release rebuilt successfully; output verified at build/web/index.html.
 
+
+## 2026-08-08
+- Workspace view: show only the `All` workspace sub-filter; preserve custom folder ordering through the existing reorder UI.
+- My Hub: render feature icons explicitly so icon glyphs remain visible across web/mobile layouts.
+- Attachments: sent file/image captions can be edited from message actions and update immediately in the current chat.
+- Leave OTP: route OTP notifications to employee 232 for testing and include employee name/username plus leave reason.
+`r`n## 2026-08-08 - Workspace folders and web notifications`r`n- Workspace filters: renamed the aggregate filter to All, added folder icons, and kept the folder row horizontally scrollable.`r`n- Filter reorder: custom folders now participate in reorder and are persisted with the folder mapping.`r`n- Web notifications: added conditional browser notification adapter while preserving native notification flow.`r`n- Verification: targeted analyzer had no errors; release web build passed.`r`n
+## 2026-08-08 - Workspace filter icons and Create modal
+- Workspace top filter intentionally remains text-only; workspace sub-filters now show kind/folder icons and remain horizontally scrollable.
+- Workspace folder selection keeps the workspace rail visible so filters are discoverable and reorderable folders remain usable.
+- Replaced the message Create bottom sheet with a centered modal dialog and added Create lead.
+- Create lead collects name, phone, email, company, and notes, then sends a structured `$lead` message through the existing chat pipeline.

@@ -2051,7 +2051,7 @@ class _ChatScreenState extends State<ChatScreen> {
                     type: FileType.media,
                     withData: false,
                   ))?.files ??
-                const <PlatformFile>[];
+                  const <PlatformFile>[];
         if (!mounted || mediaFiles.isEmpty) return;
         await _sendPickedFiles(mediaFiles);
         return;
@@ -2062,7 +2062,7 @@ class _ChatScreenState extends State<ChatScreen> {
                     allowMultiple: true,
                     withData: false,
                   ))?.files ??
-                const <PlatformFile>[];
+                  const <PlatformFile>[];
         if (!mounted || resultFiles.isEmpty) return;
         await _sendPickedFiles(resultFiles);
         return;
@@ -2591,7 +2591,10 @@ class _ChatScreenState extends State<ChatScreen> {
   // Edit dialogs can finish after message models have been recreated by a
   // history refresh. Updating by stable id keeps the on-screen conversation in
   // sync immediately without needing the user to reopen the chat.
-  void _replaceMessageById(int id, ChatMessage Function(ChatMessage current) update) {
+  void _replaceMessageById(
+    int id,
+    ChatMessage Function(ChatMessage current) update,
+  ) {
     if (id <= 0) return;
     final index = _messages.indexWhere((message) => message.id == id);
     if (index < 0) return;
@@ -2788,7 +2791,6 @@ class _ChatScreenState extends State<ChatScreen> {
       query: token.toLowerCase(),
     );
   }
-
 
   List<GroupMember> get _mentionSuggestions {
     if (!widget.chat.isGroup || _activeMentionMatch() == null) {
@@ -3420,6 +3422,17 @@ class _ChatScreenState extends State<ChatScreen> {
               label: 'Edit',
             ),
           )
+        else if (message.isMe &&
+            message.id > 0 &&
+            message.attachment != null &&
+            !message.attachment!.isLocation)
+          const PopupMenuItem(
+            value: 'edit_caption',
+            child: _MessageMenuItem(
+              icon: Icons.edit_note_rounded,
+              label: 'Edit caption',
+            ),
+          )
         else if (message.isMe && message.id > 0 && message.attachment == null)
           const PopupMenuItem(
             value: 'edit',
@@ -3642,6 +3655,15 @@ class _ChatScreenState extends State<ChatScreen> {
                 ),
               if (message.isMe &&
                   message.id > 0 &&
+                  message.attachment != null &&
+                  !message.attachment!.isLocation)
+                ListTile(
+                  leading: const Icon(Icons.edit_note_rounded),
+                  title: const Text('Edit caption'),
+                  onTap: () => Navigator.pop(sheetContext, 'edit_caption'),
+                ),
+              if (message.isMe &&
+                  message.id > 0 &&
                   message.attachment == null &&
                   decodeLiveChecklist(message.text) == null)
                 ListTile(
@@ -3748,6 +3770,8 @@ class _ChatScreenState extends State<ChatScreen> {
       }
     } else if (action == 'edit_checklist') {
       await _editChecklistMessage(message);
+    } else if (action == 'edit_caption') {
+      await _editAttachmentCaption(message);
     } else if (action == 'edit') {
       await _editMessage(message);
     } else if (action == 'unsend') {
@@ -3771,6 +3795,96 @@ class _ChatScreenState extends State<ChatScreen> {
     }
   }
 
+  Future<void> _createLeadFromMessage(ChatMessage message) async {
+    final nameController = TextEditingController();
+    final phoneController = TextEditingController();
+    final emailController = TextEditingController();
+    final companyController = TextEditingController();
+    final notesController = TextEditingController(text: message.previewText);
+    try {
+      final created = await showDialog<bool>(
+        context: context,
+        builder: (dialogContext) => AlertDialog(
+          title: const Text('Create lead'),
+          content: SizedBox(
+            width: 520,
+            child: SingleChildScrollView(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  TextField(
+                    controller: nameController,
+                    decoration: const InputDecoration(labelText: 'Name'),
+                  ),
+                  TextField(
+                    controller: phoneController,
+                    decoration: const InputDecoration(labelText: 'Phone'),
+                  ),
+                  TextField(
+                    controller: emailController,
+                    decoration: const InputDecoration(labelText: 'Email'),
+                  ),
+                  TextField(
+                    controller: companyController,
+                    decoration: const InputDecoration(labelText: 'Company'),
+                  ),
+                  TextField(
+                    controller: notesController,
+                    maxLines: 4,
+                    decoration: const InputDecoration(labelText: 'Notes'),
+                  ),
+                ],
+              ),
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(dialogContext, false),
+              child: const Text('Cancel'),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.pop(dialogContext, true),
+              child: const Text('Create lead'),
+            ),
+          ],
+        ),
+      );
+      if (created != true || !mounted) return;
+      final body = [
+        r'$lead',
+        'Name: ${nameController.text.trim()}',
+        'Phone: ${phoneController.text.trim()}',
+        'Email: ${emailController.text.trim()}',
+        'Company: ${companyController.text.trim()}',
+        'Notes: ${notesController.text.trim()}',
+      ].join('\n');
+      if (nameController.text.trim().isEmpty) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(const SnackBar(content: Text('Lead name is required.')));
+        return;
+      }
+      await chatApi.sendMessage(to: widget.chat.jid, message: body);
+      if (mounted) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(const SnackBar(content: Text('Lead request sent.')));
+      }
+    } on ApiException catch (error) {
+      if (mounted) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text(error.message)));
+      }
+    } finally {
+      nameController.dispose();
+      phoneController.dispose();
+      emailController.dispose();
+      companyController.dispose();
+      notesController.dispose();
+    }
+  }
+
   Future<void> _showCreateOptions(ChatMessage message) async {
     final options = [
       ('Create task', Icons.task_alt_rounded),
@@ -3783,31 +3897,34 @@ class _ChatScreenState extends State<ChatScreen> {
       ('Create calendar invite', Icons.calendar_month_outlined),
       ('Save to saved messages', Icons.bookmark_add_outlined),
       ('Create incident', Icons.warning_amber_rounded),
+      ('Create lead', Icons.person_add_alt_1_rounded),
     ];
-    final selected = await showModalBottomSheet<String>(
+    final selected = await showDialog<String>(
       context: context,
-      isScrollControlled: true,
-      builder: (sheetContext) => SafeArea(
-        child: SizedBox(
-          height: MediaQuery.sizeOf(context).height * 0.72,
-          child: ListView(
-            padding: const EdgeInsets.symmetric(vertical: 12),
-            children: [
-              const ListTile(
-                leading: BackButton(),
-                title: Text(
-                  'Create',
-                  style: TextStyle(fontSize: 20, fontWeight: FontWeight.w800),
+      builder: (dialogContext) => Dialog(
+        child: SafeArea(
+          child: SizedBox(
+            width: 520,
+            height: MediaQuery.sizeOf(context).height * 0.72,
+            child: ListView(
+              padding: const EdgeInsets.symmetric(vertical: 12),
+              children: [
+                const ListTile(
+                  leading: BackButton(),
+                  title: Text(
+                    'Create',
+                    style: TextStyle(fontSize: 20, fontWeight: FontWeight.w800),
+                  ),
                 ),
-              ),
-              ...options.map(
-                (option) => ListTile(
-                  leading: Icon(option.$2, color: AppColors.primary),
-                  title: Text(option.$1),
-                  onTap: () => Navigator.pop(sheetContext, option.$1),
+                ...options.map(
+                  (option) => ListTile(
+                    leading: Icon(option.$2, color: AppColors.primary),
+                    title: Text(option.$1),
+                    onTap: () => Navigator.pop(dialogContext, option.$1),
+                  ),
                 ),
-              ),
-            ],
+              ],
+            ),
           ),
         ),
       ),
@@ -3846,6 +3963,8 @@ class _ChatScreenState extends State<ChatScreen> {
           );
         }
       }
+    } else if (selected == 'Create lead') {
+      await _createLeadFromMessage(message);
     } else if (selected == 'Create thread') {
       setState(() {
         _replyingTo = message;
@@ -5077,6 +5196,65 @@ class _ChatScreenState extends State<ChatScreen> {
       summaryController.dispose();
       personsController.dispose();
       dateController.dispose();
+    }
+  }
+
+  Future<void> _editAttachmentCaption(ChatMessage message) async {
+    final attachment = message.attachment;
+    if (!message.isMe ||
+        message.id <= 0 ||
+        attachment == null ||
+        attachment.isLocation) {
+      return;
+    }
+    final controller = TextEditingController(text: attachment.caption);
+    final caption = await showDialog<String>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Edit caption'),
+        content: TextField(
+          controller: controller,
+          autofocus: true,
+          minLines: 1,
+          maxLines: 4,
+          maxLength: 500,
+          decoration: const InputDecoration(hintText: 'Add a caption'),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () =>
+                Navigator.pop(dialogContext, controller.text.trim()),
+            child: const Text('Save'),
+          ),
+        ],
+      ),
+    );
+    controller.dispose();
+    if (caption == null || caption == attachment.caption) return;
+    final updatedAttachment = attachment.copyWith(caption: caption);
+    try {
+      await chatApi.editMessage(message.id, updatedAttachment.encode());
+      if (!mounted) return;
+      setState(() {
+        _replaceMessageById(
+          message.id,
+          (current) => current.copyWith(
+            text: updatedAttachment.encode(),
+            attachment: updatedAttachment,
+            isEdited: true,
+          ),
+        );
+      });
+    } on ApiException catch (error) {
+      if (mounted) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text(error.message)));
+      }
     }
   }
 
@@ -8867,10 +9045,3 @@ String formatFileSize(int bytes) {
   final mb = kb / 1024;
   return '${mb.toStringAsFixed(1)} MB';
 }
-
-
-
-
-
-
-

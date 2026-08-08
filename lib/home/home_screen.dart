@@ -448,13 +448,14 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   List<String> get _workspaceChannelKinds {
-    final kinds = _liveChats
-        .where((chat) => chat.isChannel)
-        .map(_channelKindForPreview)
-        .where((kind) => kind.isNotEmpty && !_isCoreChannelKind(kind))
-        .toSet()
-        .toList()
-      ..sort((a, b) => a.toLowerCase().compareTo(b.toLowerCase()));
+    final kinds =
+        _liveChats
+            .where((chat) => chat.isChannel)
+            .map(_channelKindForPreview)
+            .where((kind) => kind.isNotEmpty && !_isCoreChannelKind(kind))
+            .toSet()
+            .toList()
+          ..sort((a, b) => a.toLowerCase().compareTo(b.toLowerCase()));
     return kinds;
   }
 
@@ -492,7 +493,6 @@ class _HomeScreenState extends State<HomeScreen> {
       AndroidShareIntentBridge.instance.start(onPayload: _handleAndroidShare),
     );
   }
-
 
   Future<void> _handleAndroidShare(IncomingSharePayload payload) async {
     if (!mounted || payload.isEmpty) return;
@@ -662,10 +662,8 @@ class _HomeScreenState extends State<HomeScreen> {
                           : ListView.separated(
                               padding: const EdgeInsets.symmetric(vertical: 8),
                               itemCount: targets.length,
-                              separatorBuilder: (_, _) => const Divider(
-                                height: 1,
-                                indent: 72,
-                              ),
+                              separatorBuilder: (_, _) =>
+                                  const Divider(height: 1, indent: 72),
                               itemBuilder: (_, index) {
                                 final chat = targets[index];
                                 return ListTile(
@@ -690,7 +688,8 @@ class _HomeScreenState extends State<HomeScreen> {
                                     overflow: TextOverflow.ellipsis,
                                   ),
                                   trailing: const Icon(Icons.send_rounded),
-                                  onTap: () => Navigator.pop(dialogContext, chat),
+                                  onTap: () =>
+                                      Navigator.pop(dialogContext, chat),
                                 );
                               },
                             ),
@@ -1030,12 +1029,7 @@ class _HomeScreenState extends State<HomeScreen> {
       onTap: () => setState(() {
         _activeFolderName = '';
         _filter = filter;
-        if (filter != 7) {
-          _workspaceKindFilter = '';
-        } else if (_workspaceKindFilter.isNotEmpty &&
-            !_workspaceChannelKinds.contains(_workspaceKindFilter)) {
-          _workspaceKindFilter = '';
-        }
+        _workspaceKindFilter = '';
       }),
       onLongPress: () => _showFilterActions(label, filter),
     );
@@ -1055,7 +1049,7 @@ class _HomeScreenState extends State<HomeScreen> {
       selected: _activeFolderName == folderName,
       onTap: () => setState(() {
         _activeFolderName = folderName;
-        _filter = 0;
+        _filter = 7;
         _workspaceKindFilter = '';
       }),
       onLongPress: () => _showFolderActions(folderName),
@@ -1078,32 +1072,66 @@ class _HomeScreenState extends State<HomeScreen> {
     return chat.isChannel && _channelKindForPreview(chat) == kind;
   }).length;
 
+  IconData _workspaceKindIcon(String kind) {
+    switch (kind.toLowerCase()) {
+      case 'incident':
+        return Icons.warning_amber_rounded;
+      case 'action':
+        return Icons.task_alt_rounded;
+      case 'operational':
+        return Icons.settings_suggest_outlined;
+      case 'project':
+        return Icons.folder_special_outlined;
+      case 'announcement':
+        return Icons.campaign_outlined;
+      case 'ticket':
+        return Icons.confirmation_number_outlined;
+      case 'task':
+        return Icons.assignment_outlined;
+      default:
+        return Icons.workspaces_outlined;
+    }
+  }
+
   Widget _buildWorkspaceKindFilters() {
-    if (_filter != 7 || _activeFolderName.isNotEmpty) {
+    if (_filter != 7) {
       return const SizedBox.shrink();
     }
     final kinds = _workspaceChannelKinds;
-    if (kinds.isEmpty) return const SizedBox.shrink();
     final workspaceCount = kinds.fold<int>(
       0,
       (total, kind) => total + _workspaceKindCount(kind),
     );
     final chips = <Widget>[
       _FilterChip(
-        label: 'All workspace',
+        label: 'All',
+        icon: Icons.grid_view_rounded,
         count: workspaceCount,
-        selected: _workspaceKindFilter.isEmpty,
-        onTap: () => setState(() => _workspaceKindFilter = ''),
+        selected: _workspaceKindFilter.isEmpty && _activeFolderName.isEmpty,
+        onTap: () => setState(() {
+          _workspaceKindFilter = '';
+          _activeFolderName = '';
+        }),
       ),
       ...kinds.map(
         (kind) => _FilterChip(
+          key: ValueKey('workspace-kind-$kind'),
           label: _workspaceKindLabel(kind),
+          icon: _workspaceKindIcon(kind),
           count: _workspaceKindCount(kind),
-          selected: _workspaceKindFilter == kind,
-          onTap: () => setState(() => _workspaceKindFilter = kind),
+          selected: _workspaceKindFilter == kind && _activeFolderName.isEmpty,
+          onTap: () => setState(() {
+            _activeFolderName = '';
+            _workspaceKindFilter = kind;
+            _filter = 7;
+          }),
         ),
       ),
+      ..._chatFolderOrder
+          .where((name) => name.trim().isNotEmpty)
+          .map(_buildWorkspaceFolderFilter),
     ];
+    if (chips.length == 1) return const SizedBox.shrink();
     return ScrollConfiguration(
       behavior: ScrollConfiguration.of(context).copyWith(
         dragDevices: const {
@@ -1121,6 +1149,29 @@ class _HomeScreenState extends State<HomeScreen> {
       ),
     );
   }
+
+  Widget _buildWorkspaceFolderFilter(String folderName) {
+    final count = _liveChats
+        .where(
+          (chat) =>
+              (_chatFolders[folderName] ?? const <String>[]).contains(chat.jid),
+        )
+        .length;
+    return _FilterChip(
+      key: ValueKey('workspace-folder-$folderName'),
+      label: folderName,
+      icon: Icons.folder_copy_outlined,
+      count: count,
+      selected: _activeFolderName == folderName,
+      onTap: () => setState(() {
+        _activeFolderName = folderName;
+        _filter = 7;
+        _workspaceKindFilter = '';
+      }),
+      onLongPress: () => _showFolderActions(folderName),
+    );
+  }
+
   Widget _buildFilterStrip({
     EdgeInsets padding = const EdgeInsets.fromLTRB(10, 0, 10, 8),
   }) {
@@ -1128,9 +1179,6 @@ class _HomeScreenState extends State<HomeScreen> {
       _buildChatFilter(0),
       _buildChatFilter(7),
       ..._filterOrder.map(_buildChatFilter),
-      ..._chatFolderOrder
-          .where((name) => name.trim().isNotEmpty)
-          .map(_buildChatFolderFilter),
     ];
     return ScrollConfiguration(
       behavior: ScrollConfiguration.of(context).copyWith(
@@ -1168,8 +1216,13 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   Future<void> _reorderFilters() async {
-    var order = _filterOrder.where(_isMovableFilter).toList();
-    final updated = await showDialog<List<int>>(
+    var order = <_FilterOrderItem>[
+      ..._filterOrder.where(_isMovableFilter).map(_FilterOrderItem.filter),
+      ..._chatFolderOrder
+          .where((name) => name.trim().isNotEmpty)
+          .map(_FilterOrderItem.folder),
+    ];
+    final updated = await showDialog<List<_FilterOrderItem>>(
       context: context,
       builder: (dialogContext) => StatefulBuilder(
         builder: (context, setDialogState) => AlertDialog(
@@ -1177,24 +1230,31 @@ class _HomeScreenState extends State<HomeScreen> {
           content: SizedBox(
             width: 360,
             height: 420,
-            child: ReorderableListView.builder(
-              itemCount: order.length,
-              onReorder: (oldIndex, newIndex) {
-                setDialogState(() {
-                  if (newIndex > oldIndex) newIndex--;
-                  final item = order.removeAt(oldIndex);
-                  order.insert(newIndex, item);
-                });
-              },
-              itemBuilder: (context, index) {
-                final filter = order[index];
-                return ListTile(
-                  key: ValueKey(filter),
-                  leading: const Icon(Icons.drag_handle_rounded),
-                  title: Text(_filterLabel(filter)),
-                );
-              },
-            ),
+            child: order.isEmpty
+                ? const Center(
+                    child: Text('Create a chat folder to reorder it here.'),
+                  )
+                : ReorderableListView.builder(
+                    itemCount: order.length,
+                    onReorder: (oldIndex, newIndex) {
+                      setDialogState(() {
+                        if (newIndex > oldIndex) newIndex--;
+                        final item = order.removeAt(oldIndex);
+                        order.insert(newIndex, item);
+                      });
+                    },
+                    itemBuilder: (context, index) {
+                      final item = order[index];
+                      return ListTile(
+                        key: ValueKey(item.key),
+                        leading: const Icon(Icons.drag_handle_rounded),
+                        title: Text(item.label(this)),
+                        subtitle: item.folderName != null
+                            ? const Text('Custom folder')
+                            : const Text('Built-in filter'),
+                      );
+                    },
+                  ),
           ),
           actions: [
             TextButton(
@@ -1210,8 +1270,35 @@ class _HomeScreenState extends State<HomeScreen> {
       ),
     );
     if (updated == null || !mounted) return;
-    setState(() => _filterOrder = updated);
+    final filters = updated
+        .where((item) => item.filterId != null)
+        .map((item) => item.filterId!)
+        .toList();
+    final folders = updated
+        .where((item) => item.folderName != null)
+        .map((item) => item.folderName!)
+        .toList();
+    setState(() {
+      _filterOrder = filters;
+      _chatFolderOrder = folders;
+    });
     await _saveFilterOrder();
+    await _saveChatFolderOrder();
+  }
+
+  Future<void> _saveChatFolderOrder() async {
+    final ordered = <String, List<String>>{};
+    for (final name in _chatFolderOrder) {
+      final chats = _chatFolders[name];
+      if (chats != null) ordered[name] = chats;
+    }
+    if (ordered.length != _chatFolders.length) {
+      for (final entry in _chatFolders.entries) {
+        ordered.putIfAbsent(entry.key, () => entry.value);
+      }
+    }
+    _chatFolders = ordered;
+    await sharedChatApi.saveChatFolders(ordered);
   }
 
   Future<void> _showFolderActions(String folderName) async {
@@ -1456,10 +1543,13 @@ class _HomeScreenState extends State<HomeScreen> {
       return;
     }
     await Navigator.of(context).push(
-      MaterialPageRoute<void>(builder: (_) => const SavedMessagesScreen(rsm: true)),
+      MaterialPageRoute<void>(
+        builder: (_) => const SavedMessagesScreen(rsm: true),
+      ),
     );
     if (mounted) await _loadChats(silent: true);
   }
+
   Future<void> _openSavedMessages() async {
     if (MediaQuery.sizeOf(context).width >= 900) {
       setState(() {
@@ -3409,6 +3499,19 @@ void showComingSoon(BuildContext context, String feature) {
   ).showSnackBar(SnackBar(content: Text('$feature will be available soon.')));
 }
 
+class _FilterOrderItem {
+  const _FilterOrderItem.filter(this.filterId) : folderName = null;
+  const _FilterOrderItem.folder(this.folderName) : filterId = null;
+
+  final int? filterId;
+  final String? folderName;
+
+  String get key =>
+      filterId == null ? 'folder:$folderName' : 'filter:$filterId';
+  String label(_HomeScreenState state) =>
+      folderName ?? state._filterLabel(filterId!);
+}
+
 class _FilterChip extends StatelessWidget {
   const _FilterChip({
     super.key,
@@ -3417,6 +3520,7 @@ class _FilterChip extends StatelessWidget {
     required this.onTap,
     this.onLongPress,
     this.count,
+    this.icon,
   });
 
   final String label;
@@ -3424,6 +3528,7 @@ class _FilterChip extends StatelessWidget {
   final VoidCallback onTap;
   final VoidCallback? onLongPress;
   final int? count;
+  final IconData? icon;
 
   @override
   Widget build(BuildContext context) {
@@ -3444,6 +3549,16 @@ class _FilterChip extends StatelessWidget {
             padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 11),
             child: Row(
               children: [
+                if (icon != null) ...[
+                  Icon(
+                    icon,
+                    size: 17,
+                    color: selected
+                        ? Colors.white
+                        : Theme.of(context).colorScheme.onSurfaceVariant,
+                  ),
+                  const SizedBox(width: 6),
+                ],
                 Text(
                   label,
                   style: TextStyle(
@@ -4388,16 +4503,52 @@ class MyHubScreen extends StatelessWidget {
     final items = [
       ('Punch In / Out', 'Track your work hours', Icons.fingerprint_rounded),
       ('Attendance', 'View attendance records', Icons.calendar_month_outlined),
-      ('Horizon', 'Explore opportunities and insights', Icons.travel_explore_rounded),
-      ('Leave Management', 'Apply and manage your leaves', Icons.beach_access_outlined),
-      ('Leave Application', 'Submit leave requests', Icons.edit_calendar_outlined),
-      ('Achievements', 'View your awards and recognition', Icons.emoji_events_outlined),
-      ('Employee Directory', 'Find and connect with colleagues', Icons.people_outline_rounded),
-      ('Company Announcements', 'Stay updated with latest news', Icons.campaign_outlined),
-      ('Tasks & Tickets', 'Manage your tasks and tickets', Icons.task_alt_outlined),
+      (
+        'Horizon',
+        'Explore opportunities and insights',
+        Icons.travel_explore_rounded,
+      ),
+      (
+        'Leave Management',
+        'Apply and manage your leaves',
+        Icons.beach_access_outlined,
+      ),
+      (
+        'Leave Application',
+        'Submit leave requests',
+        Icons.edit_calendar_outlined,
+      ),
+      (
+        'Achievements',
+        'View your awards and recognition',
+        Icons.emoji_events_outlined,
+      ),
+      (
+        'Employee Directory',
+        'Find and connect with colleagues',
+        Icons.people_outline_rounded,
+      ),
+      (
+        'Company Announcements',
+        'Stay updated with latest news',
+        Icons.campaign_outlined,
+      ),
+      (
+        'Tasks & Tickets',
+        'Manage your tasks and tickets',
+        Icons.task_alt_outlined,
+      ),
       ('My Activity', 'View your recent activities', Icons.edit_note_rounded),
-      ('Suggestions & Complaints', 'Share feedback and suggestions', Icons.feedback_outlined),
-      ('Reminders & Follow-ups', 'Never miss an important follow-up', Icons.notifications_active_outlined),
+      (
+        'Suggestions & Complaints',
+        'Share feedback and suggestions',
+        Icons.feedback_outlined,
+      ),
+      (
+        'Reminders & Follow-ups',
+        'Never miss an important follow-up',
+        Icons.notifications_active_outlined,
+      ),
       ('Projects', 'View and manage your projects', Icons.workspaces_outline),
     ];
     return Scaffold(
@@ -4407,7 +4558,12 @@ class MyHubScreen extends StatelessWidget {
           final isMobile = constraints.maxWidth < 600;
           final columns = isMobile ? 2 : (constraints.maxWidth < 1000 ? 3 : 4);
           return GridView.builder(
-            padding: EdgeInsets.fromLTRB(isMobile ? 12 : 20, 16, isMobile ? 12 : 20, 24),
+            padding: EdgeInsets.fromLTRB(
+              isMobile ? 12 : 20,
+              16,
+              isMobile ? 12 : 20,
+              24,
+            ),
             gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
               crossAxisCount: columns,
               mainAxisExtent: isMobile ? 136 : 126,
@@ -4426,7 +4582,8 @@ class MyHubScreen extends StatelessWidget {
                     if (index == 0) {
                       Navigator.of(context).push(
                         MaterialPageRoute<void>(
-                          builder: (_) => const ProfileScreen(showAttendance: true),
+                          builder: (_) =>
+                              const ProfileScreen(showAttendance: true),
                         ),
                       );
                     } else if (index == 1) {
@@ -4468,7 +4625,8 @@ class MyHubScreen extends StatelessWidget {
                     } else if (item.$1 == 'Reminders & Follow-ups') {
                       Navigator.of(context).push(
                         MaterialPageRoute<void>(
-                          builder: (_) => RemindersScreen(currentUser: currentUser),
+                          builder: (_) =>
+                              RemindersScreen(currentUser: currentUser),
                         ),
                       );
                     } else if (item.$1 == 'Tasks & Tickets') {
@@ -4486,13 +4644,19 @@ class MyHubScreen extends StatelessWidget {
                     child: Row(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        CircleAvatar(
-                          radius: isMobile ? 20 : 22,
-                          backgroundColor: const Color(0xFFEAF0FF),
-                          child: Icon(
-                            item.$3,
-                            color: AppColors.primary,
-                            size: isMobile ? 21 : 23,
+                        SizedBox(
+                          width: isMobile ? 42 : 46,
+                          height: isMobile ? 42 : 46,
+                          child: DecoratedBox(
+                            decoration: const BoxDecoration(
+                              shape: BoxShape.circle,
+                              color: Color(0xFFEAF0FF),
+                            ),
+                            child: Icon(
+                              item.$3,
+                              color: AppColors.primary,
+                              size: isMobile ? 23 : 25,
+                            ),
                           ),
                         ),
                         SizedBox(width: isMobile ? 9 : 12),
@@ -4515,7 +4679,9 @@ class MyHubScreen extends StatelessWidget {
                                 maxLines: 2,
                                 overflow: TextOverflow.ellipsis,
                                 style: TextStyle(
-                                  color: Theme.of(context).colorScheme.onSurfaceVariant,
+                                  color: Theme.of(
+                                    context,
+                                  ).colorScheme.onSurfaceVariant,
                                   fontSize: isMobile ? 11 : 12,
                                   height: 1.25,
                                 ),
@@ -4541,6 +4707,7 @@ class MyHubScreen extends StatelessWidget {
     );
   }
 }
+
 class ArchivedChannelsScreen extends StatelessWidget {
   const ArchivedChannelsScreen({super.key});
 

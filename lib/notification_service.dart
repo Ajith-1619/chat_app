@@ -5,6 +5,8 @@ import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
+import 'notification_web_stub.dart'
+    if (dart.library.html) 'notification_web_html.dart' as web_notifications;
 
 const _chatNotificationChannelId = 'skylink_messages';
 const _infoNotificationChannelId = 'skylink_system_info';
@@ -125,7 +127,10 @@ class NotificationService {
   }
 
   Future<void> initialize() async {
-    if (kIsWeb) return;
+    if (kIsWeb) {
+      await web_notifications.initializeWebNotifications();
+      return;
+    }
     await initializeLocalNotifications();
     if (!Platform.isAndroid) return;
 
@@ -169,7 +174,15 @@ class NotificationService {
     required String jid,
     bool silent = false,
   }) async {
-    if (kIsWeb) return;
+    if (kIsWeb) {
+      await web_notifications.showWebNotification(
+        sender: sender,
+        message: message,
+        tag: jid,
+        silent: silent,
+      );
+      return;
+    }
     await initializeLocalNotifications();
     await _plugin.show(
       id: jid.hashCode & 0x7fffffff,
